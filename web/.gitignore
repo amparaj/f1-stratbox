@@ -1,0 +1,4 @@
+node_modules/
+dist/
+# written by `scripts/export_site.py`; published with the site, never committed
+public/data/

@@ -1,0 +1,650 @@
+:root {
+  color-scheme: light;
+  --page: #f9f9f7;
+  --surface: #fcfcfb;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --muted: #898781;
+  --grid: #e1e0d9;
+  --baseline: #c3c2b7;
+  --border: rgba(11, 11, 11, 0.1);
+  --chip: #eceae4;
+  --hover: rgba(42, 120, 214, 0.07);
+  --selected: rgba(42, 120, 214, 0.14);
+  --s1: #2a78d6;      /* series 1: blue (points, home, market) */
+  --s2: #eb6834;      /* series 2: orange (xP, away) */
+  --s3: #1baf7a;      /* series 3: aqua */
+  --neutral: #b9b8b3; /* draw, "our odds" */
+  --good: #006300;
+  --bad: #b42323;
+  --focus: #2a78d6;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --ink: #ffffff;
+    --ink-2: #c3c2b7;
+    --muted: #898781;
+    --grid: #2c2c2a;
+    --baseline: #383835;
+    --border: rgba(255, 255, 255, 0.1);
+    --chip: #2c2c2a;
+    --hover: rgba(57, 135, 229, 0.1);
+    --selected: rgba(57, 135, 229, 0.2);
+    --s1: #3987e5;
+    --s2: #d95926;
+    --s3: #199e70;
+    --neutral: #6b6a65;
+    --good: #0ca30c;
+    --bad: #e66767;
+    --focus: #3987e5;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d;
+  --surface: #1a1a19;
+  --ink: #ffffff;
+  --ink-2: #c3c2b7;
+  --muted: #898781;
+  --grid: #2c2c2a;
+  --baseline: #383835;
+  --border: rgba(255, 255, 255, 0.1);
+  --chip: #2c2c2a;
+  --hover: rgba(57, 135, 229, 0.1);
+  --selected: rgba(57, 135, 229, 0.2);
+  --s1: #3987e5;
+  --s2: #d95926;
+  --s3: #199e70;
+  --neutral: #6b6a65;
+  --good: #0ca30c;
+  --bad: #e66767;
+  --focus: #3987e5;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+/* Stop phone browsers inflating the text in wide, scrolling tables. */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+body {
+  background: var(--page);
+  color: var(--ink);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--s1); }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+/* ---------------------------------------------------------------- shell */
+
+.top {
+  position: sticky; top: 0; z-index: 5;
+  background: color-mix(in srgb, var(--page) 92%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border);
+}
+.top-inner { max-width: var(--page-width); margin: 0 auto; padding: 10px var(--gutter) 0; }
+.brand { display: flex; align-items: baseline; justify-content: space-between; gap: 2px 12px; flex-wrap: wrap; }
+.brand h1 { font-size: 18px; margin: 0; letter-spacing: -0.01em; }
+.brand h1 { display: flex; align-items: center; gap: 10px; }
+.brand-logo { flex: none; display: block; line-height: 0; }
+.brand-logo img { width: 40px; height: 40px; border-radius: 9px; box-shadow: 0 0 0 1px var(--border); }
+.brand-sub { font-weight: 500; color: var(--ink-2); }
+.byline { font-size: 13px; color: var(--muted); }
+.status { display: flex; flex-direction: column; font-size: 13px; color: var(--muted); margin-top: 2px; line-height: 1.45; }
+.status strong { color: var(--ink-2); font-weight: 600; }
+.opponent { white-space: nowrap; }
+.status-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; }
+.countdown { display: flex; align-items: center; gap: 8px; }
+.countdown-label { font-size: 12px; color: var(--muted); }
+.countdown-units { display: flex; gap: 4px; }
+.countdown-unit {
+  display: flex; flex-direction: column; align-items: center; min-width: 40px; padding: 3px 4px 2px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 6px; line-height: 1.1;
+}
+.countdown-unit b { font-size: 16px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+.countdown-unit small { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+/* Four lines of header is too much to pin on a phone: App sets a negative top so only the tabs stay. */
+@media (max-width: 640px) {
+  .brand h1 { font-size: 16px; }
+  .brand h1 { gap: 8px; }
+  .brand-logo img { width: 34px; height: 34px; border-radius: 8px; }
+  .brand-sub { font-size: 14px; }
+  .status { font-size: 12px; }
+  .countdown-unit { min-width: 34px; }
+  .countdown-unit b { font-size: 14px; }
+}
+nav { display: flex; gap: 2px; overflow-x: auto; margin-top: 6px; scrollbar-width: none; }
+nav a {
+  padding: 8px 12px; text-decoration: none; color: var(--ink-2); white-space: nowrap;
+  border-bottom: 2px solid transparent; font-size: 14px;
+}
+nav a:hover { color: var(--ink); }
+nav a.on { color: var(--ink); border-bottom-color: var(--s1); font-weight: 600; }
+/* Phones: every tab in view, as wrapping pills (App shows the short labels). */
+@media (max-width: 640px) {
+  nav { flex-wrap: wrap; overflow: visible; gap: 5px; margin-top: 8px; padding-bottom: 8px; }
+  nav a {
+    padding: 5px 10px; font-size: 13px; line-height: 1.3;
+    border: 1px solid var(--border); border-radius: 999px; background: var(--surface);
+  }
+  nav a.on { background: var(--selected); border-color: var(--s1); }
+}
+.club-news-h { margin: 10px 0 2px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.press-card .headlines li { padding: 5px 0; font-size: 14px; }
+.player-news { margin: 0 0 12px; padding-bottom: 10px; border-bottom: 1px solid var(--grid); }
+
+/* Page width: up to 1600px on a wide screen, side padding growing with it; text lines stop at --prose. */
+:root { --page-width: 1600px; --gutter: clamp(16px, 2.5vw, 40px); --prose: 1040px; }
+@media (max-width: 640px) { :root { --gutter: 16px; } }
+
+main { max-width: var(--page-width); margin: 0 auto; padding: 20px var(--gutter) 64px; }
+h2 { font-size: 22px; margin: 0 0 4px; letter-spacing: -0.01em; }
+h3 { font-size: 15px; margin: 28px 0 8px; }
+.lede { color: var(--ink-2); margin: 0 0 18px; max-width: var(--prose); }
+.muted { color: var(--muted); }
+.note { color: var(--muted); font-size: 13px; margin: 6px 0 0; max-width: var(--prose); }
+.good { color: var(--good); }
+.bad { color: var(--bad); }
+footer { max-width: var(--page-width); margin: 0 auto; padding: 0 var(--gutter) 40px; color: var(--muted); font-size: 13px; }
+
+.card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;
+  margin-top: 12px;
+}
+.grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); gap: 12px; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 4px 0 8px; }
+.toolbar label { font-size: 13px; color: var(--ink-2); display: flex; align-items: center; gap: 6px; }
+select, input[type="search"], input[type="password"] {
+  font: inherit; font-size: 14px; color: var(--ink); background: var(--surface);
+  border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px;
+}
+select { max-width: 100%; text-overflow: ellipsis; }   /* long option names (season markets) on a phone */
+input[type="search"], input[type="password"] { min-width: 180px; max-width: 100%; }
+form.toolbar button[type="submit"] {
+  font-size: 14px; border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px;
+  background: var(--selected); color: var(--ink); font-weight: 600; cursor: pointer;
+}
+form.toolbar button[type="submit"]:disabled { opacity: 0.55; cursor: default; }
+button.link { background: none; border: 0; padding: 0; color: var(--s1); text-decoration: underline; cursor: pointer; font-size: 13px; }
+
+.segmented { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface); }
+.segmented button { border: 0; background: transparent; padding: 6px 12px; cursor: pointer; font-size: 14px; color: var(--ink-2); }
+.segmented button + button { border-left: 1px solid var(--border); }
+.segmented button.on { background: var(--selected); color: var(--ink); font-weight: 600; }
+
+.link { background: none; border: 0; color: var(--s1); cursor: pointer; padding: 6px 0; font-size: 14px; }
+
+/* ---------------------------------------------------------------- tiles */
+
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 8px 0 4px; }
+.tile { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; }
+.tile-label { font-size: 13px; color: var(--ink-2); }
+.tile-value { font-size: 24px; font-weight: 600; letter-spacing: -0.01em; }
+.tile-note { font-size: 12px; color: var(--muted); }
+
+/* ---------------------------------------------------------------- chips, legends */
+
+.club {
+  display: inline-block; min-width: 40px; text-align: center; font-size: 12px; font-weight: 600;
+  padding: 1px 6px; border-radius: 4px; background: var(--chip);
+}
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 13px; color: var(--ink-2); margin: 2px 0 6px; }
+.legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.key { display: inline-block; }
+.key-rect { width: 10px; height: 10px; border-radius: 2px; }
+.key-line { width: 14px; height: 2px; border-radius: 1px; }
+.key-dot { width: 9px; height: 9px; border-radius: 50%; }
+.tag { font-size: 12px; padding: 1px 6px; border-radius: 4px; background: var(--chip); color: var(--ink-2); white-space: nowrap; }
+.tag.warn { background: color-mix(in srgb, var(--bad) 16%, transparent); color: var(--bad); }
+.tag.good-tag { background: color-mix(in srgb, var(--good) 16%, transparent); color: var(--good); }
+/* Team News: the press-conference cards and the managers' words. */
+.press-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.press-card { margin: 0; }
+.press-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.press-line { margin: 4px 0; font-size: 14px; line-height: 1.6; }
+.quote { margin: 8px 0 0; padding: 6px 10px; border-left: 3px solid var(--grid); color: var(--ink-2); font-size: 13.5px; font-style: italic; }
+.quote-by { font-style: normal; color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+.news-history { margin: 0; padding-left: 18px; font-size: 13.5px; }
+.headlines { list-style: none; margin: 0; padding: 0; max-width: var(--prose); }
+.headlines li { padding: 8px 0; border-bottom: 1px solid var(--grid); }
+.headlines li > a { font-weight: 500; }
+.headline-meta { display: block; font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+.tag.cup { background: color-mix(in srgb, var(--s1) 14%, transparent); color: var(--ink); margin-right: 4px; }
+
+/* FPL's progress to a price change: a bar from the middle, right towards a rise, left towards a fall. */
+.progress { display: inline-flex; align-items: center; gap: 6px; justify-content: flex-end; }
+.progress-track { position: relative; width: 72px; height: 8px; border-radius: 4px; background: var(--chip); }
+.progress-track::after { content: ""; position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--muted); }
+.progress-fill { position: absolute; top: 0; bottom: 0; }
+.progress-fill.up { background: var(--good); border-radius: 0 4px 4px 0; }
+.progress-fill.down { background: var(--bad); border-radius: 4px 0 0 4px; }
+.progress-num { min-width: 42px; text-align: right; font-variant-numeric: tabular-nums; }
+
+/* ---------------------------------------------------------------- tables */
+
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { padding: 6px 8px; text-align: left; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+th { font-weight: 600; color: var(--ink-2); font-size: 13px; position: sticky; top: 0; background: var(--surface); }
+th button { background: none; border: 0; padding: 0; cursor: pointer; font-weight: inherit; color: inherit; display: inline-flex; gap: 3px; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+table.compact { width: auto; max-width: 100%; margin: 8px 0 12px; }
+table.compact td:first-child { white-space: normal; }
+th.num button { flex-direction: row-reverse; }
+/* A long text column that wraps onto two or three lines instead of widening the table. */
+/* The Data page's file list: small type, descriptions wrap. */
+table.files { font-size: 13px; }
+table.files td { padding: 4px 8px; vertical-align: top; }
+table.files td:last-child { white-space: normal; min-width: 16em; color: var(--ink-2); }
+table.files code { font-size: 12px; }
+td.wrap { white-space: normal; min-width: 16em; max-width: 24em; font-size: 13px; line-height: 1.35; color: var(--ink-2); }
+.sort-mark { font-size: 9px; color: var(--muted); min-width: 8px; display: inline-block; }
+/* Group headings over several columns: they scroll away, the column headings below stay put. */
+tr.group-row th { position: static; text-align: center; color: var(--muted); font-size: 12px; padding-bottom: 2px; border-bottom: 0; }
+tr.group-row th.group-start { border-bottom: 1px solid var(--grid); }
+.group-start { border-left: 1px solid var(--grid); }
+tr.clickable { cursor: pointer; }
+tbody tr:hover { background: var(--hover); }
+tr.selected { background: var(--selected) !important; }
+
+/* ---------------------------------------------------------------- phone cards (a table on a phone) */
+
+.cards-sort { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 4px 0 8px; font-size: 13px; color: var(--ink-2); }
+.cards-sort label { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.cards-sort select { min-width: 0; font-size: 13px; padding: 4px 8px; }
+.cards-dir {
+  flex: none; font-size: 13px; border: 1px solid var(--border); border-radius: 8px; padding: 4px 10px;
+  background: var(--surface); color: var(--ink-2); cursor: pointer;
+}
+.cards { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.card-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto 10px; align-items: center; gap: 10px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px 8px 12px;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.card-row:active, .card-row:hover { background: var(--hover); }
+.card-row.selected { background: var(--selected); }
+.card-main { min-width: 0; }
+.card-title { font-weight: 600; font-size: 14.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; font-size: 12px; color: var(--ink-2); margin-top: 2px; }
+.card-stats { display: flex; gap: 12px; justify-content: flex-end; }
+.card-stat { display: flex; flex-direction: column; align-items: flex-end; min-width: 34px; line-height: 1.2; }
+.card-stat small { font-size: 10.5px; color: var(--muted); white-space: nowrap; }
+.card-stat b { font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.card-stat.sorted small { color: var(--s1); }
+.card-chevron { color: var(--muted); font-size: 18px; line-height: 1; }
+.cards-wrap > .link { margin-top: 4px; }
+
+/* ---------------------------------------------------------------- the detail sheet */
+
+dialog.sheet {
+  padding: 0; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); color: var(--ink);
+  width: min(560px, calc(100vw - 32px)); max-height: 86vh; overflow: hidden;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+}
+dialog.sheet::backdrop { background: rgba(0, 0, 0, 0.45); }
+html:has(dialog.sheet[open]) { overflow: hidden; }   /* the page behind doesn't scroll */
+.sheet-inner { display: flex; flex-direction: column; max-height: 86vh; }
+.sheet-handle { display: none; }
+.sheet-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 16px 10px; border-bottom: 1px solid var(--border);
+}
+.sheet-title { font-weight: 700; font-size: 16px; min-width: 0; }
+.sheet-close {
+  flex: none; width: 32px; height: 32px; border-radius: 50%; border: 0; background: var(--chip);
+  font-size: 20px; line-height: 1; cursor: pointer; color: var(--ink-2);
+}
+.sheet-body { overflow-y: auto; padding: 6px 16px 20px; overscroll-behavior: contain; }
+.sheet-section h4 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 14px 0 6px; font-weight: 600; }
+.sheet-body .card { margin-top: 8px; }
+@media (max-width: 640px) {
+  /* A bottom sheet: full width, from the bottom edge up. */
+  dialog.sheet {
+    width: 100vw; max-width: 100vw; margin: auto 0 0; border-radius: 16px 16px 0 0; border-bottom: 0;
+    max-height: 88vh; animation: sheet-up 0.22s ease-out;
+  }
+  .sheet-inner { max-height: 88vh; }
+  .sheet-handle { display: block; width: 36px; height: 4px; border-radius: 2px; background: var(--baseline); margin: 8px auto 0; }
+  .sheet-head { padding-top: 6px; }
+  .sheet-body { padding-bottom: calc(20px + env(safe-area-inset-bottom)); }
+}
+@keyframes sheet-up { from { transform: translateY(40px); opacity: 0.4; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { dialog.sheet { animation: none; } }
+
+/* Label-value pairs, two to a row. */
+.stats { margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 140px), 1fr)); background: var(--surface);
+  border: 1px solid var(--grid); border-radius: 8px; overflow: hidden; }
+/* Rules on each cell's right and bottom (the outer ones clipped): an odd cell out leaves no grey gap. */
+.stat { padding: 6px 10px; display: flex; flex-direction: column; min-width: 0; margin: 0 -1px -1px 0;
+  border-right: 1px solid var(--grid); border-bottom: 1px solid var(--grid); }
+.stat dt { font-size: 11.5px; color: var(--muted); }
+.stat dd { margin: 0; font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* "Why this projection?": the forecast's inputs, a few to a group. */
+.why { display: grid; gap: 10px; margin-top: 8px; }
+.why-group { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; background: var(--page); }
+.why-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.why-head strong { font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; }
+.why-head span { font-size: 12px; color: var(--muted); }
+.why-group p { margin: 4px 0 8px; font-size: 13px; color: var(--ink-2); }
+.why-group .stats { margin-top: 6px; }
+.why-xp { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin: 4px 0 2px; }
+.why-xp b { font-size: 28px; letter-spacing: -0.02em; }
+.why-xp span { color: var(--ink-2); font-size: 13px; }
+.meter { position: relative; height: 6px; border-radius: 3px; background: var(--chip); margin: 6px 0 2px; overflow: hidden; }
+.meter > span { position: absolute; inset: 0 auto 0 0; border-radius: 3px; background: var(--s1); }
+
+/* ---------------------------------------------------------------- charts */
+
+.chart { width: 100%; }
+.chart svg { display: block; }
+.chart > svg, .chart > figure > svg:last-child { margin-inline: auto; }   /* charts narrower than their card sit in its middle */
+/* Plot draws the tip box in --plot-background (white by default): match the page, or dark mode's
+   light text sits on a white box and the tip looks empty. */
+.chart svg { --plot-background: var(--surface); }
+.chart [aria-label="tip"] { color: var(--ink); }
+
+/* ---------------------------------------------------------------- My Team: transfers and settings */
+
+.transfers { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 6px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); }
+.transfer {
+  display: grid; grid-template-columns: 34px minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 8px;
+  background: var(--page); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; font-size: 14px;
+}
+.transfer-pos { font-size: 11px; color: var(--muted); }
+.transfer-out, .transfer-in { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.transfer-out { color: var(--ink-2); }
+.transfer-in { font-weight: 600; }
+.transfer-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.transfer-arrow { color: var(--muted); }
+.settings { margin: 0; display: grid; gap: 8px 16px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 170px), 1fr)); }
+.settings dt { font-size: 12px; color: var(--muted); }
+.settings dd { margin: 0; font-size: 14px; }
+
+/* ---------------------------------------------------------------- fixtures */
+
+.fixtures { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); gap: 8px; }
+.fixture {
+  display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 14px;
+}
+.fixture .score { font-weight: 700; font-variant-numeric: tabular-nums; text-align: center; }
+.fixture .xg { grid-column: 1 / -1; text-align: center; font-size: 12px; color: var(--muted); }
+.fixture .away { text-align: right; }
+a.fixture { color: inherit; text-decoration: none; }
+a.fixture:hover { background: var(--hover); border-color: var(--s1); }
+a.fixture:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+a.fixture .xg::after { content: " · details →"; color: var(--s1); }
+
+/* ---------------------------------------------------------------- a match */
+
+.crumb { margin: 0 0 4px; font-size: 14px; }
+.profile-pitch { max-width: 460px; margin-top: 10px; }
+.profile-pitch .segmented { margin-bottom: 6px; }
+.profile-chart { max-width: 900px; margin-top: 10px; }
+.profile-chart .segmented { margin-bottom: 6px; }
+h4.profile-sub { margin: 14px 0 6px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-2); }
+.match-title { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.match-title .score { font-variant-numeric: tabular-nums; padding: 0 6px; }
+.versus { display: grid; gap: 10px; max-width: 640px; margin-inline: auto; }
+.versus-head { display: flex; justify-content: space-between; }
+.versus-row { display: grid; grid-template-columns: 56px 1fr 56px; row-gap: 3px; align-items: baseline; font-size: 14px; }
+.versus-label { text-align: center; color: var(--ink-2); font-size: 13px; }
+.versus-num { font-variant-numeric: tabular-nums; color: var(--ink-2); }
+.versus-num.away { text-align: right; }
+.versus-num.lead { color: var(--ink); font-weight: 700; }
+.versus-bar { grid-column: 1 / -1; display: flex; gap: 2px; height: 6px; }
+.versus-bar > span { display: block; min-width: 0; }
+.versus-bar > span:first-child { border-radius: 3px 0 0 3px; }
+.versus-bar > span:last-child { border-radius: 0 3px 3px 0; }
+
+@media (max-width: 640px) {
+  main { padding-top: 14px; }
+  .tile-value { font-size: 20px; }
+}
+
+/* ---------------------------------------------------------------- about */
+
+.about p, .about li, .about h3 { max-width: var(--prose); }
+.about p, .about li { color: var(--ink); }
+.about li { margin: 4px 0; }
+.about h3 { margin-top: 32px; }
+.steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin: 20px 0 8px; }
+.step { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.step-number {
+  width: 24px; height: 24px; border-radius: 50%; background: var(--s1); color: #fff;
+  display: grid; place-items: center; font-size: 13px; font-weight: 700;
+}
+.step-title { font-weight: 600; margin-top: 8px; }
+.step-text { font-size: 13px; color: var(--ink-2); }
+
+/* ---------------------------------------------------------------- next gameweek */
+
+.fixture-cells { display: inline-flex; gap: 4px; }
+.fixture-cell { display: inline-block; padding: 2px 6px; border-radius: 4px; color: var(--ink); font-variant-numeric: tabular-nums; }
+
+/* ---------------------------------------------------------------- definitions */
+
+.defs { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 12px 0 0; max-width: var(--prose); font-size: 14px; }
+.defs dt { font-weight: 600; }
+.defs dd { margin: 0; color: var(--ink-2); }
+@media (max-width: 640px) {
+  .defs { grid-template-columns: 1fr; gap: 2px; }
+  .defs dd { margin-bottom: 8px; }
+}
+
+/* ---------------------------------------------------------------- pitch (the dashboard's, app.py PITCH_CSS) */
+/* Fixed colours, as on FPL: a green pitch reads the same in light and dark mode. */
+
+.xp-pitch-wrap { max-width: 860px; margin: 0 auto; }
+.xp-pitch { padding: 12px 8px 4px; border-radius: 10px 10px 0 0;
+  background: repeating-linear-gradient(180deg, #2e8b47 0 58px, #29803f 58px 116px);
+  box-shadow: inset 0 0 0 2px rgba(255,255,255,.35); }
+.xp-bench { padding: 6px 8px 8px; border-radius: 0 0 10px 10px; background: #dfe6e0; }
+.xp-row { display: flex; justify-content: center; gap: 12px; margin: 6px 0 10px; }
+.xp-card { position: relative; flex: 0 1 110px; min-width: 0; text-align: center; font-size: 12.5px; line-height: 1.4; color: #111111; }
+.xp-marked { outline: 2px dashed #ffffff; outline-offset: 3px; border-radius: 6px; }
+.xp-bench .xp-marked { outline-color: #2e8b47; }
+.xp-face { width: 64px; height: 64px; margin: 0 auto 4px; border-radius: 50%; border: 3px solid;
+  background: #f4f4f2 center 2px / 100% auto no-repeat; position: relative; overflow: visible; }
+.xp-photo { width: 100%; height: 100%; object-fit: cover; object-position: center 2px; border-radius: 50%; display: block; }
+.xp-shirt { background-size: 80% auto; background-position: center 55%; }
+.xp-crest { position: absolute; width: 26px; right: -10px; bottom: -4px; }
+.xp-name { font-weight: 700; font-size: 13.5px; padding: 1px 4px; border-radius: 4px 4px 0 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.xp-fix { padding: 0 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: #f0efec; color: #555555; }
+.xp-mid { padding: 0 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: #fff4d6; color: #5c4400; font-size: 11px; }
+.xp-pts { background: #ffffff; color: #111111; padding: 0 4px; border-radius: 0 0 4px 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.xp-badge { position: absolute; top: 0; z-index: 1; min-width: 21px; height: 21px; padding: 0 4px;
+  border-radius: 11px; font-size: 11.5px; font-weight: 700; line-height: 21px; }
+.xp-bench .xp-badge { top: 18px; }
+.xp-cap { right: 8px; background: #111111; color: #ffffff; }
+.xp-vc { right: 8px; background: #ffffff; color: #111111; border: 1px solid #111111; line-height: 19px; }
+.xp-flag { left: 8px; color: #111111; cursor: help; }
+.xp-order { font-size: 11.5px; font-weight: 700; color: #3d4a40; }
+
+/* A phone: five cards to a row still fit. */
+@media (max-width: 640px) {
+  .xp-pitch, .xp-bench { padding-left: 4px; padding-right: 4px; }
+  .xp-row { gap: 4px; }
+  .xp-card { font-size: 10.5px; }
+  .xp-face { width: 48px; height: 48px; }
+  .xp-crest { width: 20px; right: -6px; }
+  .xp-name { font-size: 11px; }
+  .xp-badge { min-width: 18px; height: 18px; line-height: 18px; font-size: 10px; }
+  .xp-cap, .xp-vc { right: 0; }
+  .xp-vc { line-height: 16px; }
+  .xp-flag { left: 0; }
+  .xp-extra { display: none; }        /* the price (or xP) after the main number: no room at this width */
+}
+
+/* ---------------------------------------------------------------- player detail: "Why this projection?" */
+
+details.why-details { margin-top: 14px; border-top: 1px solid var(--grid); padding-top: 10px; }
+details.why-details > summary { cursor: pointer; font-weight: 600; font-size: 15px; }
+details.why-details > summary .muted { font-weight: 400; font-size: 13px; }
+.fixture-cells { flex-wrap: wrap; }
+
+/* ---------------------------------------------------------------- flow diagram (About, technical report) */
+
+.flow { margin: 18px 0 8px; }
+.flow-stage { display: grid; grid-template-columns: 74px minmax(0, 1fr); column-gap: 12px; }
+.flow-label {
+  font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted);
+  text-align: right; padding-top: 9px;
+}
+.flow-row { display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); gap: 8px; }
+.flow-node {
+  display: flex; flex-direction: column; justify-content: center; gap: 2px; min-height: 40px;
+  padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface);
+  color: var(--ink); text-decoration: none; font-size: 13.5px; line-height: 1.3;
+}
+a.flow-node:hover { border-color: var(--s1); background: var(--hover); }
+.flow-title { font-weight: 600; }
+.flow-text { font-size: 12px; color: var(--ink-2); }
+.flow-source { background: color-mix(in srgb, var(--s3) 10%, var(--surface)); }
+.flow-model { background: color-mix(in srgb, var(--s1) 10%, var(--surface)); }
+.flow-key { background: var(--s1); border-color: var(--s1); color: #fff; text-align: center; }
+.flow-key .flow-text { color: rgba(255, 255, 255, 0.85); }
+a.flow-key:hover { background: color-mix(in srgb, var(--s1) 85%, #000); }
+.flow-out { background: color-mix(in srgb, var(--s2) 10%, var(--surface)); }
+.flow-arrow { grid-column: 2; position: relative; height: 28px; display: flex; align-items: center; justify-content: center; }
+.flow-arrow::before { content: ""; position: absolute; top: 2px; bottom: 7px; left: 50%; width: 2px; margin-left: -1px; background: var(--baseline); }
+.flow-arrow::after {
+  content: ""; position: absolute; bottom: 1px; left: 50%; margin-left: -5px;
+  border: 5px solid transparent; border-top: 6px solid var(--baseline); border-bottom: 0;
+}
+.flow-arrow span { position: relative; left: calc(50% + 10px); margin-right: auto; font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+.flow-note { grid-column: 2; font-size: 12.5px; color: var(--ink-2); margin-top: 8px; text-align: center; }
+@media (max-width: 640px) {
+  .flow-stage { grid-template-columns: minmax(0, 1fr); }
+  .flow-label { text-align: left; padding: 0 0 4px; }
+  .flow-row { grid-template-columns: repeat(min(var(--n), 2), minmax(0, 1fr)); }
+  .flow-arrow, .flow-note { grid-column: 1; }
+  .flow-arrow span { white-space: normal; max-width: 45%; }
+}
+
+/* ---------------------------------------------------------------- technical report */
+
+.about-switch { margin: 4px 0 16px; }
+.report p, .report li { max-width: var(--prose); }
+.report li { margin: 4px 0; }
+.report-section { scroll-margin-top: 150px; }
+.report-section > h3 { display: flex; align-items: center; gap: 10px; font-size: 18px; margin: 36px 0 10px; }
+.report-n {
+  flex: none; width: 26px; height: 26px; border-radius: 50%; background: var(--s1); color: #fff;
+  display: grid; place-items: center; font-size: 13px; font-weight: 700;
+}
+.report-toc { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; }
+.report-toc a {
+  font-size: 13px; padding: 4px 10px; border-radius: 999px; background: var(--chip); color: var(--ink-2); text-decoration: none;
+}
+.report-toc a:hover { color: var(--ink); background: var(--selected); }
+.maths-part { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); margin: 8px 0; max-width: var(--prose); }
+.maths-part > summary {
+  cursor: pointer; padding: 10px 14px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; list-style-position: outside;
+}
+.maths-part > summary .muted { font-size: 13px; }
+.maths-part[open] > summary { border-bottom: 1px solid var(--border); }
+.maths-body { padding: 4px 14px 12px; }
+.maths-block { overflow-x: auto; overflow-y: hidden; padding: 6px 0; margin: 4px 0; }
+.maths-block math { font-size: 1.08em; }
+.maths-inline math { font-size: 1.04em; }
+/* Chrome's MathML ignores `columnalign`: aligned blocks alternate right/left, cases are left. */
+.maths-block mtable[columnalign^="right left"] > mtr > mtd:nth-child(odd) { text-align: right; }
+.maths-block mtable[columnalign^="right left"] > mtr > mtd:nth-child(even) { text-align: left; }
+.maths-block mtable[columnalign^="left"] > mtr > mtd { text-align: left; }
+.maths-example {
+  border-left: 3px solid var(--s3); background: var(--chip); border-radius: 0 8px 8px 0; padding: 8px 12px; margin: 10px 0 4px;
+  font-size: 14px; max-width: var(--prose);
+}
+.maths-example-label { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-2); margin-bottom: 2px; }
+.report-table td { white-space: normal; vertical-align: top; }
+.report-table td:first-child { white-space: nowrap; font-weight: 600; }
+.pillars { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr)); gap: 10px; margin: 10px 0; }
+.pillar { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; border-top: 3px solid var(--s1); }
+.pillar strong { font-size: 14px; }
+.pillar p { margin: 4px 0 0; font-size: 13px; color: var(--ink-2); }
+pre.code {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
+  font-size: 12.5px; overflow-x: auto; max-width: var(--prose);
+}
+
+/* The validation design: seasons across, tests down. */
+.timeline-wrap { margin: 12px 0; }
+.timeline { display: grid; gap: 3px; }
+.timeline-group { font-size: 12px; font-weight: 600; color: var(--ink-2); margin-top: 6px; }
+.timeline-row { display: grid; grid-template-columns: 64px repeat(var(--cols), minmax(0, 1fr)); gap: 3px; align-items: center; }
+.timeline-head span { font-size: 11px; color: var(--muted); text-align: center; }
+.timeline-label { font-size: 12.5px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.timeline-cell { height: 18px; border-radius: 3px; background: var(--chip); opacity: 0.5; }
+.timeline-cell.tl-train { background: color-mix(in srgb, var(--s1) 45%, transparent); opacity: 1; }
+.timeline-cell.tl-stop { background: var(--neutral); opacity: 1; }
+.timeline-cell.tl-test { background: var(--s2); opacity: 1; }
+.timeline-cell.tl-live { background: var(--s3); opacity: 1; }
+@media (max-width: 640px) {
+  .timeline-row { grid-template-columns: 52px repeat(var(--cols), minmax(0, 1fr)); gap: 2px; }
+  .timeline-head span { font-size: 9px; }
+  .timeline-label { font-size: 11px; }
+  .report-section { scroll-margin-top: 60px; }
+}
+.sheet-title .muted { font-weight: 400; font-size: 13.5px; }
+.sheet-body > div > details.why-details:first-child { border-top: 0; margin-top: 6px; padding-top: 0; }
+
+/* "Why this projection?": badges, tiles and the outcome bands (FPL Prism's layout, this site's tokens). */
+.badge { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 999px; white-space: nowrap; background: var(--chip); color: var(--ink-2); }
+.badge.conf-high { background: color-mix(in srgb, var(--good) 14%, transparent); color: var(--good); }
+.badge.conf-low { background: color-mix(in srgb, var(--bad) 14%, transparent); color: var(--bad); }
+.why-badges { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: 13px; }
+.why-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.why-tiles-xp { grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); grid-auto-flow: column; }
+.why-tile { background: var(--page); border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; min-width: 0; }
+.why-tiles-xp .why-tile { background: color-mix(in srgb, var(--s1) 8%, var(--surface)); }
+.why-tile-label { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.why-tile-value { font-size: 21px; font-weight: 700; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+.why-tiles-xp .why-tile-value { font-size: 24px; }
+.why-tile-note { font-size: 11.5px; color: var(--ink-2); line-height: 1.3; }
+.bands-bar { display: flex; gap: 2px; height: 12px; border-radius: 4px; overflow: hidden; }
+.bands-bar > span { min-width: 2px; }
+.bands-labels { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px 8px; margin-top: 6px; }
+/* Two to a row on a phone: four across left ~60px a tile, too narrow for a word like "Medium" at this size. */
+@media (max-width: 640px) {
+  .why-tiles, .bands-labels { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .why-tiles-xp { grid-auto-flow: row; }
+}
+.bands-labels > div { display: grid; grid-template-columns: auto 1fr; column-gap: 6px; align-items: center; }
+.bands-labels small { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.bands-labels b { grid-column: 2; font-size: 16px; font-variant-numeric: tabular-nums; }
+
+/* ---------------------------------------------------------------- F1 Stratbox additions */
+
+.team-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
+.tyre {
+  display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px;
+  border: 3px solid; border-radius: 50%; font-size: 10px; font-weight: 700; line-height: 1;
+  background: var(--surface); color: var(--ink); box-sizing: border-box;
+}
+.plan { display: inline-flex; gap: 6px; align-items: center; white-space: nowrap; }
+.plan-stint { display: inline-flex; gap: 2px; align-items: center; font-variant-numeric: tabular-nums; font-size: 13px; }
+.plan-cell { display: inline-flex; align-items: center; }
+.insights { margin: 4px 0 0; padding-left: 20px; max-width: var(--prose); }
+.insights li { margin: 3px 0; }
+h4.sub { margin: 0 0 4px; font-size: 13px; font-weight: 600; color: var(--ink-2); }
+.driver-picker { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 8px; }
+.driver-picker button {
+  border: 1px solid transparent; background: none; padding: 2px; border-radius: 6px; cursor: pointer; opacity: 0.85;
+}
+.driver-picker button.on { border-color: var(--s1); background: var(--selected); opacity: 1; }
+.postmortem { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 10px 24px; }
+.pm-driver { padding: 8px 0; border-bottom: 1px solid var(--grid); }
+.pm-head { font-weight: 600; }
+.pm-driver ul { margin: 4px 0 0; padding-left: 0; list-style: none; font-size: 14px; }
+.pm-driver li { margin: 4px 0; display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+.pm-driver li .tyre { align-self: center; }
+a.tag { text-decoration: none; }

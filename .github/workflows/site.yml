@@ -1,0 +1,100 @@
+# Rebuilds the website and publishes it to GitHub Pages (the gh-pages branch).
+#
+# Scheduled runs first ask scripts/needs_update.py (standard library only, a few seconds) whether
+# anything is due: a race or sprint that finished more than 3 hours ago but isn't on the site, a
+# provisional result whose official classification may now be out, or data more than a week old.
+# Only then do they install FastF1, export the data (scripts/export_site.py), build the site and
+# publish it. A push to main that touches the code, or Run workflow by hand, always rebuilds.
+#
+# FastF1's download cache (.fastf1/) is kept between runs with actions/cache, so a run only
+# downloads the new session. The first run downloads the whole season and last season (~20 min).
+#
+# Scheduled workflows only run from the default branch.
+name: Update site
+
+on:
+  schedule:
+    - cron: "20 * * * 0,1,6"    # hourly Saturday to Monday (UTC): race and sprint weekends
+    - cron: "20 6 * * 2-5"      # daily otherwise: late official classifications
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - "modules/**"
+      - "scripts/**"
+      - "config.py"
+      - "requirements.txt"
+      - ".github/workflows/site.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: site
+  cancel-in-progress: false
+
+env:
+  SITE_URL: https://amparaj.github.io/f1-stratbox/
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Anything new?
+        id: check
+        if: github.event_name == 'schedule'
+        run: python scripts/needs_update.py "${SITE_URL}data/meta.json"
+
+      - name: FastF1 cache
+        if: github.event_name != 'schedule' || steps.check.outputs.update == 'true'
+        uses: actions/cache@v4
+        with:
+          path: .fastf1
+          key: fastf1-${{ github.run_id }}
+          restore-keys: fastf1-
+
+      - name: Install
+        if: github.event_name != 'schedule' || steps.check.outputs.update == 'true'
+        run: pip install --quiet -r requirements.txt
+
+      - name: Export data
+        if: github.event_name != 'schedule' || steps.check.outputs.update == 'true'
+        run: python scripts/export_site.py
+
+      - uses: actions/setup-node@v5
+        if: github.event_name != 'schedule' || steps.check.outputs.update == 'true'
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build
+        if: github.event_name != 'schedule' || steps.check.outputs.update == 'true'
+        working-directory: web
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+
+      - name: Publish to gh-pages
+        if: github.event_name != 'schedule' || steps.check.outputs.update == 'true'
+        working-directory: web/dist
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # One fresh commit each time: the branch is the built site, never edited by hand.
+          touch .nojekyll
+          git init --quiet -b gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit --quiet -m "Site $(date -u +%Y-%m-%dT%H:%MZ) from ${GITHUB_SHA::7}"
+          git push --quiet --force "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" gh-pages
+          echo "Published to ${SITE_URL}"
