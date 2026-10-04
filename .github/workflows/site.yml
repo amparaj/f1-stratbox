@@ -3,11 +3,14 @@
 # Scheduled runs first ask scripts/needs_update.py (standard library only, a few seconds) whether
 # anything is due: a race or sprint that finished more than 3 hours ago but isn't on the site, a
 # provisional result whose official classification may now be out, or data more than a week old.
-# Only then do they install FastF1, export the data (scripts/export_site.py), build the site and
-# publish it. A push to main that touches the code, or Run workflow by hand, always rebuilds.
+# Only then do they export the data (scripts/export_site.py), build the site and publish it.
+# A push to main that touches the code, or Run workflow by hand, always rebuilds.
 #
-# FastF1's download cache (.fastf1/) is kept between runs with actions/cache, so a run only
-# downloads the new session. The first run downloads the whole season and last season (~20 min).
+# Session data comes from the OpenF1 API (modules/openf1.py): F1's live-timing server, which
+# FastF1 reads, doesn't answer GitHub's runners. FastF1 still provides the calendar. Both
+# download caches (.openf1/, .fastf1/) are kept between runs with actions/cache, so a run only
+# downloads the new session. The first run downloads this season and last (~25 min, paced to
+# OpenF1's free rate limit).
 #
 # Scheduled workflows only run from the default branch.
 name: Update site
@@ -54,44 +57,33 @@ jobs:
         run: python scripts/needs_update.py "${SITE_URL}data/meta.json"
 
       # Restore and save separately, so what a failed or rate-limited run downloaded is kept.
-      - name: Restore FastF1 cache
+      - name: Restore download cache
         if: github.event_name != 'schedule' || steps.check.outputs.update == 'true'
         uses: actions/cache/restore@v4
         with:
-          path: .fastf1
-          key: fastf1-${{ github.run_id }}
-          restore-keys: fastf1-
+          path: |
+            .openf1
+            .fastf1
+          key: data-${{ github.run_id }}
+          restore-keys: data-
 
       - name: Install
         if: github.event_name != 'schedule' || steps.check.outputs.update == 'true'
         run: |
           pip install --quiet -r requirements.txt
-          pip list 2>/dev/null | grep -iE "^(fastf1|pandas|numpy|requests|requests-cache|streamlit) "
-
-      # TEMPORARY: one session with FastF1's full log, to see why loads fail on the runner.
-      - name: Diagnose FastF1
-        if: github.event_name != 'schedule' || steps.check.outputs.update == 'true'
-        continue-on-error: true
-        run: |
-          python - <<'EOF'
-          import fastf1, logging, tempfile
-          fastf1.set_log_level("DEBUG")
-          fastf1.Cache.enable_cache(tempfile.mkdtemp())
-          s = fastf1.get_session(2026, "Australian Grand Prix", "R")
-          s.load(laps=True, telemetry=False, weather=False, messages=False)
-          print("laps:", len(s.laps))
-          EOF
 
       - name: Export data
         if: github.event_name != 'schedule' || steps.check.outputs.update == 'true'
         run: python scripts/export_site.py
 
-      - name: Save FastF1 cache
+      - name: Save download cache
         if: always() && (github.event_name != 'schedule' || steps.check.outputs.update == 'true')
         uses: actions/cache/save@v4
         with:
-          path: .fastf1
-          key: fastf1-${{ github.run_id }}
+          path: |
+            .openf1
+            .fastf1
+          key: data-${{ github.run_id }}
 
       - uses: actions/setup-node@v5
         if: github.event_name != 'schedule' || steps.check.outputs.update == 'true'

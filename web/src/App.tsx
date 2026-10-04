@@ -87,7 +87,7 @@ export default function App() {
         )}
       </main>
       <footer>
-        Lap timing from the official F1 live-timing feed via FastF1; classifications from Jolpica (Ergast).
+        Lap timing, tyres, race control and results from OpenF1; the calendar via FastF1; starting grids from Jolpica (Ergast).
         Forecasts are a personal prototype, not betting advice. Not affiliated with Formula 1 or the FIA.
       </footer>
     </>

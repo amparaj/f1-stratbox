@@ -164,10 +164,20 @@ and emoji). This is a Windows PowerShell 5.1 / Git Bash environment.
 - The data-engine functions carry `@st.cache_data`; they work outside Streamlit (memory
   cache). `export_site.py` calls `logging.disable(WARNING)` because FastF1 and Streamlit log
   hundreds of lines; failed sessions are printed instead.
-- **Provisional results:** FastF1's Jolpica results (grid, status, points) lag the timing by
-  hours to a day. Until then `_results` derives points from timing order and classification
-  from laps ≥ 90 % of the winner's, and the session has `complete: false`; `needs_update.py`
-  rebuilds while a session < 4 days old is provisional.
+- **Data source:** the export uses OpenF1 (`modules/openf1.py`, `--source openf1` default),
+  locally and on GitHub. F1's live-timing server (FastF1) doesn't answer GitHub's runners:
+  FastF1 falls back to its mirror, which has no current season. `openf1.Session` mimics the
+  FastF1 session (laps with FastF1 column names, results, weather_data, event, total_laps), so
+  data_engine is unchanged; `config.DATA_SOURCE` picks the loader (dashboard default
+  "fastf1"). TrackStatus comes from race-control messages, deleted laps from "... DELETED ...
+  LAP n", grid from Jolpica. Sessions are matched to FastF1's calendar by start time (OpenF1
+  still lists cancelled rounds). Requests are cached in `.openf1/` and paced to ~28/min.
+  OpenF1's result is the official classification; FastF1's timing order can differ (2026
+  KL: LEC P4 officially, P17 in FastF1's timing order).
+- **Provisional results:** until the classification and grid are both in, `_results` derives
+  points from timing order and classification from laps ≥ 90 % of the winner's, and the
+  session has `complete: false`; `needs_update.py` rebuilds while a session < 4 days old is
+  provisional or anything is pending.
 - **Forecasts** (`modules/forecast.py`, constants in `config.py` "Season forecasts"):
   - race pace = median fuel-corrected clean lap / field median on that compound, in %
   - form = decayed mean of last 6 race paces; race MC adds `FORECAST_RACE_SD` per race;

@@ -95,7 +95,7 @@ function RaceView({ round, code }: { round: number; code: "R" | "S" }) {
       )}
       {!race.complete && (
         <Note>
-          Provisional: the official classification (grid, penalties, status) isn't out yet, so points and
+          Provisional: the classification or starting grid isn't out yet, so points and
           retirements are worked out from the timing data. The site updates itself when it arrives.
         </Note>
       )}

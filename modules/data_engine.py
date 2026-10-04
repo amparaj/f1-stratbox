@@ -78,6 +78,12 @@ def load_session(year: int, location: str, session_type: str, with_telemetry: bo
     Raises DataUnavailableError if even lap timing cannot be obtained.
     """
     initialize_fastf1()
+    if config.DATA_SOURCE == "openf1":
+        from modules import openf1
+        try:
+            return openf1.load_session(year, location, session_type), {"tier": "openf1", "warnings": []}
+        except Exception as exc:  # noqa: BLE001 — same contract as the FastF1 tiers
+            raise DataUnavailableError(f"No OpenF1 data for {year} {location} {session_type}: {exc}") from exc
     tiers = [
         ("full", dict(laps=True, telemetry=with_telemetry, weather=True, messages=True)),
         ("timing-only", dict(laps=True, telemetry=False, weather=False, messages=False)),

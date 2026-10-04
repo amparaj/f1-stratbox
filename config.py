@@ -18,6 +18,11 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent
 FASTF1_CACHE_DIR = PROJECT_ROOT / ".fastf1"
 
+# Where session data comes from: "fastf1" (F1's live-timing archive; richest, the
+# dashboard's default) or "openf1" (modules/openf1.py; the website's export uses it,
+# because the live-timing server doesn't answer GitHub's runners).
+DATA_SOURCE = "fastf1"
+
 # ---------------------------------------------------------------------------
 # Pit lane time loss (seconds) — full green-flag stop, pit entry to pit exit
 # versus staying out. Keys are display names; see PIT_LOSS_ALIASES for the

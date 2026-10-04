@@ -10,10 +10,11 @@ races can show the forecast next to what happened. Tables are written column-wis
 ({"driver": [...], "points": [...]}) to keep the files small; the site turns them back
 into rows.
 
-Official classification (grid, status, points) comes from FastF1's Jolpica feed, which
-lags the timing data by a few hours to a day. Until it arrives, points and retirements
-are worked out from the timing order and laps completed, and the session is marked
-"complete": false so the next scheduled run picks up the official figures.
+The classification (status, points) comes with the session data (OpenF1's session_result,
+or FastF1's Jolpica results), the starting grid from Jolpica, which lags by a few hours
+to a day. Until both are in, missing points and retirements are worked out from the timing
+order and laps completed, and the session is marked "complete": false so the next
+scheduled run picks up the official figures.
 """
 
 from __future__ import annotations
@@ -118,7 +119,7 @@ def due_sessions(events: list[dict], now: dt.datetime) -> list[tuple[dict, str]]
 # ---------------------------------------------------------------------------
 def _results(year: int, event: str, code: str, info: dict, timeline: pd.DataFrame) -> tuple[pd.DataFrame, bool]:
     """
-    Classification for one session, official where FastF1 has it, otherwise derived.
+    Classification for one session, official where the source has it, otherwise derived.
     Returns (table, complete).
     """
     session, _ = de.load_session(year, event, code)
@@ -126,18 +127,19 @@ def _results(year: int, event: str, code: str, info: dict, timeline: pd.DataFram
     laps_done = timeline.groupby("Driver")["LapNumber"].max()
     winner_laps = int(laps_done.max()) if not laps_done.empty else 0
     status = res["Status"].where(res["Status"].astype(str).str.strip() != "") if "Status" in res         else pd.Series(np.nan, index=res.index)
-    complete = bool(res["Points"].notna().any() and status.notna().any())
+    # Complete = the classification (points, status) and the starting grid are both in.
+    complete = bool(res["Points"].notna().any() and status.notna().any() and res["GridPosition"].notna().any())
 
     out = pd.DataFrame({
         "driver": res["driver"],
         "name": res.get("FullName"),
         "number": res.get("DriverNumber"),
-        "grid": res["GridPosition"].where(res["GridPosition"] > 0) if complete else np.nan,
-        "pit_lane_start": (res["GridPosition"] == 0) if complete else False,
+        "grid": res["GridPosition"].where(res["GridPosition"] > 0),
+        "pit_lane_start": res["GridPosition"] == 0,
         "position": res["Position"],
         "laps": res["driver"].map(laps_done).fillna(0).astype(int),
     })
-    if complete:
+    if res["Points"].notna().any() and status.notna().any():
         out["status"] = status.fillna("")
         out["classified"] = res["ClassifiedPosition"].astype(str).str.isdigit()
         out["points"] = res["Points"].fillna(0.0)
@@ -371,7 +373,7 @@ def export_season(year: int, out_dir: Path, now: dt.datetime | None = None) -> d
         print(f"  {sid} {ev['event']}: {'complete' if rec['complete'] else 'provisional'}", flush=True)
 
     if not exported:
-        # Nothing loaded (data not out yet, or FastF1's hourly request limit): publish the
+        # Nothing loaded (data not out yet, or a source's rate limit): publish the
         # calendar and what's pending, and the next run carries on from the download cache.
         meta = {"season": year, "generated": now.isoformat(),
                 "calendar": [{**ev, "done_R": False, "done_S": False, "winner": None, "winner_color": None}

@@ -33,7 +33,10 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[1])
     ap.add_argument("--year", type=int, default=dt.date.today().year)
     ap.add_argument("--out", type=Path, default=ROOT / "web" / "public" / "data")
+    ap.add_argument("--source", choices=["openf1", "fastf1"], default="openf1",
+                    help="session data source (default openf1: works on GitHub's runners)")
     args = ap.parse_args()
+    config.DATA_SOURCE = args.source
 
     config.FASTF1_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     fastf1.Cache.enable_cache(str(config.FASTF1_CACHE_DIR))

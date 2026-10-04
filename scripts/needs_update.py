@@ -9,8 +9,8 @@ Prints "yes" or "no" (and writes `update=true|false` to $GITHUB_OUTPUT when set)
   * a race or sprint that should have finished by now (start + 3 h) isn't published, or
     is published but still provisional (no official classification yet), and started
     less than RETRY_DAYS ago (so a cancelled session doesn't retry for ever);
-  * the last export couldn't load some sessions ("pending": FastF1's request limit on a cold
-    start, or data not out yet);
+  * the last export couldn't load some sessions ("pending": a rate limit on a cold start, or
+    data not out yet);
   * the site's data is more than MAX_AGE_DAYS old (calendar changes, code fixes).
 """
 import datetime as dt

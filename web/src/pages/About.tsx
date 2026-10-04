@@ -16,10 +16,10 @@ export default function About() {
       <p>
         A scheduled GitHub Action checks every hour over race weekends (and once a day otherwise). About
         three hours after a race or sprint starts it downloads the timing data, rebuilds every page and
-        publishes the site, usually within an hour or two of the chequered flag. The official
-        classification (grid, penalties, points) follows a few hours to a day later; until then a race is
-        marked provisional and its points are worked out from the timing order, and the next run swaps in
-        the official figures. Last update: {dayYear(meta.generated)}.
+        publishes the site, usually within an hour or two of the chequered flag. If the classification
+        isn't out yet the race is marked provisional, with points worked out from the timing order; the
+        starting grid usually follows a few hours to a day later, and later runs fill both in (and pick up
+        any penalties). Last update: {dayYear(meta.generated)}.
       </p>
 
       <h3>The race analysis</h3>
@@ -63,8 +63,9 @@ export default function About() {
 
       <h3>Data</h3>
       <p>
-        Lap timing, tyres, track status and weather come from Formula 1's live-timing feed through the{" "}
-        <a href="https://docs.fastf1.dev/">FastF1</a> library; classifications from the Jolpica (Ergast) API.
+        Lap timing, tyre stints, pit stops, race control (Safety Cars, deleted laps), weather and results come
+        from the <a href="https://openf1.org">OpenF1</a> API; the calendar through the{" "}
+        <a href="https://docs.fastf1.dev/">FastF1</a> library; starting grids from the Jolpica (Ergast) API.
         Pit-lane losses are approximate public figures. The code is at{" "}
         <a href="https://github.com/amparaj/f1-stratbox">github.com/amparaj/f1-stratbox</a>.
       </p>

@@ -1,6 +1,6 @@
 # F1 Stratbox
 
-Formula 1 race strategy, built on [FastF1](https://docs.fastf1.dev/) lap timing. Three parts:
+Formula 1 race strategy, built on lap timing from [OpenF1](https://openf1.org) and [FastF1](https://docs.fastf1.dev/). Three parts:
 
 - **Website** (https://amparaj.github.io/f1-stratbox/, phone-friendly): every race of the season
   reviewed lap by lap, the standings and title odds, and a forecast for each race to come. It
@@ -27,11 +27,14 @@ have its official classification. Only then does it export the data (`scripts/ex
 build the site (`web/`, React + Vite) and push it to the `gh-pages` branch. A push to `main`
 that touches the code, or **Actions → Update site → Run workflow**, always rebuilds.
 
-The FastF1 download cache is kept between runs, so a run downloads only the new session. The
-first run downloads this season and last season (about 20 minutes).
+The site's data comes from the OpenF1 API (`modules/openf1.py`): F1's live-timing server, which
+FastF1 reads, doesn't answer GitHub's runners. The download caches are kept between runs, so a
+run downloads only the new session; the first downloads this season and last (about 25 minutes,
+paced to OpenF1's free rate limit).
 
-Until Jolpica (Ergast) has the official classification, usually a few hours to a day after a
-race, the race is marked provisional: points and retirements are worked out from the timing data.
+Until the classification and the starting grid (from Jolpica, a few hours to a day after the
+race) are both in, the race is marked provisional: missing points and retirements are worked out
+from the timing data.
 
 ### Branches
 
@@ -62,6 +65,7 @@ cache (`.fastf1/`) so the dashboard opens them instantly.
 
 ## Data
 
-Lap timing, tyres, track status and weather from Formula 1's live-timing feed via FastF1;
-classifications from the Jolpica (Ergast) API. Pit-lane losses (`config.TRACK_PIT_LOSS`) and the
+Website: lap timing, tyres, pit stops, race control, weather and results from OpenF1; the calendar
+via FastF1; starting grids from Jolpica (Ergast). Dashboard: Formula 1's live-timing feed via
+FastF1 (set `config.DATA_SOURCE = "openf1"` to use OpenF1 instead). Pit-lane losses (`config.TRACK_PIT_LOSS`) and the
 tyre presets are approximate. Not affiliated with Formula 1 or the FIA.
