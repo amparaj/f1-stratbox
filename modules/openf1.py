@@ -22,15 +22,18 @@ results       /session_result (position, points, DNF/DNS/DSQ, laps) and /drivers
 weather_data  /weather.
 event         FastF1's event schedule (it doesn't need the live-timing server).
 
-Requests are cached as JSON in .openf1/ (kept between GitHub runs like .fastf1/). A session
-more than CACHE_FINAL_DAYS old is read from the cache for good; a newer one is re-fetched after
-CACHE_FRESH_MINUTES, so late classifications and penalties come through. Requests are spaced
-to stay inside OpenF1's free rate limit and retried on HTTP 429.
+Archive: once a session is final (CACHE_FINAL_DAYS after it started, with its result and grid
+in) everything fetched for it is written to archive/openf1/<year>/rNN-R.json.gz, which is
+committed to the repo. From then on the session is read from there and never fetched again.
+Before that, requests go through a cache in .openf1/ (kept between GitHub runs) and a recent
+session is re-fetched after CACHE_FRESH_MINUTES, so late classifications and penalties come
+through. Requests are spaced to stay inside OpenF1's free rate limit and retried on HTTP 429.
 """
 
 from __future__ import annotations
 
 import datetime as dt
+import gzip
 import hashlib
 import json
 import re
@@ -47,7 +50,10 @@ import config
 API = "https://api.openf1.org/v1/"
 JOLPICA = "https://api.jolpi.ca/ergast/f1/"
 CACHE_DIR = config.PROJECT_ROOT / ".openf1"
+ARCHIVE_DIR = config.PROJECT_ROOT / "archive" / "openf1"
+ENDPOINTS = ("drivers", "laps", "stints", "pit", "race_control", "weather", "session_result")
 CACHE_FINAL_DAYS = 4
+ARCHIVE_WITHOUT_GRID_DAYS = 14  # archive anyway if Jolpica still has no grid by then
 CACHE_FRESH_MINUTES = 20
 MIN_INTERVAL_S = 2.1            # ~28 requests a minute: under the free tier's 30/min
 SESSION_MATCH = pd.Timedelta(hours=6)
@@ -98,6 +104,17 @@ def _get(url: str, params: dict, max_age: dt.timedelta | None) -> list | dict:
 
 def _api(path: str, max_age: dt.timedelta | None, **params) -> pd.DataFrame:
     return pd.DataFrame(_get(API + path, params, max_age))
+
+
+def archive_path(year: int, rnd: int, code: str) -> Path:
+    return ARCHIVE_DIR / str(year) / f"r{rnd:02d}-{code}.json.gz"
+
+
+def _write_archive(path: Path, raw: dict) -> None:
+    """Deterministic gzip (sorted keys, no timestamp), so a rewrite is never a git change."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    body = json.dumps(raw, sort_keys=True, separators=(",", ":")).encode()
+    path.write_bytes(gzip.compress(body, compresslevel=9, mtime=0))
 
 
 def _max_age(start: pd.Timestamp) -> dt.timedelta | None:
@@ -178,18 +195,18 @@ class Session:
             raise OpenF1Error(f"{event_name} {year} has no {col}")
         self.start = pd.Timestamp(start).tz_localize("UTC")
         self.name = col
-        info = find_session(year, self.start, code)
-        sk, age = int(info["session_key"]), _max_age(self.start)
-
-        drivers = _api("drivers", age, session_key=sk)
-        laps = _api("laps", age, session_key=sk)
+        rnd = int(self.event["RoundNumber"])
+        path = archive_path(year, rnd, code)
+        if path.exists():
+            raw = json.loads(gzip.decompress(path.read_bytes()))
+        else:
+            raw = self._fetch(year, code, rnd)
+            self._maybe_archive(path, raw)
+        frames = {k: pd.DataFrame(v) for k, v in raw["endpoints"].items()}
+        drivers, laps, stints, pits, rc, weather, result = (frames[k] for k in ENDPOINTS)
         if laps.empty or drivers.empty:
             raise OpenF1Error(f"OpenF1 has no laps for {year} {event_name} {col} yet")
-        stints = _api("stints", age, session_key=sk)
-        pits = _api("pit", age, session_key=sk)
-        rc = _api("race_control", age, session_key=sk)
-        weather = _api("weather", age, session_key=sk)
-        result = _api("session_result", age, session_key=sk)
+        self._grid_raw = raw.get("grid")
 
         drivers = drivers.drop_duplicates("driver_number").set_index("driver_number")
         self.t0 = pd.to_datetime(laps["date_start"], utc=True, format="ISO8601").min()
@@ -197,6 +214,35 @@ class Session:
         self.total_laps = int(self.laps["LapNumber"].max())
         self.results = self._results(result, drivers, year, code)
         self.weather_data = self._weather(weather)
+
+    def _fetch(self, year: int, code: str, rnd: int) -> dict:
+        """Everything this session needs, from OpenF1 and Jolpica (through the cache)."""
+        info = find_session(year, self.start, code)
+        sk, age = int(info["session_key"]), _max_age(self.start)
+        endpoints = {}
+        for name in ENDPOINTS:
+            endpoints[name] = _get(API + name, {"session_key": sk}, age)
+            if name in ("drivers", "laps") and not endpoints[name]:
+                break                              # not out yet: don't spend requests on the rest
+        endpoints = {k: endpoints.get(k, []) for k in ENDPOINTS}
+        what = "sprint" if code == "S" else "results"
+        try:
+            grid = _get(f"{JOLPICA}{year}/{rnd}/{what}.json", {"limit": 30}, age)
+        except Exception:  # noqa: BLE001 — the grid is a nice-to-have
+            grid = None
+        return {"session": info, "endpoints": endpoints, "grid": grid}
+
+    def _maybe_archive(self, path: Path, raw: dict) -> None:
+        """Archive a final session: old enough, with laps, a result and (usually) the grid."""
+        age = pd.Timestamp.now(tz="UTC") - self.start
+        if age <= pd.Timedelta(days=CACHE_FINAL_DAYS):
+            return
+        ep = raw["endpoints"]
+        if not (ep["laps"] and ep["drivers"] and ep["session_result"]):
+            return
+        if not self._grid_rows(raw.get("grid")) and age <= pd.Timedelta(days=ARCHIVE_WITHOUT_GRID_DAYS):
+            return
+        _write_archive(path, raw)
 
     def _secs(self, ts: pd.Series) -> pd.Series:
         return (pd.to_datetime(ts, utc=True, format="ISO8601") - self.t0).dt.total_seconds()
@@ -288,21 +334,20 @@ class Session:
             order = last.sort_values(["LapNumber", "Time"], ascending=[False, True])["DriverNumber"].tolist()
             res["Position"] = res["DriverNumber"].map({d: i + 1 for i, d in enumerate(order)})
             res["Points"], res["Status"], res["ClassifiedPosition"] = np.nan, "", ""
-        res["GridPosition"] = res["Abbreviation"].map(self._grid(year, code))
+        res["GridPosition"] = res["Abbreviation"].map(
+            {r["Driver"].get("code"): float(r["grid"]) for r in self._grid_rows(self._grid_raw)})
         res["Laps"] = res["DriverNumber"].map(laps_done)
         return res.sort_values("Position", na_position="last").reset_index(drop=True)
 
-    def _grid(self, year, code) -> dict[str, float]:
-        """Starting grid by driver code, from Jolpica; {} until it's posted."""
-        what = "sprint" if code == "S" else "results"
+    @staticmethod
+    def _grid_rows(data) -> list[dict]:
+        """Jolpica's result rows (each with a grid slot), or [] until it's posted."""
         try:
-            data = _get(f"{JOLPICA}{year}/{int(self.event['RoundNumber'])}/{what}.json", {"limit": 30},
-                        _max_age(self.start))
             races = data["MRData"]["RaceTable"]["Races"]
-            rows = races[0]["SprintResults" if code == "S" else "Results"] if races else []
-            return {r["Driver"].get("code"): float(r["grid"]) for r in rows}
-        except Exception:  # noqa: BLE001 — the grid is a nice-to-have
-            return {}
+            r = races[0] if races else {}
+            return r.get("SprintResults") or r.get("Results") or []
+        except (TypeError, KeyError):
+            return []
 
     def _weather(self, w: pd.DataFrame) -> pd.DataFrame:
         if w.empty:

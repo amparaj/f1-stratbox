@@ -172,6 +172,10 @@ and emoji). This is a Windows PowerShell 5.1 / Git Bash environment.
   "fastf1"). TrackStatus comes from race-control messages, deleted laps from "... DELETED ...
   LAP n", grid from Jolpica. Sessions are matched to FastF1's calendar by start time (OpenF1
   still lists cancelled rounds). Requests are cached in `.openf1/` and paced to ~28/min.
+  **Archive:** a final session (start + 4 days, result and grid in; grid optional after 14
+  days) is written to `archive/openf1/<year>/rNN-R|S.json.gz` (raw endpoint JSON + Jolpica
+  grid, deterministic gzip) and read from there for good; the Action commits new files to
+  main. Don't hand-edit archive files; delete one to force a re-fetch.
   OpenF1's result is the official classification; FastF1's timing order can differ (2026
   KL: LEC P4 officially, P17 in FastF1's timing order).
 - **Provisional results:** until the classification and grid are both in, `_results` derives

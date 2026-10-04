@@ -7,10 +7,10 @@
 # A push to main that touches the code, or Run workflow by hand, always rebuilds.
 #
 # Session data comes from the OpenF1 API (modules/openf1.py): F1's live-timing server, which
-# FastF1 reads, doesn't answer GitHub's runners. FastF1 still provides the calendar. Both
-# download caches (.openf1/, .fastf1/) are kept between runs with actions/cache, so a run only
-# downloads the new session. The first run downloads this season and last (~25 min, paced to
-# OpenF1's free rate limit).
+# FastF1 reads, doesn't answer GitHub's runners. FastF1 still provides the calendar. A session
+# that's final (4 days on, result and grid in) is written to archive/ and committed to main by
+# this workflow, and read from there for good. Newer sessions go through download caches
+# (.openf1/, .fastf1/) kept between runs with actions/cache.
 #
 # Scheduled workflows only run from the default branch.
 name: Update site
@@ -75,6 +75,21 @@ jobs:
       - name: Export data
         if: github.event_name != 'schedule' || steps.check.outputs.update == 'true'
         run: python scripts/export_site.py
+
+      # Finished sessions go into archive/ (modules/openf1.py) and are never fetched again.
+      # Pushes made with the workflow's token don't start another run.
+      - name: Commit new archive files
+        if: github.event_name != 'schedule' || steps.check.outputs.update == 'true'
+        run: |
+          git add archive
+          if git diff --cached --quiet; then echo "Nothing new to archive."; exit 0; fi
+          n=$(git diff --cached --name-only | wc -l)
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit --quiet -m "Archive ${n} finished session(s)"
+          git pull --rebase --quiet origin main
+          git push --quiet origin HEAD:main
+          echo "Archived ${n} session(s)."
 
       - name: Save download cache
         if: always() && (github.event_name != 'schedule' || steps.check.outputs.update == 'true')

@@ -36,11 +36,20 @@ Until the classification and the starting grid (from Jolpica, a few hours to a d
 race) are both in, the race is marked provisional: missing points and retirements are worked out
 from the timing data.
 
+### Archive
+
+Every finished session's raw data (OpenF1's laps, stints, pit stops, race control, weather and
+result, and Jolpica's grid) is kept in `archive/openf1/<year>/rNN-R.json.gz` (`-S` for a sprint),
+committed to the repo: about 50 kB a race. A session goes in once it's final, 4 days after it
+ran with its result and grid in, and from then on it's read from the archive and never fetched
+again. The Action commits new archive files to `main` itself. Newer sessions are re-fetched now
+and then, so penalties and late grids come through.
+
 ### Branches
 
 | Branch | What it is |
 | --- | --- |
-| `main` | The code |
+| `main` | The code and the archive (the Action commits new archive files) |
 | `gh-pages` | The built website that GitHub Pages serves. The Action replaces it with one fresh commit each time: never edit or merge it |
 
 ### Locally
