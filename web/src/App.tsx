@@ -72,7 +72,13 @@ export default function App() {
             No data yet. Run <code>scripts/export_site.py</code> to write <code>web/public/data/</code>.
           </p>
         )}
-        {site && (
+        {site && site.meta.sessions.length === 0 && (
+          <p>
+            No results downloaded yet ({site.meta.pending.length} sessions waiting). The site fills in
+            over the next few hourly updates.
+          </p>
+        )}
+        {site && site.meta.sessions.length > 0 && (
           <SiteContext.Provider value={site}>
             <Boundary key={page.id}>
               <Page />

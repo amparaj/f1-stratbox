@@ -53,9 +53,10 @@ jobs:
         if: github.event_name == 'schedule'
         run: python scripts/needs_update.py "${SITE_URL}data/meta.json"
 
-      - name: FastF1 cache
+      # Restore and save separately, so what a failed or rate-limited run downloaded is kept.
+      - name: Restore FastF1 cache
         if: github.event_name != 'schedule' || steps.check.outputs.update == 'true'
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: .fastf1
           key: fastf1-${{ github.run_id }}
@@ -63,11 +64,34 @@ jobs:
 
       - name: Install
         if: github.event_name != 'schedule' || steps.check.outputs.update == 'true'
-        run: pip install --quiet -r requirements.txt
+        run: |
+          pip install --quiet -r requirements.txt
+          pip list 2>/dev/null | grep -iE "^(fastf1|pandas|numpy|requests|requests-cache|streamlit) "
+
+      # TEMPORARY: one session with FastF1's full log, to see why loads fail on the runner.
+      - name: Diagnose FastF1
+        if: github.event_name != 'schedule' || steps.check.outputs.update == 'true'
+        continue-on-error: true
+        run: |
+          python - <<'EOF'
+          import fastf1, logging, tempfile
+          fastf1.set_log_level("DEBUG")
+          fastf1.Cache.enable_cache(tempfile.mkdtemp())
+          s = fastf1.get_session(2026, "Australian Grand Prix", "R")
+          s.load(laps=True, telemetry=False, weather=False, messages=False)
+          print("laps:", len(s.laps))
+          EOF
 
       - name: Export data
         if: github.event_name != 'schedule' || steps.check.outputs.update == 'true'
         run: python scripts/export_site.py
+
+      - name: Save FastF1 cache
+        if: always() && (github.event_name != 'schedule' || steps.check.outputs.update == 'true')
+        uses: actions/cache/save@v4
+        with:
+          path: .fastf1
+          key: fastf1-${{ github.run_id }}
 
       - uses: actions/setup-node@v5
         if: github.event_name != 'schedule' || steps.check.outputs.update == 'true'

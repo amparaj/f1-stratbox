@@ -370,6 +370,17 @@ def export_season(year: int, out_dir: Path, now: dt.datetime | None = None) -> d
         exported.append(rec)
         print(f"  {sid} {ev['event']}: {'complete' if rec['complete'] else 'provisional'}", flush=True)
 
+    if not exported:
+        # Nothing loaded (data not out yet, or FastF1's hourly request limit): publish the
+        # calendar and what's pending, and the next run carries on from the download cache.
+        meta = {"season": year, "generated": now.isoformat(),
+                "calendar": [{**ev, "done_R": False, "done_S": False, "winner": None, "winner_color": None}
+                             for ev in events],
+                "sessions": [], "pending": pending, "next_round": None, "forecasts": [],
+                "drivers": {}, "teams": {}, "progression": {}, "title_history": {}}
+        _write(out_dir / "meta.json", meta)
+        return meta
+
     races = [r for r in exported if r["code"] == "R"]
     by_round = {r["round"]: r for r in races}
 
