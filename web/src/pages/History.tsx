@@ -62,7 +62,7 @@ function Overview({ index, tab }: { index: HistoryIndex; tab: Tab }) {
       <p className="lede">
         Every World Championship season since the first Grand Prix at Silverstone in 1950: champions,
         standings, every race result, career records and every circuit. Races from 1996 have the running
-        order lap by lap. The {index.last_year + 1} season so far is on the <a href="#season">Season</a> page.
+        order lap by lap. The {index.last_year + 1} season so far is on the <a href="#season">Current Season</a> page.
       </p>
       <Tiles tiles={[
         { label: "Seasons", value: index.seasons.length, note: `${index.first_year} to ${index.last_year}` },
@@ -499,7 +499,7 @@ function RaceView({ year, round, code, index }: { year: number; round: number; c
         </section>
       )}
       {index.last_year === year && round === file.rounds.length && (
-        <p className="note">The season after this one is on the <a href="#season">Season</a> page.</p>
+        <p className="note">The season after this one is on the <a href="#season">Current Season</a> page.</p>
       )}
     </>
   );

@@ -49,12 +49,12 @@ function Overview() {
           { title: "Tyre strategy", text: "every 1- and 2-stop plan", kind: "model", section: "strategy" },
         ] },
         { label: "Pages", nodes: [
-          { title: "Season", kind: "out" },
+          { title: "Current Season", kind: "out" },
           { title: "Race Results & Analysis", kind: "out" },
           { title: "Next Race Forecast", kind: "out" },
         ] },
       ]} />
-      <p className="note">Each box links to its part of the <a href="#about/docs">Technical Documentation</a>, which has the maths.</p>
+      <p className="note">Each box links to its part of the <a href="#about/docs">Technical Documentation</a>.</p>
 
       <h3>How it stays up to date</h3>
       <p>

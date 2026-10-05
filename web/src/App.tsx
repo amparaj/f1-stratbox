@@ -8,16 +8,16 @@ import Races from "./pages/Races";
 import Season from "./pages/Season";
 import { SiteContext, useHash, useSiteData, type Site } from "./site";
 
-// What the site is and how it works first, then the season (where the site opens), every race, the race
+// What the site is and how it works first (where the site opens), then the season, every race, the race
 // ahead, and every season before this one.
 const PAGES = [
   { id: "about", label: "About", short: "About", component: About },
-  { id: "season", label: "Season", short: "Season", component: Season },
+  { id: "season", label: "Current Season", short: "Current Season", component: Season },
   { id: "races", label: "Race Results & Analysis", short: "Races", component: Races },
   { id: "next", label: "Next Race Forecast", short: "Next Race", component: NextRace },
   { id: "history", label: "History", short: "History", component: History },
 ] as const;
-const HOME = PAGES[1];
+const HOME = PAGES[0];
 
 export default function App() {
   const site = useSiteData();
@@ -51,7 +51,7 @@ export default function App() {
         <div className="top-inner">
           <div className="brand">
             <h1>
-              <a href="#season" className="brand-logo" aria-label="F1 Stratbox: Season">
+              <a href="#about" className="brand-logo" aria-label="F1 Stratbox: About">
                 <img src={`${import.meta.env.BASE_URL}logo-mark.png`} alt="" width={40} height={40} />
               </a>
               <span>F1 Stratbox<span className="brand-sub">: Race Results, Analysis & Forecasts</span></span>

@@ -29,7 +29,7 @@ const DRIFT_SD = 0.35;
 const LINE: Record<keyof typeof PRESETS, string> = { S: COMPOUND.S.color, M: "#e0a800", H: "#9c9c9c" };
 
 const SECTIONS = [
-  { id: "architecture", title: "Architecture" },
+  { id: "architecture", title: "Strategy Architecture" },
   { id: "data", title: "Data" },
   { id: "cleaning", title: "Clean laps" },
   { id: "fuel", title: "Fuel correction" },
@@ -100,8 +100,7 @@ export default function Docs() {
     <div className="report">
       <p className="lede">
         How every number on the site is made, in the order the work is done: from raw timing to clean laps, from
-        clean laps to tyre wear and race pace, and from race pace to the race, title and strategy forecasts. Each
-        step is described in words, written out as maths, and worked through with an example.
+        clean laps to tyre wear and race pace, and from race pace to the race, title and strategy forecasts.
       </p>
       <nav className="report-toc" aria-label="Sections">
         {SECTIONS.map((s, i) => <a key={s.id} href={`#about/docs/${s.id}`}>{i + 1}. {s.title}</a>)}
@@ -167,7 +166,7 @@ function Architecture() {
           { title: "Tyre strategy", text: "circuit tyre severity → every 1- and 2-stop plan → Monte Carlo", kind: "model", section: "strategy" },
         ] },
         { label: "Out", nodes: [
-          { title: "Season", text: "standings, title odds, calendar", kind: "out" },
+          { title: "Current Season", text: "standings, title odds, calendar", kind: "out" },
           { title: "Race Results & Analysis", text: "result, charts, strategy, deg, forecast vs result", kind: "out" },
           { title: "Next Race Forecast", text: "odds and the best strategies", kind: "out" },
         ], note: <>↺ Every finished race is re-forecast from only the races before it, and shown against the result.</> },
