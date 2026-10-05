@@ -33,7 +33,14 @@ export const delta = (s: number | null | undefined) => {
   return `${s >= 0 ? "+" : "−"}${m}:${(Math.abs(s) - m * 60).toFixed(1).padStart(4, "0")}`;
 };
 
-export const when = (iso: string | null | undefined) =>
+/** A race's length: 5766.857 -> "1:36:06.857". */
+export const raceTime = (s: number | null | undefined) => {
+  if (missing(s)) return "–";
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+  return `${h}:${String(m).padStart(2, "0")}:${(s % 60).toFixed(3).padStart(6, "0")}`;
+};
+
+export const when =(iso: string | null | undefined) =>
   iso
     ? new Date(iso).toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
     : "–";

@@ -185,6 +185,7 @@ function Data() {
         Lap timing, tyre stints, pit stops, race control messages, weather and the official classification come
         from the <a href="https://openf1.org">OpenF1</a> API. The season's calendar comes from the{" "}
         <a href="https://docs.fastf1.dev/">FastF1</a> library and starting grids from the Jolpica (Ergast) API.
+        The History pages use Jolpica's database dump (CC BY-NC-SA 4.0); none of the models below run on it.
         A few things have to be rebuilt from what those sources give:
       </p>
       <ul>

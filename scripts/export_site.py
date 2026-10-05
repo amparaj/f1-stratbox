@@ -3,6 +3,7 @@ Write the website's data files (web/public/data/) for a season.
 
     .venv\\Scripts\\python scripts\\export_site.py              # current season
     .venv\\Scripts\\python scripts\\export_site.py --year 2026 --out web/public/data
+    .venv\\Scripts\\python scripts\\export_site.py --history-only    # just history/: 1950 to last season
 
 Then `npm run dev` in web/ to look at the site locally. The GitHub Action
 (.github/workflows/site.yml) runs this, builds the site and publishes it.
@@ -26,7 +27,7 @@ logging.disable(logging.WARNING)
 import fastf1  # noqa: E402
 
 import config  # noqa: E402
-from modules import site_export  # noqa: E402
+from modules import history, site_export  # noqa: E402
 
 
 def main() -> None:
@@ -35,8 +36,14 @@ def main() -> None:
     ap.add_argument("--out", type=Path, default=ROOT / "web" / "public" / "data")
     ap.add_argument("--source", choices=["openf1", "fastf1"], default="openf1",
                     help="session data source (default openf1: works on GitHub's runners)")
+    ap.add_argument("--no-history", action="store_true", help="skip the History pages' files")
+    ap.add_argument("--history-only", action="store_true", help="only write history/ (keeps the rest)")
     args = ap.parse_args()
     config.DATA_SOURCE = args.source
+
+    if args.history_only:
+        export_history(args.out, args.year)
+        return
 
     config.FASTF1_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     fastf1.Cache.enable_cache(str(config.FASTF1_CACHE_DIR))
@@ -48,6 +55,22 @@ def main() -> None:
     meta = site_export.export_season(args.year, args.out)
     print(f"Done in {time.time() - started:.0f} s: {len(meta['sessions'])} sessions, "
           f"{len(meta['forecasts'])} forecasts, pending {meta['pending'] or 'none'}.")
+    if not args.no_history:
+        export_history(args.out, args.year)
+
+
+def export_history(out: Path, year: int) -> None:
+    """Every season before `year`, from Jolpica's dump. A failure leaves the History page empty
+    rather than failing the season's export."""
+    started = time.time()
+    shutil.rmtree(out / "history", ignore_errors=True)
+    try:
+        done = history.export_history(out, year - 1)
+    except Exception as e:
+        print(f"History export failed: {type(e).__name__}: {e}")
+        return
+    print(f"History in {time.time() - started:.0f} s: {done['seasons']} seasons, {done['races']} races, "
+          f"{done['lap_files']} with lap charts.")
 
 
 if __name__ == "__main__":

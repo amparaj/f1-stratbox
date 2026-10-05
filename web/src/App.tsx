@@ -2,17 +2,20 @@ import { Component, useEffect, useRef, useState, type ReactNode } from "react";
 import { Loading, usePhone } from "./components/ui";
 import { dayYear, shortEvent, when } from "./format";
 import About from "./pages/About";
+import History from "./pages/History";
 import NextRace from "./pages/NextRace";
 import Races from "./pages/Races";
 import Season from "./pages/Season";
 import { SiteContext, useHash, useSiteData, type Site } from "./site";
 
-// What the site is and how it works first, then the season (where the site opens), every race, and the race ahead.
+// What the site is and how it works first, then the season (where the site opens), every race, the race
+// ahead, and every season before this one.
 const PAGES = [
   { id: "about", label: "About", short: "About", component: About },
   { id: "season", label: "Season", short: "Season", component: Season },
   { id: "races", label: "Race Results & Analysis", short: "Races", component: Races },
   { id: "next", label: "Next Race Forecast", short: "Next Race", component: NextRace },
+  { id: "history", label: "History", short: "History", component: History },
 ] as const;
 const HOME = PAGES[1];
 
@@ -89,6 +92,8 @@ export default function App() {
       </main>
       <footer>
         Lap timing, tyres, race control and results from OpenF1; the calendar via FastF1; starting grids from Jolpica (Ergast).
+        History since 1950 from <a href="https://github.com/jolpica/jolpica-f1">Jolpica F1</a>'s database
+        (<a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a>).
         Forecasts are a personal prototype, not betting advice. Not affiliated with Formula 1 or the FIA.
       </footer>
     </>

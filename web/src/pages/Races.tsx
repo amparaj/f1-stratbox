@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { COMPOUND, compoundKey, DriverChip, GapChart, Plan, PositionChart, StrategyChart, Tyre } from "../components/f1";
+import { COMPOUND, compoundKey, DriverChip, DriverPicker, GapChart, Plan, PositionChart, StrategyChart, Tyre } from "../components/f1";
 import { Legend, Loading, Note, Segmented, Table, Tiles } from "../components/ui";
 import {
   forecastFile, raceFile, rows, type CalendarEvent, type DegRow, type Forecast, type ForecastDriver, type LapRow,
@@ -169,19 +169,6 @@ function RaceView({ round, code }: { round: number; code: "R" | "S" }) {
       <Degradation race={race} />
       <PostMortem results={results} stints={stints} />
     </>
-  );
-}
-
-function DriverPicker({ results, value, onChange }: { results: ResultRow[]; value: string | null; onChange: (d: string | null) => void }) {
-  return (
-    <div className="driver-picker" role="group" aria-label="Pick out a driver">
-      {results.map((r) => (
-        <button key={r.driver} className={value === r.driver ? "on" : undefined} aria-pressed={value === r.driver}
-                onClick={() => onChange(value === r.driver ? null : r.driver)}>
-          <DriverChip code={r.driver} color={r.color} />
-        </button>
-      ))}
-    </div>
   );
 }
 

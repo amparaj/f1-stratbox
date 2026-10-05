@@ -34,6 +34,7 @@ pages/2_Live_Race_Tracker.py  battle map, pit-rejoin forecast, undercut threats
 pages/3_Future_Sandbox.py  scenario controls, strategy comparison, Monte Carlo
 modules/forecast.py        website forecasts: driver form, race/title Monte Carlo, strategy search
 modules/site_export.py     website data files (web/public/data/*.json)
+modules/history.py         website History files (every season since 1950, from Jolpica's dump)
 scripts/export_site.py     runs site_export; scripts/needs_update.py: the Action's "anything new?"
 web/                       the website (React + TypeScript + Vite, theme copied from xpfpl)
 .github/workflows/site.yml scheduled export + build + push to gh-pages
@@ -195,6 +196,17 @@ and emoji). This is a Windows PowerShell 5.1 / Git Bash environment.
     there, times this season's vs last season's severity at shared circuits. Compound split,
     pace gaps and cliffs come from `COMPOUND_PRESETS`. Order of identical stints doesn't
     change a no-SC race time, so plans are deduped by compound set.
+- **History** (`modules/history.py`, `web/src/pages/History.tsx`, `#history[/1988[/16[/S]]]`,
+  `#history/driver/<ref>`, `#history/circuit/<ref>`): every season up to last year from Jolpica's free
+  CSV dump (delayed 14 days, CC BY-NC-SA 4.0, non-commercial: keep the credit in the footer and About).
+  Cached in `.jolpica/`, re-downloaded only when the dump's hash changes; written to
+  `web/public/data/history/` by `export_site.py` (`--history-only`, `--no-history`); a failure skips it.
+  Coverage: results/grids/standings from 1950, lap times 1996+, fastest laps 2004+, pit stops 2011+.
+  - Standings come from the dump's championship tables, which already apply dropped-score rules.
+  - Pole = started from grid 1 (matches the record books: 104 HAM, 68 MSC, 65 SEN); qualifying P1
+    only where no grid. From 2022 the dump's Q1/Q2/Q3 positions are per session, not overall.
+  - Driver codes: official abbreviation, else surname letters, de-duplicated within a season only, so
+    all-time tables show names. Old teams' colours: `config.HISTORY_TEAM_COLORS`.
 - Circuits are matched across seasons by `circuit_key(location)` (via the pit-loss table),
   never by event name: the 2026 "Bahrain Grand Prix" was in Kuala Lumpur.
 - Pages must render at phone width (`usePhone`, cards via `Table`). Screenshot both widths.

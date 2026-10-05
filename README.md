@@ -4,7 +4,8 @@ Formula 1 race strategy, built on lap timing from [OpenF1](https://openf1.org) a
 
 - **Website** (https://amparaj.github.io/f1-stratbox/, phone-friendly): every race of the season
   reviewed lap by lap, the standings and title odds, and a forecast for each race to come. It
-  updates itself after every race and sprint.
+  updates itself after every race and sprint. Plus every season since 1950: champions,
+  standings, every race result, career records and circuits.
 - **Dashboard** (Streamlit, runs locally): post-race review, a lap-by-lap race tracker and a
   strategy sandbox.
 - **Analysis code** shared by both: `modules/`.
@@ -16,6 +17,7 @@ Formula 1 race strategy, built on lap timing from [OpenF1](https://openf1.org) a
 | Season | Drivers' and constructors' standings, title odds from 10,000 simulated seasons and how they moved, points through the season, the calendar with every winner |
 | Race Results & Analysis | For each race and sprint: the story in bullet points, the result, the forecast made before the race against what happened, running order by lap, every driver's tyre strategy (with tyre cliffs), gap to the leader, degradation per compound, and a stint-by-stint post-mortem |
 | Next Race Forecast | Win, podium and points chances for every driver, and the fastest 1- or 2-stop tyre strategy (searched, then Monte Carlo'd with Safety Cars), for the next race or any later one |
+| History | Every season since 1950: champions, standings and points through the season, every race result (running order lap by lap and pit stops from 1996), every driver's career, every constructor and circuit |
 | About | How the analysis and forecasts work |
 
 ### How it updates
@@ -36,6 +38,16 @@ Until the classification and the starting grid (from Jolpica, a few hours to a d
 race) are both in, the race is marked provisional: missing points and retirements are worked out
 from the timing data.
 
+### History
+
+`modules/history.py` builds the History pages from [Jolpica](https://github.com/jolpica/jolpica-f1)'s
+database dump (the successor to Ergast): every season up to last year, as CSV tables in one ~14 MB
+zip. It's free for non-commercial use under CC BY-NC-SA 4.0; the free dump runs 14 days behind,
+which doesn't matter for finished seasons. The zip is cached in `.jolpica/` (and in the Action's
+cache) and downloaded again only when Jolpica posts a new one; the files are rebuilt on every run
+(about 30 s). If Jolpica can't be reached and there's no cached copy, the site publishes without
+the History files rather than failing.
+
 ### Archive
 
 Every finished session's raw data (OpenF1's laps, stints, pit stops, race control, weather and
@@ -55,7 +67,8 @@ and then, so penalties and late grids come through.
 ### Locally
 
 ```
-.venv\Scripts\python scripts\export_site.py      # writes web/public/data/
+.venv\Scripts\python scripts\export_site.py      # writes web/public/data/ (and history/)
+.venv\Scripts\python scripts\export_site.py --history-only   # just the History files
 cd web
 npm install                                      # once
 npm run dev                                      # http://localhost:5173
@@ -75,6 +88,7 @@ cache (`.fastf1/`) so the dashboard opens them instantly.
 ## Data
 
 Website: lap timing, tyres, pit stops, race control, weather and results from OpenF1; the calendar
-via FastF1; starting grids from Jolpica (Ergast). Dashboard: Formula 1's live-timing feed via
+via FastF1; starting grids from Jolpica (Ergast); history since 1950 from Jolpica's database dump
+(CC BY-NC-SA 4.0). Dashboard: Formula 1's live-timing feed via
 FastF1 (set `config.DATA_SOURCE = "openf1"` to use OpenF1 instead). Pit-lane losses (`config.TRACK_PIT_LOSS`) and the
 tyre presets are approximate. Not affiliated with Formula 1 or the FIA.

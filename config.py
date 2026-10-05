@@ -223,6 +223,29 @@ FALLBACK_DRIVER_COLORS = [
     "#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4",
     "#008300", "#4a3aa7", "#e34948", "#7f7f7f", "#17becf",
 ]
+# History pages (modules/history.py): a colour for each constructor of the past, keyed by the
+# Jolpica team reference or its first part ("lotus-climax" -> "lotus"). Approximate liveries,
+# kept away from near-black and near-white so lines read on both themes. Today's teams use
+# Jolpica's own primary colours; anything not listed gets a FALLBACK_DRIVER_COLORS slot.
+HISTORY_TEAM_COLORS = {
+    "ferrari": "#dc0000", "alfa": "#9b1b30", "maserati": "#b5372d", "lago": "#2471a3",
+    "gordini": "#1f4e9c", "mercedes": "#8a9aa8", "vanwall": "#1b6b3a", "connaught": "#3f8f4f",
+    "cooper": "#2e6b3e", "brm": "#5b8c3a", "lotus": "#1d6b3a", "team_lotus": "#1d6b3a",
+    "brabham": "#1e9a9a", "honda": "#b0485a", "mclaren": "#f47600", "matra": "#2d6cdf",
+    "march": "#d94f00", "tyrrell": "#1f4f9a", "surtees": "#c0392b", "shadow": "#6b7a8a",
+    "hesketh": "#8f8f9e", "penske": "#c44d9c", "wolf": "#a07a2d", "ligier": "#2e74c9",
+    "williams": "#1868db", "renault": "#f2c300", "arrows": "#f28c28", "footwork": "#f28c28",
+    "ats": "#d4ac0d", "toleman": "#3498db", "benetton": "#13a36b", "lola": "#e67e22",
+    "osella": "#3d6fb6", "zakspeed": "#d64545", "minardi": "#8a7c3c", "dallara": "#c0392b",
+    "larrousse": "#4a90d9", "jordan": "#e6c200", "sauber": "#01c00e", "stewart": "#6aa9d8",
+    "prost": "#2d5bd7", "bar": "#c9505a", "jaguar": "#1e7a5a", "toyota": "#cc2233",
+    "super_aguri": "#d65050", "bmw_sauber": "#2e86c1", "red_bull": "#4781d7",
+    "toro_rosso": "#3550a0", "force_india": "#e8901a", "spyker": "#ef7d00", "hrt": "#a08b5b",
+    "virgin": "#cc2b2b", "lotus_racing": "#3a8a3a", "caterham": "#0b8e5f", "marussia": "#c0392b",
+    "lotus_f1": "#c9a227", "manor": "#e05050", "haas": "#9c9fa2", "racing_point": "#f596c8",
+    "alphatauri": "#4a6890", "alpine": "#00a1e8", "rb": "#6c98ff", "aston_martin": "#229971",
+    "kurtis_kraft": "#8e44ad", "fittipaldi": "#d4b82c", "ensign": "#16a085", "porsche": "#a3a3a3",
+}
 SC_SHADE = "rgba(250, 178, 25, 0.18)"
 VSC_SHADE = "rgba(250, 178, 25, 0.09)"
 RED_FLAG_SHADE = "rgba(208, 59, 59, 0.15)"

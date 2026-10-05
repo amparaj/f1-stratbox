@@ -3,3 +3,4 @@ __pycache__/
 .fastf1/*
 !.fastf1/.gitkeep
 .openf1/
+.jolpica/

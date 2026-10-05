@@ -111,6 +111,10 @@ function Overview() {
         Lap timing, tyre stints, pit stops, race control (Safety Cars, deleted laps), weather and results come
         from the <a href="https://openf1.org">OpenF1</a> API; the calendar through the{" "}
         <a href="https://docs.fastf1.dev/">FastF1</a> library; starting grids from the Jolpica (Ergast) API.
+        The <a href="#history">History</a> pages (every season since 1950) come from{" "}
+        <a href="https://github.com/jolpica/jolpica-f1">Jolpica</a>'s database, licensed{" "}
+        <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a>: results, grids and
+        standings for every season, lap times from 1996, fastest laps from 2004 and pit stops from 2011.
         Pit-lane losses are approximate public figures. The code is at{" "}
         <a href="https://github.com/amparaj/f1-stratbox">github.com/amparaj/f1-stratbox</a>.
       </p>

@@ -10,7 +10,8 @@
 # FastF1 reads, doesn't answer GitHub's runners. FastF1 still provides the calendar. A session
 # that's final (4 days on, result and grid in) is written to archive/ and committed to main by
 # this workflow, and read from there for good. Newer sessions go through download caches
-# (.openf1/, .fastf1/) kept between runs with actions/cache.
+# (.openf1/, .fastf1/) kept between runs with actions/cache. The History pages (every season since
+# 1950) are rebuilt each run from Jolpica's database dump, cached in .jolpica/ the same way.
 #
 # Scheduled workflows only run from the default branch.
 name: Update site
@@ -63,6 +64,7 @@ jobs:
         with:
           path: |
             .openf1
+            .jolpica
             .fastf1
           key: data-${{ github.run_id }}
           restore-keys: data-
@@ -97,6 +99,7 @@ jobs:
         with:
           path: |
             .openf1
+            .jolpica
             .fastf1
           key: data-${{ github.run_id }}
 

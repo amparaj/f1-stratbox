@@ -68,20 +68,26 @@ function neutralBands(n: Neutral): Plot.Markish[] {
     : [];
 }
 
-const legendLine = (r: ResultRow) => (r.second_driver ? "4,3" : undefined);
+/** What the race charts need of a driver: their team colour, and whether they're the team's second car. */
+type ChartDriver = Pick<ResultRow, "driver" | "color" | "second_driver">;
+type PositionLap = Pick<LapRow, "driver" | "lap" | "pos" | "pit">;
+
+const legendLine = (r: ChartDriver | undefined) => (r?.second_driver ? "4,3" : undefined);
+const tyreTip = (l: LapRow) => `${l.driver} · lap ${l.lap}\nP${l.pos} on ${COMPOUND[l.compound]?.name ?? l.compound} (${l.tyre_life ?? "?"} laps old)${l.pit ? "\nPitted" : ""}`;
 
 // ---------------------------------------------------------------- position chart
 
-/** Running order lap by lap, one line per driver, labelled at the end. */
-export function PositionChart({ laps, results, neutral, highlight }: {
-  laps: LapRow[]; results: ResultRow[]; neutral: Neutral; highlight?: string | null;
+/** Running order lap by lap, one line per driver, labelled at the end. `tip` defaults to the
+ * position and tyre, for this season's race files. */
+export function PositionChart<L extends PositionLap>({ laps, results, neutral, highlight, tip }: {
+  laps: L[]; results: ChartDriver[]; neutral?: Neutral; highlight?: string | null; tip?: (l: L) => string;
 }) {
   const make = useCallback((width: number) => {
     const by = new Map(results.map((r) => [r.driver, r]));
     const drivers = results.map((r) => r.driver);
     const total = Math.max(...laps.map((l) => l.lap));
     const fade = (d: string) => (highlight && highlight !== d ? 0.15 : 0.95);
-    const last = drivers.map((d) => laps.filter((l) => l.driver === d).at(-1)).filter((l): l is LapRow => !!l);
+    const last = drivers.map((d) => laps.filter((l) => l.driver === d).at(-1)).filter((l): l is L => !!l);
     return Plot.plot({
       ...plotDefaults(width),
       height: Math.max(360, drivers.length * 19),
@@ -90,19 +96,33 @@ export function PositionChart({ laps, results, neutral, highlight }: {
       y: { label: "Position", reverse: true, domain: [1, drivers.length], ticks: Array.from({ length: drivers.length }, (_, i) => i + 1), grid: true },
       color: { type: "identity" },
       marks: [
-        ...neutralBands(neutral),
+        ...(neutral ? neutralBands(neutral) : []),
         ...drivers.map((d) =>
           Plot.line(laps.filter((l) => l.driver === d), {
             x: "lap", y: "pos", stroke: by.get(d)?.color ?? color.neutral, strokeWidth: highlight === d ? 3 : 1.75,
-            strokeDasharray: legendLine(by.get(d)!), strokeOpacity: fade(d), curve: "monotone-x",
+            strokeDasharray: legendLine(by.get(d)), strokeOpacity: fade(d), curve: "monotone-x",
           })),
-        Plot.dot(laps.filter((l) => l.pit), { x: "lap", y: "pos", r: 2.5, fill: color.surface, stroke: (l: LapRow) => by.get(l.driver)?.color, strokeOpacity: (l: LapRow) => fade(l.driver) }),
-        Plot.text(last, { x: "lap", y: "pos", text: "driver", dx: 6, textAnchor: "start", fill: color.ink2, fontSize: 11, fillOpacity: (l: LapRow) => fade(l.driver) }),
-        Plot.tip(laps, Plot.pointer({ x: "lap", y: "pos", title: (l: LapRow) => `${l.driver} · lap ${l.lap}\nP${l.pos} on ${COMPOUND[l.compound]?.name ?? l.compound} (${l.tyre_life ?? "?"} laps old)${l.pit ? "\nPitted" : ""}` })),
+        Plot.dot(laps.filter((l) => l.pit), { x: "lap", y: "pos", r: 2.5, fill: color.surface, stroke: (l: L) => by.get(l.driver)?.color, strokeOpacity: (l: L) => fade(l.driver) }),
+        Plot.text(last, { x: "lap", y: "pos", text: "driver", dx: 6, textAnchor: "start", fill: color.ink2, fontSize: 11, fillOpacity: (l: L) => fade(l.driver) }),
+        Plot.tip(laps, Plot.pointer({ x: "lap", y: "pos", title: tip ?? ((l: L) => tyreTip(l as unknown as LapRow)) })),
       ],
     });
-  }, [laps, results, neutral, highlight]);
+  }, [laps, results, neutral, highlight, tip]);
   return <Chart make={make} ariaLabel="Running order by lap" />;
+}
+
+/** A row of driver chips that picks one out on the race charts (tap again to clear). */
+export function DriverPicker({ results, value, onChange }: { results: ChartDriver[]; value: string | null; onChange: (d: string | null) => void }) {
+  return (
+    <div className="driver-picker" role="group" aria-label="Pick out a driver">
+      {results.map((r) => (
+        <button key={r.driver} className={value === r.driver ? "on" : undefined} aria-pressed={value === r.driver}
+                onClick={() => onChange(value === r.driver ? null : r.driver)}>
+          <DriverChip code={r.driver} color={r.color} />
+        </button>
+      ))}
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------- gap chart
@@ -128,7 +148,7 @@ export function GapChart({ laps, results, neutral, drivers, highlight }: {
         ...drivers.map((d) =>
           Plot.line(shown.filter((l) => l.driver === d), {
             x: "lap", y: "gap", stroke: by.get(d)?.color ?? color.neutral, strokeWidth: highlight === d ? 3 : 1.75,
-            strokeDasharray: legendLine(by.get(d)!), strokeOpacity: fade(d), clip: true,
+            strokeDasharray: legendLine(by.get(d)), strokeOpacity: fade(d), clip: true,
           })),
         Plot.text(last, { x: "lap", y: "gap", text: "driver", dx: 6, textAnchor: "start", fill: color.ink2, fontSize: 11 }),
         Plot.tip(shown, Plot.pointer({ x: "lap", y: "gap", title: (l: LapRow) => `${l.driver} · lap ${l.lap}\n+${l.gap!.toFixed(1)} s to the leader` })),
