@@ -382,11 +382,14 @@ class Session:
 
     def _weather(self, w: pd.DataFrame) -> pd.DataFrame:
         if w.empty:
-            return pd.DataFrame(columns=["Time", "AirTemp", "TrackTemp", "Rainfall"])
+            return pd.DataFrame(columns=["Time", "AirTemp", "TrackTemp", "Humidity", "WindSpeed",
+                                         "WindDirection", "Rainfall"])
         return pd.DataFrame({
             "Time": self._secs(w["date"]),
             "AirTemp": w["air_temperature"], "TrackTemp": w["track_temperature"],
-            "Humidity": w.get("humidity"), "Rainfall": w["rainfall"].fillna(0).astype(float) > 0,
+            "Humidity": w.get("humidity"), "WindSpeed": w.get("wind_speed"),
+            "WindDirection": w.get("wind_direction"),
+            "Rainfall": w["rainfall"].fillna(0).astype(float) > 0,
         }).sort_values("Time").reset_index(drop=True)
 
 

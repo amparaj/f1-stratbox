@@ -6,6 +6,7 @@ Tabs
 🎬 Race Replay      animated gap-to-leader chart for the whole grid (Plotly frames)
 📝 Post-Mortem      tyre-strategy chart + rule-based report naming each cliff lap
 📉 Degradation      fuel-corrected lap time vs tyre age with fitted deg lines
+🌦️ Weather          track sensors lap by lap, and what the forecast said (Open-Meteo)
 ⬇️ Export           Excel workbook (openpyxl) + an LLM-ready debrief prompt
 """
 
@@ -25,6 +26,7 @@ import streamlit as st
 import config
 from modules import analytics as an
 from modules import data_engine as de
+from modules import weather as wx
 
 # ---------------------------------------------------------------------------
 # Data bundle (cached per session)
@@ -42,6 +44,23 @@ def recap_bundle(year: int, event: str, stype: str) -> dict:
         "deg_frame": an.degradation_to_frame(deg),
         "stints": an.stint_summary(timeline), "reports": reports,
     }
+
+
+@st.cache_data(show_spinner=False, max_entries=6)
+def recap_weather(year: int, event: str, stype: str) -> tuple[pd.DataFrame, pd.DataFrame | None, str | None]:
+    """Track sensors by lap, the archived forecast lined up with the laps, and why it's missing."""
+    info = de.get_session_info(year, event, stype)
+    lw = de.get_lap_weather(year, event, stype)
+    if lw.empty or info["start_utc"] is None:
+        return lw, None, None
+    coords = wx.circuit_coords(info["location"], info["event_name"])
+    if coords is None:
+        return lw, None, "no coordinates for this circuit"
+    try:
+        table = wx.hourly(*coords, info["start_utc"], hours=3)
+    except wx.WeatherUnavailable as exc:
+        return lw, None, str(exc)
+    return lw, wx.forecast_by_lap(table, lw["UTC"]), None
 
 
 def _runs(laps: list[int]) -> list[tuple[int, int]]:
@@ -273,8 +292,8 @@ m[2].metric("SC / VSC laps", f"{len(info['neutralised']['SC'])} / {len(info['neu
 m[3].metric("Tyre cliffs found", len(tyre_cliffs))
 m[4].metric("Retirements", int(drivers["DNF"].sum()))
 
-tab_replay, tab_pm, tab_deg, tab_export = st.tabs(
-    ["🎬 Race Replay", "📝 Post-Mortem", "📉 Degradation", "⬇️ Export"])
+tab_replay, tab_pm, tab_deg, tab_wx, tab_export = st.tabs(
+    ["🎬 Race Replay", "📝 Post-Mortem", "📉 Degradation", "🌦️ Weather", "⬇️ Export"])
 
 # --- Replay -----------------------------------------------------------------
 with tab_replay:
@@ -348,6 +367,24 @@ with tab_deg:
             "n_laps": "Laps", "max_tyre_life": "Max age", "sample": "Sample",
         },
     )
+
+# --- Weather ------------------------------------------------------------------
+with tab_wx:
+    lap_wx, fc_laps, fc_error = recap_weather(*active)
+    if lap_wx.empty or lap_wx[["AirTemp", "TrackTemp"]].isna().all().all():
+        st.info("No weather feed for this session (timing-only load).")
+    else:
+        wet_laps = int(lap_wx["Rainfall"].sum())
+        w = st.columns(4)
+        w[0].metric("Track temperature", f"{lap_wx['TrackTemp'].min():.0f}–{lap_wx['TrackTemp'].max():.0f} °C")
+        w[1].metric("Air temperature", f"{lap_wx['AirTemp'].min():.0f}–{lap_wx['AirTemp'].max():.0f} °C")
+        w[2].metric("Laps with rain", wet_laps)
+        if fc_laps is not None and fc_laps["rain_prob"].notna().any():
+            w[3].metric("Forecast rain chance (max)", f"{fc_laps['rain_prob'].max():.0f}%")
+        st.plotly_chart(wx.build_weather_figure(lap_wx, fc_laps), width="stretch", theme="streamlit")
+        st.caption("Lines and blue bands: the circuit's own sensors at the moment the leader finished "
+                   "each lap. Bars: Open-Meteo's archived hourly forecast for the hour each lap was run "
+                   f"in. {wx.CREDIT}." + (f" (Forecast unavailable: {fc_error}.)" if fc_error else ""))
 
 # --- Export -------------------------------------------------------------------
 with tab_export:

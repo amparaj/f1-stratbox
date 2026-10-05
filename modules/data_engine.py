@@ -285,6 +285,58 @@ def get_race_timeline(year: int, location: str, session_type: str) -> pd.DataFra
     return tl[cols].sort_values(["LapNumber", "RunningPosition"]).reset_index(drop=True)
 
 
+def _session_t0_utc(session) -> pd.Timestamp | None:
+    """The UTC moment session times (lap `Time`, weather `Time`) count from, if known."""
+    t0 = getattr(session, "t0", None)                    # modules/openf1.Session
+    if t0 is None:
+        try:
+            t0 = session.t0_date                         # FastF1: naive UTC
+        except Exception:  # noqa: BLE001 — not loaded
+            return None
+    if t0 is None or pd.isna(t0):
+        return None
+    t0 = pd.Timestamp(t0)
+    return t0.tz_localize("UTC") if t0.tzinfo is None else t0.tz_convert("UTC")
+
+
+WEATHER_COLUMNS = ["AirTemp", "TrackTemp", "Humidity", "WindSpeed", "Rainfall"]
+
+
+@st.cache_data(show_spinner=False, max_entries=12)
+def get_lap_weather(year: int, location: str, session_type: str) -> pd.DataFrame:
+    """
+    The track's weather sensors lap by lap: the latest reading when the leader finished each
+    lap. Columns LapNumber, Time (session s), UTC, AirTemp, TrackTemp (°C), Humidity (%),
+    WindSpeed (m/s), Rainfall. Empty when the weather feed isn't loaded (timing-only tier).
+    """
+    session, _ = load_session(year, location, session_type)
+    laps = get_all_laps(year, location, session_type)
+    out = laps.dropna(subset=["Time"]).groupby("LapNumber", as_index=False)["Time"].min()
+    try:
+        w = timedeltas_to_seconds(pd.DataFrame(session.weather_data))
+    except Exception:  # noqa: BLE001 — weather not loaded
+        w = pd.DataFrame()
+    if w.empty or "Time" not in w:
+        return pd.DataFrame(columns=["LapNumber", "Time", "UTC", *WEATHER_COLUMNS])
+    w = w[["Time", *[c for c in WEATHER_COLUMNS if c in w]]].dropna(subset=["Time"]).sort_values("Time")
+    # The feed has the odd zero temperature reading: treat it as missing.
+    for c in ("AirTemp", "TrackTemp"):
+        if c in w:
+            w[c] = w[c].where(w[c] > 0)
+    out = pd.merge_asof(out.sort_values("Time"), w, on="Time", direction="backward")
+    out = out.reindex(columns=["LapNumber", "Time", *WEATHER_COLUMNS])
+    out["Rainfall"] = out["Rainfall"].fillna(False).astype(bool)
+    t0 = _session_t0_utc(session)
+    if t0 is None:
+        # FastF1 needs car data for t0_date: lap 1 starts at the scheduled start instead.
+        start = _session_start(year, location, session_type)
+        lap1 = laps.loc[laps["LapNumber"] == 1, "LapStartTime"].min()
+        if start is not None and pd.notna(lap1):
+            t0 = start - pd.Timedelta(seconds=float(lap1))
+    out.insert(2, "UTC", t0 + pd.to_timedelta(out["Time"], unit="s") if t0 is not None else pd.NaT)
+    return out.reset_index(drop=True)
+
+
 def _neutralised_laps(laps: pd.DataFrame) -> dict[str, list[int]]:
     """Lap numbers run (at least partly) under SC, VSC or red flag."""
     by_lap = laps.groupby("LapNumber")["TrackStatus"].apply(lambda s: "".join(s))
@@ -353,6 +405,7 @@ def get_session_info(year: int, location: str, session_type: str) -> dict:
         "load_tier": load_info["tier"],
         "load_warnings": load_info["warnings"],
         "provisional": bool(provisional),
+        "start_utc": start,
     }
 
 

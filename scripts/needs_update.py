@@ -13,6 +13,8 @@ Prints "yes" or "no" (and writes `update=true|false` to $GITHUB_OUTPUT when set)
   * a session is published but still provisional (no official classification or grid yet), or
     the last export couldn't load some sessions ("pending": a rate limit on a cold start, or
     data not out yet), and the last export is REFRESH_MINUTES old;
+  * the next race is within WEATHER_DAYS and its weather forecast (Open-Meteo, in the
+    strategy forecast) is WEATHER_REFRESH_HOURS old;
   * the site's data is more than MAX_AGE_DAYS old (calendar changes, code fixes).
 """
 import datetime as dt
@@ -30,6 +32,8 @@ LATEST_FINISH_H = 6
 RETRY_DAYS = 4
 REFRESH_MINUTES = 50
 MAX_AGE_DAYS = 7
+WEATHER_DAYS = 4
+WEATHER_REFRESH_HOURS = 6
 OPENF1 = "https://api.openf1.org/v1/"
 
 
@@ -92,6 +96,11 @@ def reasons(meta: dict | None, now: dt.datetime) -> list[str]:
                 out.append(f"{sid} {ev['event']} is still provisional")
     if meta.get("pending") and refresh:
         out.append(f"{len(meta['pending'])} sessions still to download: {', '.join(meta['pending'][:5])}")
+    upcoming = [dt.datetime.fromisoformat(e["race_utc"]) for e in meta["calendar"]
+                if e.get("race_utc") and not e.get("done_R")]
+    soon = [t for t in upcoming if now < t < now + dt.timedelta(days=WEATHER_DAYS)]
+    if soon and age > dt.timedelta(hours=WEATHER_REFRESH_HOURS):
+        out.append(f"the weather forecast for the race on {min(soon):%a %d %b} is {age.total_seconds() / 3600:.0f} h old")
     if age > dt.timedelta(days=MAX_AGE_DAYS):
         out.append(f"data is {age.days} days old")
     return out

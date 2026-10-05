@@ -4,7 +4,10 @@ pages/3_Future_Sandbox.py — Strategic planning sandbox.
 Sidebar control panel injects scenario modifiers into the simulator:
     Team Upgrade Impact (%)      -5 … +5   → deg slope × (1 − pct/100)
     Track Temperature Delta (°C) -15 … +15 → per-compound thermal deg & earlier cliff
-    Rain Entry Lap               None or 1 … race distance → forced switch to Inter/Wet
+                                              (default: forecast track temp − reference)
+    Rain Entry Lap / Dry Lap     a what-if rain spell for the deterministic run
+    Rain risk (Monte Carlo)      none, the race's forecast or climate (Open-Meteo, one
+                                 scenario per ensemble member or past day), or set by hand
 
 Baseline pace/deg comes either from generic compound presets or is calibrated
 from the session loaded on the other pages (field-median fits per compound).
@@ -20,6 +23,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # allow `import config`
 
+import fastf1
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -28,6 +32,7 @@ import config
 from modules import analytics as an
 from modules import data_engine as de
 from modules import simulator as sim
+from modules import weather as wx
 
 MAX_STRATEGIES = len(config.STRATEGY_COLORS)
 
@@ -42,9 +47,45 @@ def calibrated_baseline(year: int, event: str, stype: str) -> dict:
 
 
 @st.cache_data(show_spinner=False, max_entries=32)
-def cached_monte_carlo(strategies: dict, sim_kwargs: dict, n_sims: int, sc_prob: float, noise: float):
+def cached_monte_carlo(strategies: dict, sim_kwargs: dict, n_sims: int, sc_prob: float, noise: float,
+                       scenarios: list | None):
     return sim.run_monte_carlo(strategies, n_sims=n_sims, sc_probability=sc_prob,
-                               lap_noise_sd=noise, **sim_kwargs)
+                               lap_noise_sd=noise, weather_scenarios=scenarios, **sim_kwargs)
+
+
+@st.cache_data(show_spinner=False, max_entries=16, ttl=3600)
+def session_track_temp(year: int, event: str, stype: str) -> float | None:
+    """Mean track temperature of a session (the calibration's reference)."""
+    lw = de.get_lap_weather(year, event, stype)
+    return float(lw["TrackTemp"].mean()) if lw["TrackTemp"].notna().any() else None
+
+
+@st.cache_data(show_spinner=False, max_entries=16, ttl=3600)
+def next_race_at(circuit: str) -> pd.Timestamp | None:
+    """This season's (or next season's) race start at a circuit, if it's still to come."""
+    now = pd.Timestamp.now(tz="UTC")
+    for year in (now.year, now.year + 1):
+        try:
+            sched = fastf1.get_event_schedule(year, include_testing=False)
+        except Exception:  # noqa: BLE001 — offline
+            return None
+        for _, ev in sched.iterrows():
+            if config.get_pit_loss(ev["Location"], ev["EventName"])[1] != circuit:
+                continue
+            for i in range(1, 6):
+                if ev[f"Session{i}"] == "Race" and pd.notna(ev[f"Session{i}DateUtc"]):
+                    start = pd.Timestamp(ev[f"Session{i}DateUtc"]).tz_localize("UTC")
+                    if start > now:
+                        return start
+    return None
+
+
+@st.cache_data(show_spinner=False, max_entries=16, ttl=1800)
+def cached_outlook(names: tuple, start_utc: pd.Timestamp, total_laps: int, reference_start):
+    try:
+        return wx.outlook(names, start_utc, total_laps, reference_start=reference_start), None
+    except wx.WeatherUnavailable as exc:
+        return None, str(exc)
 
 
 # ---------------------------------------------------------------------------
@@ -70,7 +111,8 @@ if source.startswith("Calibrate"):
 with st.sidebar:
     if calib:
         info = calib["info"]
-        circuit_default, _ = config.get_pit_loss(info["location"], info["event_name"])
+        circuit_default, circuit = config.get_pit_loss(info["location"], info["event_name"])
+        circuit_names = (info["location"], info["event_name"])
         total_laps = st.number_input("Race distance (laps)", 10, 90, int(info["total_laps"]))
         base_pace = {c: m["base_pace"] for c, m in calib["field"].items()}
         deg_rate = {c: m["deg_rate"] for c, m in calib["field"].items()}
@@ -79,6 +121,7 @@ with st.sidebar:
         circuits = sorted(config.TRACK_PIT_LOSS)
         circuit = st.selectbox("Circuit", circuits, index=circuits.index("Silverstone"))
         circuit_default = config.TRACK_PIT_LOSS[circuit]
+        circuit_names = (circuit,)
         total_laps = st.number_input("Race distance (laps)", 10, 90, 52)
         base_pace = st.number_input("Fresh-Soft lap time, full fuel (s)", 60.0, 130.0, 91.0, 0.1)
         deg_rate = st.number_input("Medium deg rate (s/lap)", 0.0, 0.5,
@@ -90,10 +133,53 @@ with st.sidebar:
     st.markdown("### 🎛️ Scenario controls")
     upgrade = st.slider("Team Upgrade Impact (%)", -5.0, 5.0, 0.0, 0.5,
                         help="+2 % scales every degradation slope by 0.98; negative = worse.")
-    temp_delta = st.slider("Track Temperature Delta (°C)", -15, 15, 0, 1,
-                           help="Hotter track → higher thermal deg and an earlier cliff, softs most.")
+
+    # ---------------- Weather ----------------
+    st.markdown("### 🌦️ Weather")
+    risk_src = st.radio("Rain risk in the Monte Carlo", ["Forecast / climate", "Set by hand", "None"],
+                        help="Forecast: Open-Meteo's ensemble for the race (up to 16 days ahead), one "
+                             "scenario per member; further out, the climate: the race window on the same "
+                             "dates in the last 10 years. Each simulated race draws one scenario.")
+    outlook, outlook_err, race_start = None, None, None
+    if risk_src == "Forecast / climate":
+        default_start = next_race_at(circuit) if circuit else None
+        if default_start is None and calib and calib["info"].get("start_utc") is not None:
+            default_start = calib["info"]["start_utc"]
+        default_start = default_start or (pd.Timestamp.now(tz="UTC").normalize() + pd.Timedelta(days=7, hours=13))
+        d = st.date_input("Race date", default_start.date())
+        h = st.time_input("Start (UTC)", default_start.time().replace(second=0, microsecond=0))
+        race_start = pd.Timestamp.combine(d, h).tz_localize("UTC")
+        # Calibrated: the temperature change against the calibration race, estimated the same
+        # way from the same source for both (modules/weather.py).
+        ref_start = calib["info"].get("start_utc") if calib else None
+        with st.spinner("Fetching the weather outlook…"):
+            outlook, outlook_err = cached_outlook(circuit_names, race_start, int(total_laps), ref_start)
+        if outlook_err:
+            st.warning(f"No weather outlook ({outlook_err}).")
+    elif risk_src == "Set by hand":
+        chance = st.slider("Chance of rain", 0.0, 1.0, 0.3, 0.05)
+        window = st.slider("Rain starts between laps", 1, int(total_laps), (1, int(total_laps)))
+        to_flag = st.toggle("Rain lasts to the flag", value=False)
+        duration = None if to_flag else st.slider("Rain lasts (laps)", 1, int(total_laps), (5, 20))
+        heavy_share = st.slider("Share of it heavy", 0.0, 1.0, 0.2, 0.05)
+
+    # Track temperature: the forecast's against what the baseline stands for.
+    ref_temp = (session_track_temp(*active) if calib else None) or config.REFERENCE_TRACK_TEMP
+    forecast_delta = None
+    if outlook and outlook.get("track") is not None:
+        forecast_delta = outlook.get("temp_delta") if calib else outlook["track"] - ref_temp
+    temp_default = int(round(max(-15, min(15, forecast_delta)))) if forecast_delta is not None else 0
+    temp_delta = st.slider("Track Temperature Delta (°C)", -15, 15, temp_default, 1,
+                           help="Hotter track → higher thermal deg and an earlier cliff, softs most. "
+                                f"Against {ref_temp:.0f} °C ({'the calibration session' if calib else 'the presets'}); "
+                                "set from the forecast when there is one.")
+
+    st.caption("What-if rain spell (deterministic run)")
     rain_choice = st.selectbox("Rain Entry Lap", ["None"] + list(range(1, int(total_laps) + 1)))
     rain_lap = None if rain_choice == "None" else int(rain_choice)
+    dry_choice = st.selectbox("Track dry again from lap", ["Never (wet to the flag)"]
+                              + list(range((rain_lap or 1) + 1, int(total_laps) + 1)), disabled=rain_lap is None)
+    dry_lap = None if rain_lap is None or isinstance(dry_choice, str) else int(dry_choice)
     intensity = st.radio("Rain intensity", list(config.RAIN_PROFILES), horizontal=True,
                          disabled=rain_lap is None)
 
@@ -103,7 +189,12 @@ with st.sidebar:
     noise = st.slider("Lap-time noise σ (s)", 0.0, 1.0, config.MC_LAP_NOISE_SD, 0.05)
 
 total_laps = int(total_laps)
-weather = {"rain_lap": rain_lap, "intensity": intensity} if rain_lap else None
+weather = {"rain_lap": rain_lap, "dry_lap": dry_lap, "intensity": intensity} if rain_lap else None
+scenarios = None
+if outlook:
+    scenarios = outlook["scenarios"]
+elif risk_src == "Set by hand":
+    scenarios = wx.manual_scenarios(chance, window, duration, heavy_share, total_laps)
 
 # ---------------------------------------------------------------------------
 # Strategy selection
@@ -140,6 +231,32 @@ sim_kwargs = dict(base_pace=base_pace, degradation_rate=deg_rate, total_laps=tot
 laps_long, summary = sim.compare_strategies(strategies, **sim_kwargs)
 
 # ---------------------------------------------------------------------------
+# Weather outlook
+# ---------------------------------------------------------------------------
+if outlook:
+    with st.container(border=True):
+        src = (f"{outlook['model'].split('_')[0].upper()} ensemble, {outlook['samples']} members"
+               if outlook["source"] == "ensemble"
+               else f"climate: {outlook['samples']} days around {race_start:%d %b} in the last {config.CLIMATE_YEARS} years")
+        st.markdown(f"**🌦️ Weather outlook** · {race_start:%a %d %b %Y %H:%M} UTC · {src}")
+        o = st.columns(4)
+        o[0].metric("Chance of rain", f"{outlook['rain_chance']:.0%}")
+        o[1].metric("Heavy rain", f"{outlook['heavy_chance']:.0%}")
+        o[2].metric("Typical start", f"lap {outlook['rain_lap_median']:.0f}" if outlook["rain_lap_median"] else "—")
+        expected = ref_temp + forecast_delta if calib and forecast_delta is not None else outlook.get("track")
+        o[3].metric("Track (expected)", f"{expected:.0f} °C" if expected is not None else "—",
+                    delta=f"{forecast_delta:+.1f} °C vs {'calibration race' if calib else 'presets'}"
+                    if forecast_delta is not None else None, delta_color="off",
+                    help="Air temperature plus sunshine; calibrated, the change against the "
+                         "calibration race (estimated the same way) added to its sensor reading.")
+        st.caption(f"Rain = {config.RAIN_WET_MM_H} mm/h or more in the hour a lap falls in "
+                   f"(heavy from {config.RAIN_HEAVY_MM_H}); first spell only. {wx.CREDIT}.")
+elif scenarios:
+    s_ = wx.summarise(scenarios)
+    st.caption(f"🌦️ Rain risk by hand: {s_['rain_chance']:.0%} of simulated races see rain, "
+               f"{s_['heavy_chance']:.0%} heavy.")
+
+# ---------------------------------------------------------------------------
 # Headline cards
 # ---------------------------------------------------------------------------
 st.markdown("##### Deterministic outcome")
@@ -158,8 +275,10 @@ for col, (_, row) in zip(cards, summary.iterrows()):
 
 def _rain_marker(fig: go.Figure) -> None:
     if rain_lap:
-        fig.add_vrect(x0=rain_lap - 0.5, x1=total_laps + 0.5, fillcolor="rgba(42,120,214,0.08)",
-                      line_width=0, layer="below", annotation_text=f"🌧️ {intensity} from lap {rain_lap}",
+        end = (dry_lap or total_laps + 1) - 0.5
+        label = f"🌧️ {intensity} laps {rain_lap}–{dry_lap - 1}" if dry_lap else f"🌧️ {intensity} from lap {rain_lap}"
+        fig.add_vrect(x0=rain_lap - 0.5, x1=end, fillcolor="rgba(42,120,214,0.08)",
+                      line_width=0, layer="below", annotation_text=label,
                       annotation_position="top left", annotation_font_size=11)
 
 
@@ -231,15 +350,17 @@ with st.expander("Compound model in use (after modifiers)"):
                                   else "preset" for c in mdf.index]
     st.dataframe(mdf.style.format(precision=3), width="stretch")
     st.caption(f"Fuel effect {config.FUEL_EFFECT_PER_LAP} s/lap. Upgrade factor "
-               f"×{1 - upgrade / 100:.3f} on deg. Rain forces a stop onto the "
-               "wet compound at the end of the rain lap and cancels remaining dry stops.")
+               f"×{1 - upgrade / 100:.3f} on deg. Wet tyres' base is the fastest dry base; on a wet "
+               "lap they add the intensity's pace offset, on a dry one "
+               f"{config.WET_TYRE_ON_DRY}. A car on the wrong tyre in the rain pits for the right one "
+               "unless staying out costs less; once the track is dry it goes back onto slicks.")
 
 # ---------------------------------------------------------------------------
 # Monte Carlo
 # ---------------------------------------------------------------------------
 st.markdown("##### Stochastic outcome (Monte Carlo)")
 with st.spinner(f"Simulating {n_sims} races…"):
-    mc_results, mc_summary = cached_monte_carlo(strategies, sim_kwargs, n_sims, sc_prob, noise)
+    mc_results, mc_summary = cached_monte_carlo(strategies, sim_kwargs, n_sims, sc_prob, noise, scenarios)
 
 best_mean = mc_summary["Mean (s)"].min()
 mc_results["Δ vs best mean (s)"] = mc_results["Total (s)"] - best_mean
@@ -275,5 +396,6 @@ st.dataframe(mc_summary, hide_index=True, width="stretch", column_config={
 })
 st.caption(f"{n_sims} races · lap noise σ={noise:.2f} s · SC probability {sc_prob:.0%} "
            f"(3–5 laps, pit loss ×{config.SC_PIT_LOSS_FACTOR}, stops due within "
-           f"{config.MC_SC_PIT_WINDOW} laps are brought forward). Every strategy sees the same "
-           "noise and SC draw in each simulated race.")
+           f"{config.MC_SC_PIT_WINDOW} laps are brought forward)"
+           + (", one weather scenario per race" if scenarios else "")
+           + ". Every strategy sees the same noise, SC and weather draw in each simulated race.")

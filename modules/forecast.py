@@ -32,7 +32,9 @@ field-median deg at that circuit against the preset deg, averaged over compounds
 circuits both have raced (season_factor). Every compound's deg is its preset times that,
 so the presets set the split between compounds and their pace gaps and cliffs. Every 1-stop and 2-stop plan over the dry compounds is run
 through the simulator's lap loop; the best few go into its Monte Carlo (Safety Cars,
-lap noise).
+lap noise, and a weather scenario per race from the forecast or the climate,
+modules/weather.py). The expected track temperature against last season's race there
+moves the deg and cliffs (the simulator's track_temp_delta).
 """
 
 from __future__ import annotations
@@ -215,14 +217,17 @@ def _softest_first(stint: sim.Stint) -> int:
 
 
 def best_strategies(base_pace: dict[str, float], deg: dict[str, float], total_laps: int,
-                    pit_loss: float, seed: int = 7) -> dict:
+                    pit_loss: float, seed: int = 7, track_temp_delta: float = 0.0,
+                    weather_scenarios: list[dict | None] | None = None) -> dict:
     """
     Search every plan deterministically and keep the best plan for each set of compounds
     (with no Safety Car or rain the order of the same stints doesn't change the race time,
     so S→H→H and H→H→S are one plan; the soft-first, harder-later order is kept), then Monte Carlo the top STRATEGY_TOP_N (always including the best 1-stop and
-    2-stop). Returns {"strategies": [...], "trace": DataFrame(strategy, lap, gap_to_best)}.
+    2-stop). The search and the trace are a dry race; the Monte Carlo draws a weather
+    scenario per race when given some ("mean_dry" is its mean without them).
+    Returns {"strategies": [...], "trace": DataFrame(strategy, lap, gap_to_best)}.
     """
-    models = sim.build_compound_models(base_pace, deg)
+    models = sim.build_compound_models(base_pace, deg, track_temp_delta=track_temp_delta)
     best_by_order: dict[str, tuple[float, list[sim.Stint]]] = {}
     for plan in _candidate_plans(total_laps):
         total, _ = sim._simulate_core(plan, total_laps, models, pit_loss,
@@ -238,10 +243,15 @@ def best_strategies(base_pace: dict[str, float], deg: dict[str, float], total_la
     picked = sorted(picked[:config.STRATEGY_TOP_N], key=lambda p: best_by_order[_compound_set(p)][0])
 
     named = {f"{len(p) - 1}-Stop · {sim.strategy_label(p)}": p for p in picked}
-    kwargs = dict(base_pace=base_pace, degradation_rate=deg, total_laps=total_laps, pit_loss=pit_loss)
+    kwargs = dict(base_pace=base_pace, degradation_rate=deg, total_laps=total_laps, pit_loss=pit_loss,
+                  track_temp_delta=track_temp_delta)
     laps_long, summary = sim.compare_strategies(named, **kwargs)
-    _, mc = sim.run_monte_carlo(named, seed=seed, **kwargs)
+    _, mc = sim.run_monte_carlo(named, seed=seed, weather_scenarios=weather_scenarios, **kwargs)
     mc = mc.set_index("Strategy")
+    if weather_scenarios and any(weather_scenarios):
+        mc_dry = sim.run_monte_carlo(named, seed=seed, **kwargs)[1].set_index("Strategy")
+    else:
+        mc_dry = mc
     strategies = [{
         "name": r["Strategy"], "plan": r["Plan"], "stops": int(r["Stops"]),
         "pit_laps": [int(x) for x in r["Pit laps"]], "total": float(r["Total (s)"]),
@@ -250,6 +260,7 @@ def best_strategies(base_pace: dict[str, float], deg: dict[str, float], total_la
         "p10": float(mc.loc[r["Strategy"], "P10 (s)"]),
         "p90": float(mc.loc[r["Strategy"], "P90 (s)"]),
         "win_prob": float(mc.loc[r["Strategy"], "Win probability"]),
+        "mean_dry": float(mc_dry.loc[r["Strategy"], "Mean (s)"]),
         "stints": [{"compound": c, "laps": int(n)} for c, n in named[r["Strategy"]]],
     } for _, r in summary.iterrows()]
     trace = laps_long[["Strategy", "Lap", "GapToBest"]].rename(

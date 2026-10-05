@@ -95,6 +95,7 @@ cache (`.fastf1/`) so the dashboard opens them instantly.
 
 Website: lap timing, tyres, pit stops, race control, weather and results from OpenF1; the calendar
 via FastF1; starting grids from Jolpica (Ergast); history since 1950 from Jolpica's database dump
-(CC BY-NC-SA 4.0). Dashboard: Formula 1's live-timing feed via
+(CC BY-NC-SA 4.0); weather forecasts and climate from [Open-Meteo](https://open-meteo.com/)
+(free, no key, non-commercial, CC BY 4.0). Dashboard: Formula 1's live-timing feed via
 FastF1 (set `config.DATA_SOURCE = "openf1"` to use OpenF1 instead). Pit-lane losses (`config.TRACK_PIT_LOSS`) and the
 tyre presets are approximate. Not affiliated with Formula 1 or the FIA.

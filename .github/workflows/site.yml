@@ -12,7 +12,8 @@
 # FastF1 reads, doesn't answer GitHub's runners. FastF1 still provides the calendar. A session
 # that's final (4 days on, result and grid in) is written to archive/ and committed to main by
 # this workflow, and read from there for good. Newer sessions go through download caches
-# (.openf1/, .fastf1/) kept between runs with actions/cache. The History pages (every season since
+# (.openf1/, .fastf1/, .openmeteo/) kept between runs with actions/cache. Weather comes from
+# Open-Meteo (free, no key): forecasts, and climate downloads that never change once fetched. The History pages (every season since
 # 1950) are rebuilt each run from archive/jolpica/, one file per finished season; Jolpica's dump
 # (cached in .jolpica/) is downloaded only for a season not archived yet, which is then committed.
 #
@@ -70,6 +71,7 @@ jobs:
             .openf1
             .jolpica
             .fastf1
+            .openmeteo
           key: data-${{ github.run_id }}
           restore-keys: data-
 
@@ -106,6 +108,7 @@ jobs:
             .openf1
             .jolpica
             .fastf1
+            .openmeteo
           key: data-${{ github.run_id }}
 
       - uses: actions/setup-node@v5

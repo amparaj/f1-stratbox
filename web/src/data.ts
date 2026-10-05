@@ -79,7 +79,9 @@ export interface Race {
   start_utc: string | null; session_name: string; total_laps: number; complete: boolean;
   neutralised: { SC: number[]; VSC: number[]; RED: number[] };
   rain_laps: number[];
-  weather: { air?: [number, number]; track?: [number, number]; rain?: boolean };
+  weather: { air?: [number, number]; track?: [number, number]; track_mean?: number; rain?: boolean };
+  /** The track sensors lap by lap (lap, air, track, humidity, wind, rain), or null without a weather feed. */
+  weather_laps?: Columns | null;
   fastest: { driver: string; time: number; lap: number } | null;
   results: Columns; laps: Columns; stints: Columns; deg: Columns;
   compounds: CompoundModel[];
@@ -93,8 +95,21 @@ export interface ForecastDriver {
 export interface StrategyPlan {
   name: string; plan: string; stops: number; pit_laps: number[]; total: number; delta: number;
   mean: number; p10: number; p90: number; win_prob: number; stints: { compound: string; laps: number }[];
+  /** Monte Carlo mean without the weather scenarios. */
+  mean_dry?: number;
+}
+export interface WeatherLap { lap: number; air: number | null; track: number | null; humidity: number | null; wind: number | null; rain: boolean }
+export interface WeatherHour { time: string; air: number | null; track: number | null; rain_mm: number | null; rain_prob: number | null }
+/** A race's weather outlook (modules/weather.py via site_export.weather_forecast). */
+export interface WeatherForecast {
+  source: "ensemble" | "climate"; model: string; samples: number;
+  rain_chance: number; heavy_chance: number; rain_lap_median: number | null;
+  air: number | null; track: number | null; track_ref: number | null; temp_delta: number;
+  reference: string | null; reference_track: number | null; track_expected: number | null;
+  hourly?: Columns;
 }
 export interface StrategyForecast {
+  weather?: WeatherForecast | null;
   calibrated_on: string | null; severity: number; season_factor: number; total_laps: number;
   pit_loss: number; pit_loss_known: boolean; deg: Record<string, number>;
   strategies: StrategyPlan[]; trace: Columns;

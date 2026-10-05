@@ -178,23 +178,65 @@ COMPOUND_COLORS = {
 }
 
 # ---------------------------------------------------------------------------
-# Weather model for the sandbox. When rain arrives, slicks become undriveable,
-# the car is forced onto the wet-weather compound, and the deg slope switches
-# to that compound's wet-track behaviour.
+# Weather model for the simulator (modules/simulator.py). A rain spell runs from its
+# rain lap to its dry lap (the first lap slicks are quicker again; none = wet to the flag).
+# On a wet lap a car pays its tyre's offset for that intensity; a car on the wrong tyre
+# pits for the right one unless staying out is cheaper over the wet laps left (the team
+# knows when the rain stops). Once the track is dry, a car on wet tyres pays
+# WET_TYRE_ON_DRY and pits for slicks unless staying out to the flag is cheaper.
 # ---------------------------------------------------------------------------
-RAIN_PROFILES: dict[str, dict[str, float | str]] = {
+RAIN_PROFILES: dict[str, dict] = {
     "Light rain": {
-        "compound": "INTERMEDIATE",
-        "pace_offset": 7.0,           # inter lap vs. fastest dry base pace
-        "slick_penalty": 12.0,        # extra time per lap still on slicks
-        "deg_multiplier": 1.0,        # applied to the wet compound's preset deg
+        "compound": "INTERMEDIATE",   # the tyre for it
+        # lap time vs the fastest dry base pace, per wet tyre
+        "pace_offset": {"INTERMEDIATE": 7.0, "WET": 10.0},
+        "slick_penalty": 12.0,        # extra per lap on slicks, on top of the dry lap
     },
     "Heavy rain": {
         "compound": "WET",
-        "pace_offset": 14.0,
+        "pace_offset": {"INTERMEDIATE": 20.0, "WET": 14.0},
         "slick_penalty": 28.0,
-        "deg_multiplier": 1.0,
     },
+}
+# Wet tyres on a dry track: seconds per lap slower than the fastest dry base pace, and their
+# deg multiplied by WET_TYRE_DRY_DEG_FACTOR (they overheat). approx.
+WET_TYRE_ON_DRY = {"INTERMEDIATE": 4.5, "WET": 9.0}
+WET_TYRE_DRY_DEG_FACTOR = 3.0
+
+# Forecast precipitation -> laps of rain (modules/weather.py). mm per hour at the circuit.
+RAIN_WET_MM_H = 0.3              # a wet hour: enough to need intermediates
+RAIN_HEAVY_MM_H = 3.0            # heavy: full wets
+RACE_MINUTES = {"R": 95, "S": 32}   # typical start-to-flag time: forecast hours -> laps
+TRACK_DRYING_LAPS = 4            # laps after the rain stops before slicks are quicker. approx.
+
+# Track temperature from a forecast: air + offset + gain x sunshine (W/m², shortwave
+# radiation). Fitted on the track sensors of the 34 dry 2025-26 races against Open-Meteo's
+# archived forecast for the race window: RMSE 3.5 °C (forecast air is 0.5 °C under the sensor's).
+TRACK_TEMP_SUN_GAIN = 0.020      # °C per W/m²
+TRACK_TEMP_BASE_OFFSET = 5.3     # °C over air with no sun (night races: 4-6 °C)
+REFERENCE_TRACK_TEMP = 35.0      # °C the compound presets stand for (no calibration session)
+
+# Open-Meteo (free, no key, non-commercial use, credit "Weather data by Open-Meteo.com",
+# CC BY 4.0). Ensemble members give each forecast's own rain timeline; climate (beyond the
+# ensemble's range) the same race window on CLIMATE_DAYS days around the date, CLIMATE_YEARS years.
+OPEN_METEO_CACHE_DIR = PROJECT_ROOT / ".openmeteo"
+ENSEMBLE_MODELS = (("icon_seamless", 7), ("gfs_seamless", 16))   # (model, days ahead it covers)
+CLIMATE_YEARS = 10
+CLIMATE_DAYS = 3                 # +- days around the race date
+FORECAST_FRESH_HOURS = 3         # re-download a forecast after this
+
+# Circuit coordinates (lat, lon) by TRACK_PIT_LOSS key, for weather lookups. Anything not
+# listed is looked up by name with Open-Meteo's geocoder.
+CIRCUIT_COORDS: dict[str, tuple[float, float]] = {
+    "Silverstone": (52.0786, -1.0169), "Monaco": (43.7347, 7.4206), "Spa": (50.4372, 5.9714),
+    "Monza": (45.6156, 9.2811), "Sakhir": (26.0325, 50.5106), "Jeddah": (21.6319, 39.1044),
+    "Melbourne": (-37.8497, 144.9680), "Suzuka": (34.8431, 136.5410), "Shanghai": (31.3389, 121.2200),
+    "Miami": (25.9581, -80.2389), "Imola": (44.3439, 11.7167), "Montreal": (45.5000, -73.5228),
+    "Barcelona": (41.5700, 2.2611), "Spielberg": (47.2197, 14.7647), "Budapest": (47.5789, 19.2486),
+    "Zandvoort": (52.3888, 4.5409), "Baku": (40.3725, 49.8533), "Marina Bay": (1.2914, 103.8640),
+    "Austin": (30.1328, -97.6411), "Mexico City": (19.4042, -99.0907), "Sao Paulo": (-23.7036, -46.6997),
+    "Las Vegas": (36.1147, -115.1730), "Lusail": (25.4900, 51.4542), "Yas Island": (24.4672, 54.6031),
+    "Sepang": (2.7608, 101.7382), "Madrid": (40.4637, -3.6164),
 }
 
 # ---------------------------------------------------------------------------

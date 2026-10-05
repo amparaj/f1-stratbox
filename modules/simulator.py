@@ -4,7 +4,7 @@ modules/simulator.py — Deterministic & stochastic race strategy sandbox.
 Lap-time model (seconds), per lap L on compound c at tyre age a:
 
     lap = base[c] + deg_eff[c] * a + cliff_extra(c, a) - FUEL * (L - 1)
-          + slick_penalty      (if raining and still on slicks)
+          + condition offset   (see below)
           + pit_loss           (on the in-lap of a stop; scaled under SC)
 
     deg_eff[c] = deg[c] * upgrade_factor * temp_factor[c]
@@ -12,16 +12,23 @@ Lap-time model (seconds), per lap L on compound c at tyre age a:
     temp_factor[c] = 1 + temp_sensitivity[c] * track_temp_delta   (hotter -> more deg,
                      and the cliff arrives earlier: cliff_age / temp_factor)
 
-Weather: from the rain entry lap onwards the track is wet. A car on slicks
-completes that lap with a heavy slick penalty and is forced to pit onto the
-rain profile's compound (Intermediate or Wet); remaining planned dry stops
-are cancelled and the wet compound's own deg slope takes over.
+Weather: a rain spell runs from `rain_lap` to `dry_lap` (the first lap slicks are quicker
+again; none = wet to the flag). Wet tyres' base is the fastest dry base pace.
+    wet lap, slicks       + slick_penalty of the intensity (on top of the dry lap)
+    wet lap, wet tyre     + pace_offset[tyre] of the intensity
+    dry lap, wet tyre     + WET_TYRE_ON_DRY[tyre], deg x WET_TYRE_DRY_DEG_FACTOR
+At the end of a wet lap a car on the wrong tyre pits for the intensity's tyre (its
+remaining planned stops lapse) unless the time it would lose over the wet laps left is
+less than the extra stops; once the track is dry, a car on wet tyres pits for the
+softest slick that reaches the flag, unless staying out to the flag costs less than a
+stop. Teams are assumed to know when the rain stops (radar).
 
 The same core (`_simulate_core`) drives both engines:
     run_sandbox_simulation()  deterministic, one strategy, full lap table
     compare_strategies()      deterministic, many strategies side by side
-    run_monte_carlo()         stochastic: lap noise + random Safety Cars,
-                              common random numbers across strategies
+    run_monte_carlo()         stochastic: lap noise, random Safety Cars and (optionally)
+                              a weather scenario per race; common random numbers
+                              across strategies
 """
 
 from __future__ import annotations
@@ -146,17 +153,33 @@ def build_compound_models(base_pace: float | dict[str, float],
             "cliff_rate": presets[c]["cliff_rate"],
         }
 
-    # Wet-weather compound only exists in the model once rain is scheduled.
-    if weather_modifier and weather_modifier.get("rain_lap"):
-        prof = config.RAIN_PROFILES[weather_modifier.get("intensity", "Light rain")]
-        wc = prof["compound"]
-        models[wc] = {
-            "base": min(base.values()) + float(prof["pace_offset"]),
-            "deg": presets[wc]["deg_rate"] * float(prof["deg_multiplier"]) * upgrade_factor,
-            "cliff_age": presets[wc]["cliff_age"],
-            "cliff_rate": presets[wc]["cliff_rate"],
+    # Wet tyres: base = the fastest dry base pace; the lap loop adds the offset for the
+    # conditions (RAIN_PROFILES on a wet lap, WET_TYRE_ON_DRY on a dry one).
+    for c in config.WET_COMPOUNDS:
+        models[c] = {
+            "base": min(base.values()),
+            "deg": presets[c]["deg_rate"] * upgrade_factor,
+            "cliff_age": presets[c]["cliff_age"],
+            "cliff_rate": presets[c]["cliff_rate"],
         }
     return models
+
+
+def rain_spell(weather: dict | None, total_laps: int) -> tuple[int | None, int, str]:
+    """(rain lap, first dry lap after it, intensity) of a weather modifier; rain lap None = dry."""
+    rain_lap = (weather or {}).get("rain_lap")
+    if not rain_lap:
+        return None, total_laps + 1, "Light rain"
+    dry_lap = weather.get("dry_lap") or total_laps + 1
+    return int(rain_lap), max(int(rain_lap) + 1, int(dry_lap)), weather.get("intensity") or "Light rain"
+
+
+def slick_for(remaining: int, models: dict[str, dict]) -> str:
+    """The softest slick that reaches the flag before its cliff (the Hard if none does)."""
+    for c in config.DRY_COMPOUNDS:
+        if models[c]["cliff_age"] >= remaining:
+            return c
+    return config.DRY_COMPOUNDS[-1]
 
 
 # ---------------------------------------------------------------------------
@@ -167,37 +190,46 @@ def _tyre_lap(model: dict, age: int) -> float:
     return model["base"] + model["deg"] * age + extra
 
 
+def _condition_offset(compound: str, wet: bool, prof: dict) -> float:
+    """Seconds a tyre loses to the conditions on top of its own model."""
+    if wet:
+        if compound in config.DRY_COMPOUNDS:
+            return float(prof["slick_penalty"])
+        return float(prof["pace_offset"][compound])
+    return config.WET_TYRE_ON_DRY[compound] if compound in config.WET_COMPOUNDS else 0.0
+
+
 def _simulate_core(stints: list[Stint], total_laps: int, models: dict[str, dict],
                    pit_loss: float, fuel_effect: float, weather: dict | None,
                    noise: np.ndarray | None = None,
                    sc_laps: frozenset[int] = frozenset(),
                    sc_lap_time: float | None = None,
-                   detail: bool = True):
+                   detail: bool = True, start_age: int = 0, race_start: bool = True):
     """
     Lap-by-lap race. Returns (total_time, rows) where rows is a list of per-lap
-    dicts when detail=True, else None (fast path for Monte Carlo).
+    dicts when detail=True, else None (fast path for Monte Carlo). `start_age` is the
+    first stint's tyre age before lap 1; race_start=False runs the rest of a race from
+    the current lap (Live Race Tracker): no free change to wet tyres if lap 1 is wet.
     """
-    rain_lap = (weather or {}).get("rain_lap")
-    wet_compound = None
-    slick_penalty = 0.0
-    if rain_lap:
-        prof = config.RAIN_PROFILES[weather.get("intensity", "Light rain")]
-        wet_compound, slick_penalty = prof["compound"], float(prof["slick_penalty"])
+    rain_lap, dry_lap, intensity = rain_spell(weather, total_laps)
+    prof = config.RAIN_PROFILES[intensity]
+    wet_compound = prof["compound"]
 
     planned = list(np.cumsum([n for _, n in stints])[:-1])     # end-of-lap pit laps
     next_compounds = [c for c, _ in stints[1:]]
     compound = stints[0][0]
-    if rain_lap == 1:                                          # wet start
-        compound, planned, next_compounds = wet_compound, [], []
-    age, stint_no, total = 0, 1, 0.0
+    if race_start and rain_lap == 1 and compound != wet_compound:    # wet start
+        compound, planned, next_compounds, start_age = wet_compound, [], [], 0
+    age, stint_no, total = start_age, 1, 0.0
     rows = [] if detail else None
 
     for lap in range(1, total_laps + 1):
         age += 1
-        wet = bool(rain_lap) and lap >= rain_lap
-        t = _tyre_lap(models[compound], age) - fuel_effect * (lap - 1)
-        if wet and compound in config.DRY_COMPOUNDS:
-            t += slick_penalty
+        wet = rain_lap is not None and rain_lap <= lap < dry_lap
+        m = models[compound]
+        t = _tyre_lap(m, age) - fuel_effect * (lap - 1) + _condition_offset(compound, wet, prof)
+        if not wet and compound in config.WET_COMPOUNDS:
+            t += m["deg"] * (config.WET_TYRE_DRY_DEG_FACTOR - 1.0) * age
         if noise is not None:
             t += noise[lap - 1]
         under_sc = lap in sc_laps
@@ -207,13 +239,22 @@ def _simulate_core(stints: list[Stint], total_laps: int, models: dict[str, dict]
         # ---- pit decision at the end of this lap ----
         pit_to = None
         if lap < total_laps:
-            if wet and compound in config.DRY_COMPOUNDS:
-                pit_to, planned, next_compounds = wet_compound, [], []      # forced
-            elif planned and lap == planned[0]:
+            left = total_laps - lap
+            wet_left = min(dry_lap, total_laps + 1) - lap - 1
+            if wet and compound != wet_compound and wet_left > 0:
+                # Wrong tyre for the rain: stay out only if that loses less than the stop(s).
+                per_lap = _condition_offset(compound, True, prof) - _condition_offset(wet_compound, True, prof)
+                extra_stops = 1 + (dry_lap <= total_laps) - len(planned)   # planned dry stops lapse
+                if wet_left * per_lap > pit_loss * extra_stops:
+                    pit_to, planned, next_compounds = wet_compound, [], []
+            elif not wet and compound in config.WET_COMPOUNDS and rain_lap is not None and lap >= dry_lap:
+                # Track dry again: back onto slicks unless staying out to the flag is cheaper.
+                if left * config.WET_TYRE_ON_DRY[compound] > pit_loss:
+                    pit_to, planned, next_compounds = slick_for(left, models), [], []
+            # A planned stop (also when the car stayed out in the rain), or a cheap one under SC.
+            if pit_to is None and planned and (lap == planned[0] or (
+                    under_sc and planned[0] - lap <= config.MC_SC_PIT_WINDOW)):
                 planned.pop(0)
-                pit_to = next_compounds.pop(0)
-            elif under_sc and planned and planned[0] - lap <= config.MC_SC_PIT_WINDOW:
-                planned.pop(0)                                              # cheap SC stop
                 pit_to = next_compounds.pop(0)
         if pit_to is not None:
             t += pit_loss * (config.SC_PIT_LOSS_FACTOR if under_sc else 1.0)
@@ -244,7 +285,8 @@ def run_sandbox_simulation(base_pace: float | dict[str, float],
     Theoretical total race time for one stint strategy (default 1-Stop M→H).
 
     upgrade_modifier: percent; +2 scales every deg slope by 0.98.
-    weather_modifier: None or {"rain_lap": int, "intensity": "Light rain"|"Heavy rain"}.
+    weather_modifier: None or {"rain_lap": int, "dry_lap": int | None,
+                      "intensity": "Light rain"|"Heavy rain"}.
     Returns {"total_time", "laps" (DataFrame), "pit_laps", "strategy"}.
     """
     strategy = normalise_strategy(strategy or preset_strategy("1-Stop · M→H", total_laps), total_laps)
@@ -291,6 +333,7 @@ def run_monte_carlo(strategies: dict[str, list[Stint]], base_pace, degradation_r
                     n_sims: int = config.MC_DEFAULT_SIMS,
                     lap_noise_sd: float = config.MC_LAP_NOISE_SD,
                     sc_probability: float = config.MC_SC_PROBABILITY,
+                    weather_scenarios: list[dict | None] | None = None,
                     seed: int = 7) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Monte Carlo race outcomes with lap-time noise and random Safety Cars.
@@ -298,6 +341,9 @@ def run_monte_carlo(strategies: dict[str, list[Stint]], base_pace, degradation_r
     Common random numbers: within one simulated race every strategy sees the
     same noise draw and the same SC timing, so differences between strategies
     come from the strategy, not from luck of the draw.
+
+    weather_scenarios: weather modifiers (None = dry) to draw one from per simulated race,
+    e.g. a forecast's ensemble members (modules/weather.py); replaces weather_modifier.
 
     Returns (results_long[Sim, Strategy, Total], summary) where summary holds
     mean, P10/P90, a 95 % CI on the mean and the win probability.
@@ -316,9 +362,12 @@ def run_monte_carlo(strategies: dict[str, list[Stint]], base_pace, degradation_r
         if total_laps > 6 and rng.random() < sc_probability:
             start = int(rng.integers(2, total_laps - 3))
             sc = frozenset(range(start, min(total_laps, start + int(rng.integers(lo, hi + 1)))))
+        weather = weather_modifier
+        if weather_scenarios:
+            weather = weather_scenarios[int(rng.integers(len(weather_scenarios)))]
         for j, stints in enumerate(norm.values()):
             out[i, j], _ = _simulate_core(stints, total_laps, models, pit_loss,
-                                          config.FUEL_EFFECT_PER_LAP, weather_modifier,
+                                          config.FUEL_EFFECT_PER_LAP, weather,
                                           noise=noise, sc_laps=sc, sc_lap_time=sc_lap_time,
                                           detail=False)
 

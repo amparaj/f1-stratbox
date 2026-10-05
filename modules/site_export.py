@@ -33,6 +33,7 @@ import config
 from modules import analytics as an
 from modules import data_engine as de
 from modules import forecast as fc
+from modules import weather as wx
 
 log = logging.getLogger(__name__)
 
@@ -272,7 +273,7 @@ def export_session(year: int, ev: dict, code: str) -> dict:
     )[["Driver", "LapNumber", "RunningPosition", "GapToLeader", "LapTime", "compound", "TyreLife", "PitIn"]]
     laps.columns = ["driver", "lap", "pos", "gap", "lap_time", "compound", "tyre_life", "pit"]
 
-    weather = {}
+    weather, weather_laps = {}, None
     try:
         session, _ = de.load_session(year, event, code)
         w = pd.DataFrame(session.weather_data)
@@ -280,7 +281,12 @@ def export_session(year: int, ev: dict, code: str) -> dict:
         air, track = w["AirTemp"][w["AirTemp"] > 0], w["TrackTemp"][w["TrackTemp"] > 0]
         weather = {"air": [float(air.min()), float(air.max())],
                    "track": [float(track.min()), float(track.max())],
+                   "track_mean": float(track.mean()),
                    "rain": bool(w["Rainfall"].any())}
+        lw = de.get_lap_weather(year, event, code)
+        if not lw.empty:
+            weather_laps = columns(lw[["LapNumber", "AirTemp", "TrackTemp", "Humidity", "WindSpeed", "Rainfall"]]
+                                   .set_axis(["lap", "air", "track", "humidity", "wind", "rain"], axis=1))
     except Exception:  # noqa: BLE001 — weather is optional
         pass
 
@@ -290,7 +296,7 @@ def export_session(year: int, ev: dict, code: str) -> dict:
         "start_utc": ev["sprint_utc"] if code == "S" else ev["race_utc"],
         "session_name": info["session_name"], "total_laps": info["total_laps"],
         "complete": complete, "neutralised": info["neutralised"], "rain_laps": rain_laps,
-        "weather": weather, "fastest": fastest,
+        "weather": weather, "weather_laps": weather_laps, "fastest": fastest,
         "results": columns(res[["driver", "name", "number", "team", "color", "second_driver", "grid",
                                 "pit_lane_start", "position", "classified", "status", "points", "laps",
                                 "gap", "best_lap", "pace", "dnf", "dns"]]),
@@ -308,8 +314,13 @@ def export_session(year: int, ev: dict, code: str) -> dict:
 # ---------------------------------------------------------------------------
 # Last season, for strategy calibration
 # ---------------------------------------------------------------------------
+def _mean_track_temp(year: int, event: str) -> float | None:
+    lw = de.get_lap_weather(year, event, "R")
+    return float(lw["TrackTemp"].mean()) if lw["TrackTemp"].notna().any() else None
+
+
 def last_season_models(year: int) -> dict[str, dict]:
-    """circuit -> {"event", "total_laps", "field"} for every race of `year`."""
+    """circuit -> {"event", "total_laps", "start_utc", "field", "track_temp"} for every race of `year`."""
     out = {}
     for ev in calendar(year):
         if not ev["race_utc"] or pd.Timestamp(ev["race_utc"]) > pd.Timestamp.now(tz="UTC"):
@@ -318,16 +329,46 @@ def last_season_models(year: int) -> dict[str, dict]:
             info = de.get_session_info(year, ev["event"], "R")
             field = an.field_compound_model(an.calculate_tyre_degradation(de.get_cleaned_laps(year, ev["event"], "R")))
             out[circuit_key(ev["location"])] = {
-                "event": f"{year} {ev['event']}", "total_laps": info["total_laps"],
+                "event": f"{year} {ev['event']}", "total_laps": info["total_laps"], "start_utc": ev["race_utc"],
                 "field": {c: m for c, m in field.items() if c in config.DRY_COMPOUNDS},
+                "track_temp": _mean_track_temp(year, ev["event"]),
             }
         except Exception as exc:  # noqa: BLE001 — a missing race just isn't used
             log.warning("Skipping %s %s for calibration: %s", year, ev["event"], exc)
     return out
 
 
+def weather_forecast(ev: dict, total_laps: int, reference: dict | None, now: dt.datetime) -> dict | None:
+    """
+    The race's weather outlook (modules/weather.py) for the forecast file, or None. The
+    temperature change is against `reference`, the race tyre wear was calibrated on (none:
+    no change); `reference_track` is what that race's own sensors read.
+    """
+    try:
+        o = wx.outlook((ev["location"], ev["event"]), ev["race_utc"], total_laps, "R", now,
+                       reference_start=reference["start_utc"] if reference else None)
+    except Exception as exc:  # noqa: BLE001 — Open-Meteo down: forecast without weather
+        print(f"  r{ev['round']:02d} weather: {str(exc)[:150]}", flush=True)
+        return None
+    out = {k: o.get(k) for k in ("source", "model", "samples", "rain_chance", "heavy_chance",
+                                 "rain_lap_median", "air", "track", "track_ref")}
+    delta = o.get("temp_delta")
+    ref_track = reference.get("track_temp") if reference and delta is not None else None
+    out.update(temp_delta=float(np.clip(delta, -15, 15)) if delta is not None else 0.0,
+               reference=reference["event"] if ref_track is not None or (reference and delta is not None) else None,
+               reference_track=ref_track,
+               # Best absolute guess: last season's sensors plus the change; else the estimate.
+               track_expected=ref_track + delta if ref_track is not None else o.get("track"),
+               scenarios=o["scenarios"])
+    if o["hourly"] is not None:
+        h = o["hourly"].reset_index(names="time")
+        h["time"] = h["time"].map(lambda t: t.isoformat())
+        out["hourly"] = columns(h[["time", "air", "track", "rain_mm", "rain_prob"]])
+    return out
+
+
 def strategy_forecast(ev: dict, last: dict[str, dict], factor: float,
-                      season_severity: list[float]) -> dict:
+                      season_severity: list[float], now: dt.datetime | None = None) -> dict:
     """Best strategies for an upcoming race, calibrated as modules/forecast.py describes."""
     key = circuit_key(ev["location"])
     pit_loss, pit_src = config.get_pit_loss(ev["location"], ev["event"])
@@ -342,8 +383,14 @@ def strategy_forecast(ev: dict, last: dict[str, dict], factor: float,
     # A float base pace and deg rate make the simulator use the presets' compound pace gaps
     # and deg split; the deg is the Medium's, which the others scale from.
     medium_deg = config.COMPOUND_PRESETS["MEDIUM"]["deg_rate"] * severity
-    result = fc.best_strategies(90.0, medium_deg, total_laps, pit_loss)
+    # Track temperature against the race the wear came from (none: no change).
+    weather = weather_forecast(ev, total_laps, prev if last_sev is not None else None,
+                               now or dt.datetime.now(dt.timezone.utc))
+    result = fc.best_strategies(90.0, medium_deg, total_laps, pit_loss,
+                                track_temp_delta=weather["temp_delta"] if weather else 0.0,
+                                weather_scenarios=weather.pop("scenarios") if weather else None)
     return {
+        "weather": weather,
         "calibrated_on": source, "severity": severity, "season_factor": factor,
         "total_laps": total_laps, "pit_loss": pit_loss, "pit_loss_known": pit_src is not None,
         "deg": {c: config.COMPOUND_PRESETS[c]["deg_rate"] * severity for c in config.DRY_COMPOUNDS},
@@ -453,7 +500,8 @@ def export_season(year: int, out_dir: Path, now: dt.datetime | None = None) -> d
                 this_sev = {circuit_key(r["location"]): fc.tyre_severity(r["_field"]) for r in races}
                 factor = fc.season_factor(this_sev, {k: fc.tyre_severity(v["field"]) for k, v in last.items()})
             data["strategy"] = strategy_forecast(
-                ev, last, factor, [v for v in (fc.tyre_severity(r["_field"]) for r in races) if v is not None])
+                ev, last, factor, [v for v in (fc.tyre_severity(r["_field"]) for r in races) if v is not None],
+                now)
         _write(out_dir / "forecasts" / f"r{ev['round']:02d}.json", data)
         forecasts_index.append(ev["round"])
 

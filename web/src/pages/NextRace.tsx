@@ -2,8 +2,11 @@ import * as Plot from "@observablehq/plot";
 import { useCallback, useMemo } from "react";
 import { color } from "../colors";
 import { ChanceBars, DriverChip, Plan } from "../components/f1";
-import { Chart, Loading, Note, plotDefaults, Table, Tiles } from "../components/ui";
-import { forecastFile, rows, type Forecast, type ForecastDriver, type StrategyForecast, type StrategyPlan } from "../data";
+import { Chart, Legend, Loading, Note, plotDefaults, Table, Tiles } from "../components/ui";
+import {
+  forecastFile, rows, type Forecast, type ForecastDriver, type StrategyForecast, type StrategyPlan, type WeatherForecast,
+  type WeatherHour,
+} from "../data";
 import { dec, delta, pct, shortEvent, signed, when } from "../format";
 import { useData, useHash, useSite } from "../site";
 
@@ -86,7 +89,70 @@ export default function NextRace() {
         />
       </section>
 
+      {forecast.strategy?.weather && <Weather w={forecast.strategy.weather} start={ev.race_utc} />}
       {forecast.strategy && <Strategy s={forecast.strategy} />}
+    </>
+  );
+}
+
+const RAIN = "#2a78d6";
+
+function Weather({ w, start }: { w: WeatherForecast; start: string | null }) {
+  const source = w.source === "ensemble"
+    ? <>Open-Meteo's {w.model.startsWith("icon") ? "ICON" : "GFS"} ensemble forecast: {w.samples} versions of the weather, each with its own rain timeline.</>
+    : <>Too far ahead for a forecast, so it's the climate: the race's hours on the {w.samples} days within three days of its date over the last ten years (ERA5).</>;
+  const track = w.track_expected ?? w.track;
+  return (
+    <section>
+      <h3>Weather</h3>
+      <Tiles tiles={[
+        { label: "Chance of rain", value: pct(w.rain_chance), note: w.heavy_chance > 0 ? `${pct(w.heavy_chance)} heavy` : "none of it heavy" },
+        { label: "Track temperature", value: track === null ? "–" : `${track.toFixed(0)} °C`, note: w.reference ? `${signed(w.temp_delta, 1)} °C on ${w.reference}` : "expected" },
+        { label: "Air temperature", value: w.air === null ? "–" : `${w.air.toFixed(0)} °C` },
+      ]} />
+      <p className="muted">
+        {source} A version counts as rain when an hour of the race gets {"≥"}0.3 mm (heavy from 3 mm); laps
+        follow from a typical 95-minute race, and the track is dry again four laps after the rain stops. Each
+        simulated race in the strategy Monte Carlo below draws one of them, so a wet version sends every plan
+        onto intermediates or wets when the rain makes it worth a stop. Track temperature is the air plus the
+        effect of sunshine (fitted on past races){w.reference ? <>, as a change on last season's race here, which sets the tyre wear: hotter wears the tyres faster</> : null}.
+        Weather data by <a href="https://open-meteo.com/">Open-Meteo.com</a>.
+      </p>
+      {w.hourly && <HourlyChart w={w} start={start} />}
+    </section>
+  );
+}
+
+/** The hourly forecast around the race: chance of rain (bars) and the race window. */
+function HourlyChart({ w, start }: { w: WeatherForecast; start: string | null }) {
+  const make = useCallback((width: number) => {
+    const hours = rows<WeatherHour>(w.hourly).map((h) => ({ ...h, t: new Date(h.time) }));
+    const t0 = start ? new Date(start) : null;
+    const t1 = t0 ? new Date(t0.getTime() + 95 * 60_000) : null;
+    return Plot.plot({
+      ...plotDefaults(width),
+      height: 220,
+      x: { type: "time", label: null },
+      y: { label: "Chance of rain (%)", domain: [0, 100], grid: true },
+      marks: [
+        ...(t0 && t1 ? [Plot.rectX([{ a: t0, b: t1 }], { x1: "a", x2: "b", y1: 0, y2: 100, fill: color.grid, fillOpacity: 0.5 })] : []),
+        // Each value is the hour that ends at its time.
+        Plot.rectY(hours, { x1: (h) => new Date(h.t.getTime() - 3_600_000), x2: "t", y: (h) => h.rain_prob ?? 0, fill: RAIN, fillOpacity: 0.55, inset: 1 }),
+        Plot.tip(hours, Plot.pointerX({ x: (h) => new Date(h.t.getTime() - 1_800_000), y: (h) => h.rain_prob ?? 0,
+          title: (h) => `Hour to ${h.t.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+${(h.rain_prob ?? 0).toFixed(0)}% chance of rain, ${(h.rain_mm ?? 0).toFixed(1)} mm
+Air ${h.air?.toFixed(0) ?? "–"} °C, track ~${h.track?.toFixed(0) ?? "–"} °C` })),
+      ],
+    });
+  }, [w, start]);
+  return (
+    <>
+      <Legend items={[{ label: "Chance of rain in the hour", color: RAIN }, { label: "The race", color: color.grid }]} />
+      <Chart make={make} height={220} ariaLabel="Hourly chance of rain around the race" />
+      <p className="muted">
+        The bars are the forecast's chance of any rain at all in each hour, a passing drop included; the chance of
+        rain above counts only versions wet enough to need intermediates, so it's usually lower.
+      </p>
     </>
   );
 }
@@ -105,7 +171,8 @@ function Strategy({ s }: { s: StrategyForecast }) {
           ? <> How hard the circuit is on tyres comes from the {s.calibrated_on} ({s.severity.toFixed(2)}× the preset wear, including this season's {s.season_factor.toFixed(2)}× change); the split between compounds, their pace gaps and cliffs are fixed assumptions.</>
           : <> No usable wear figure from this circuit last season (no race, or its wear was swamped by the track getting faster), so tyre wear is this season's typical level ({s.severity.toFixed(2)}× the presets).</>}
         {" "}The best plans then go through the Monte Carlo: lap-time noise and random Safety Cars, which
-        make a stop cheaper.
+        make a stop cheaper{s.weather ? <>, and the weather above: {pct(s.weather.rain_chance)} of the simulated races see rain</> : null}.
+        {s.weather && s.weather.temp_delta !== 0 && <> The track is expected {Math.abs(s.weather.temp_delta).toFixed(1)} °C {s.weather.temp_delta > 0 ? "hotter" : "cooler"} than last season's race here, which moves the wear and cliffs.</>}
       </p>
       <Table<StrategyPlan>
         data={s.strategies}

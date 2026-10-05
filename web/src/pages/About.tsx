@@ -96,7 +96,9 @@ function Overview() {
           split between compounds, their pace on fresh tyres (Medium 0.45 s and Hard 0.9 s slower than Soft) and the
           age each falls off a cliff are fixed assumptions. Every 1- and 2-stop plan is run lap by lap through the
           simulator; the best ones then go through a Monte Carlo with lap-time noise and a 45% chance of a Safety Car
-          (3–5 laps, which makes a stop cheaper).</li>
+          (3–5 laps, which makes a stop cheaper) and the weather: each simulated race draws one version of the
+          rain from Open-Meteo's ensemble forecast (or, further ahead, the race's dates in the last ten years), and
+          the expected track temperature moves the wear.</li>
         <li><b>Checked against results.</b> Every finished race shows the forecast made from the races before it next
           to the result, under Forecast vs Result. Those are re-made by the current model, not saved copies.</li>
       </ul>
@@ -106,6 +108,8 @@ function Overview() {
         Lap timing, tyre stints, pit stops, race control (Safety Cars, deleted laps), weather and results come
         from the <a href="https://openf1.org">OpenF1</a> API; the calendar through the{" "}
         <a href="https://docs.fastf1.dev/">FastF1</a> library; starting grids from the Jolpica (Ergast) API.
+        Weather forecasts and climate for the races ahead come from{" "}
+        <a href="https://open-meteo.com/">Open-Meteo</a> (CC BY 4.0).
         The <a href="#history">History</a> pages (every season since 1950) come from{" "}
         <a href="https://github.com/jolpica/jolpica-f1">Jolpica</a>'s database, licensed{" "}
         <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a>: results, grids and

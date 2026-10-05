@@ -25,6 +25,12 @@ const FORM_DECAY = 0.75;
 const FORM_RACES = 6;
 const RACE_SD = 0.45;
 const DRIFT_SD = 0.35;
+const WET = { mm: 0.3, heavy: 3, raceMin: 95, drying: 4, sunGain: 0.02, offset: 5.3, years: 10, days: 3 };
+const RAIN = {
+  light: { inter: 7, wet: 10, slick: 12 },
+  heavy: { inter: 20, wet: 14, slick: 28 },
+  onDry: { inter: 4.5, wet: 9, degFactor: 3 },
+};
 // Pirelli's Hard white is too faint for a line on the light page; config.py's grey stands in for it.
 const LINE: Record<keyof typeof PRESETS, string> = { S: COMPOUND.S.color, M: "#e0a800", H: "#9c9c9c" };
 
@@ -40,6 +46,7 @@ const SECTIONS = [
   { id: "race", title: "Race forecast" },
   { id: "title", title: "Title odds" },
   { id: "strategy", title: "Tyre strategy" },
+  { id: "weather", title: "Weather" },
   { id: "checking", title: "Checking the forecasts" },
   { id: "limits", title: "Assumptions and limits" },
 ] as const;
@@ -123,6 +130,7 @@ export default function Docs() {
       <RaceForecast />
       <TitleOdds />
       <Strategy />
+      <Weather />
       <Checking />
       <Limits />
     </div>
@@ -144,7 +152,7 @@ function Architecture() {
         { label: "Data", join: "one session at a time", nodes: [
           { title: "Laps & stints", text: "lap times, tyre compound and age, pit in and out", kind: "source", section: "data" },
           { title: "Race control", text: "SC, VSC and red flag periods, deleted laps", kind: "source", section: "data" },
-          { title: "Weather", text: "rain flag through the race", kind: "source", section: "data" },
+          { title: "Weather", text: "track sensors through the race; Open-Meteo forecast and climate ahead", kind: "source", section: "weather" },
           { title: "Results & grid", text: "classification, points, starting grid", kind: "source", section: "data" },
         ] },
         { label: "Clean", join: "laps that show true pace", nodes: [
@@ -191,7 +199,8 @@ function Data() {
         <li><b>Track status per lap.</b> Race control messages give when each Safety Car, VSC and red flag starts
           and ends; a lap is marked neutralised if any part of it falls inside one of those periods.</li>
         <li><b>Deleted laps.</b> Race control's "... LAP <i>n</i> DELETED" messages mark the lap.</li>
-        <li><b>Rain.</b> A lap is wet if the weather feed reported rain at its start or its end.</li>
+        <li><b>Rain.</b> A lap is wet if the weather feed reported rain at its start or its end. The feed's air and
+          track temperature, humidity and wind are shown lap by lap under each race's Weather.</li>
         <li><b>Running order and gaps.</b> From the time each car crossed the line at the end of every lap (below).</li>
       </ul>
       <p>
@@ -667,8 +676,8 @@ function Strategy() {
           { title: "Best plan per compound set", text: "without a Safety Car, S→H→H takes as long as H→H→S: 10 sets", kind: "model" },
         ] },
         { label: "Monte Carlo", join: "", nodes: [
-          { title: "500 races", text: "lap noise 0.30 s; Safety Car in 45%, 3–5 laps", kind: "model" },
-          { title: "Same luck for every plan", text: "each race's noise and Safety Car are shared by all five", kind: "model" },
+          { title: "500 races", text: "lap noise 0.30 s; Safety Car in 45%, 3–5 laps; one weather scenario each", kind: "model", section: "weather" },
+          { title: "Same luck for every plan", text: "each race's noise, Safety Car and weather are shared by all five", kind: "model" },
         ] },
         { label: "Out", nodes: [
           { title: "Best strategies", text: "race time, gap to best, P10–P90 range, chance of being fastest", kind: "out" },
@@ -682,11 +691,85 @@ L_{\text{SC}} &= 0.55\,L && \text{a stop under the Safety Car is cheaper} \\
 \end{aligned}`} />
       <p>
         Sharing the random draws between plans (common random numbers) means the differences between plans come from
-        the plans, not from one getting luckier draws, so 500 races are enough to rank them.
+        the plans, not from one getting luckier draws, so 500 races are enough to rank them. Each race also draws one
+        weather scenario, and the expected track temperature moves the wear (see <a href="#about/docs/weather">Weather</a>).
       </p>
       <Example>
         Last season's race here measured severity 1.10; this season's tyres have worn 0.95 times as much at shared
         circuits. So <M t={String.raw`S = 1.10 \times 0.95 = 1.045`} />, and the Medium wears <M t={String.raw`1.045 \times 0.065 = 0.068`} /> s/lap.
+      </Example>
+    </Section>
+  );
+}
+
+// ---------------------------------------------------------------- weather
+
+function Weather() {
+  return (
+    <Section id="weather">
+      <p>
+        Weather enters the strategy forecast in two ways: the chance and timing of rain, and the track temperature.
+        Both come from <a href="https://open-meteo.com/">Open-Meteo</a> (free, no key), at the circuit's coordinates.
+      </p>
+      <Flow label="From a weather forecast to the strategy Monte Carlo" stages={[
+        { label: "Source", join: "hourly rain at the circuit", nodes: [
+          { title: "Ensemble forecast", text: "up to 16 days ahead: 31–40 versions of the weather (ICON, then GFS)", kind: "source" },
+          { title: "Climate", text: `further ahead: the race's hours on ±${WET.days} days of its date, last ${WET.years} years (ERA5)`, kind: "source" },
+        ] },
+        { label: "Scenarios", join: "one per version or day", nodes: [
+          { title: "Rain spell", text: `wet laps: ≥ ${WET.mm} mm/h (heavy from ${WET.heavy}); dry ${WET.drying} laps after it stops`, kind: "model" },
+        ] },
+        { label: "Simulator", join: "", nodes: [
+          { title: "Each simulated race", text: "draws a scenario; every plan sees the same one", kind: "model", section: "strategy" },
+        ] },
+      ]} />
+
+      <h4 className="sub">Hours to laps</h4>
+      <p>
+        A forecast gives rain per hour; the race is taken to last {WET.raceMin} minutes, so lap <M t="n" /> of <M t="N" /> is
+        run at <M t={String.raw`t_n = t_0 + (n - \tfrac12)\,${WET.raceMin}/N`} /> minutes. The rain rate at <M t="t_n" /> is
+        interpolated between the middles of the hours, so rain doesn't only start on the hour. The first wet lap starts
+        the spell; the track is dry again {WET.drying} laps after the last wet one. Later spells are ignored.
+      </p>
+
+      <h4 className="sub">Rain in the lap-time model</h4>
+      <p>On top of the dry lap time, a lap costs (seconds):</p>
+      <div className="table-wrap docs-table">
+        <table>
+          <thead><tr><th>Track</th><th className="num">Slicks</th><th className="num">Intermediates</th><th className="num">Wets</th></tr></thead>
+          <tbody>
+            <tr><td>Light rain</td><td className="num">+{RAIN.light.slick}</td><td className="num">+{RAIN.light.inter} on <M t={String.raw`b_{\min}`} /></td><td className="num">+{RAIN.light.wet} on <M t={String.raw`b_{\min}`} /></td></tr>
+            <tr><td>Heavy rain</td><td className="num">+{RAIN.heavy.slick}</td><td className="num">+{RAIN.heavy.inter} on <M t={String.raw`b_{\min}`} /></td><td className="num">+{RAIN.heavy.wet} on <M t={String.raw`b_{\min}`} /></td></tr>
+            <tr><td>Dry</td><td className="num">0</td><td className="num">+{RAIN.onDry.inter}, wear ×{RAIN.onDry.degFactor}</td><td className="num">+{RAIN.onDry.wet}, wear ×{RAIN.onDry.degFactor}</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        <M t={String.raw`b_{\min}`} /> is the fastest dry base pace. At the end of a wet lap, a car on the wrong tyre
+        pits for the right one (intermediates in light rain, wets in heavy) unless staying out loses less than the
+        stops it would need. With <M t="W" /> wet laps left, a penalty <M t={String.raw`\Delta`} /> per lap against the
+        right tyre and <M t="k" /> stops still planned, it pits when
+      </p>
+      <M block t={String.raw`W\,\Delta > L\,\big(1 + [\text{rain stops before the flag}] - k\big)`} />
+      <p>
+        (a car that changes for the rain drops its remaining dry stops). Once the track is dry, a car on wet tyres
+        pits for the softest slick that lasts to the flag before its cliff, unless staying out costs less than one stop.
+      </p>
+
+      <h4 className="sub">Track temperature</h4>
+      <p>From the forecast's air temperature <M t="T_a" /> and sunshine <M t="G" /> (W/m²), fitted on the track sensors of 34 dry 2025–26 races (error about 3.5 °C):</p>
+      <M block t={String.raw`T_{\text{track}} \approx T_a + ${WET.offset} + ${WET.sunGain}\,G`} />
+      <p>
+        Tyre wear was calibrated on last season's race at the circuit, so what matters is the change from it. The same
+        estimate, from the same source, is made for that race (its archived forecast, or its climate), and the
+        difference <M t={String.raw`\Delta T`} /> scales each compound's wear and brings its cliff forward:
+      </p>
+      <M block t={String.raw`\delta_c' = \delta_c\,(1 + s_c\,\Delta T), \qquad A_c' = A_c / (1 + s_c\,\Delta T)`} />
+      <p>with <M t="s_c" /> = 0.025, 0.018 and 0.012 per °C for Soft, Medium and Hard.</p>
+      <Example>
+        Last season the race here ran on a 33.8 °C track (sensors). The forecast's estimate for this year is
+        32.3 °C against 32.6 °C for last year's race, so <M t={String.raw`\Delta T = -0.3`} /> °C and the expected
+        track is about 33.5 °C. The Soft's wear changes by <M t={String.raw`1 + 0.025 \times (-0.3) = 0.99`} />.
       </Example>
     </Section>
   );
@@ -723,7 +806,10 @@ function Limits() {
     <Section id="limits">
       <ul>
         <li><b>The race forecast is pace only.</b> It doesn't know the grid, the circuit, upgrades or weather; it's
-          "who's been quickest lately", with luck.</li>
+          "who's been quickest lately", with luck. (Weather only enters the strategy forecast.)</li>
+        <li><b>Weather.</b> The rain timeline comes from hourly forecasts at the circuit, so a passing shower can be
+          missed, and only the first spell counts. Wet-tyre pace and the drying time are fixed assumptions, and
+          teams are assumed to know when the rain stops.</li>
         <li><b>Drivers are independent.</b> Teammates' cars don't share a good or bad day, and one driver's retirement
           doesn't make another's likelier.</li>
         <li><b>Strategy presets are assumptions.</b> The pace gaps between compounds, cliff ages and the Safety Car

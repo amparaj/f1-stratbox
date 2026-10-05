@@ -1,9 +1,11 @@
-import { useMemo, useState } from "react";
+import * as Plot from "@observablehq/plot";
+import { useCallback, useMemo, useState } from "react";
+import { color } from "../colors";
 import { COMPOUND, compoundKey, DriverChip, DriverPicker, GapChart, Plan, PositionChart, StrategyChart, Tyre } from "../components/f1";
-import { Legend, Loading, Note, Segmented, Table, Tiles } from "../components/ui";
+import { Chart, Legend, Loading, Note, plotDefaults, Segmented, Table, Tiles } from "../components/ui";
 import {
   forecastFile, raceFile, rows, type CalendarEvent, type DegRow, type Forecast, type ForecastDriver, type LapRow,
-  type Race, type ResultRow, type StintRow,
+  type Race, type ResultRow, type StintRow, type WeatherLap,
 } from "../data";
 import { dec, gap, lapTime, pct, shortEvent, signed, dayYear } from "../format";
 import { useData, useHash, useSite } from "../site";
@@ -166,9 +168,49 @@ function RaceView({ round, code }: { round: number; code: "R" | "S" }) {
                   drivers={gapScope === "top" ? topDrivers : results.map((r) => r.driver)} />
       </section>
 
+      {race.weather_laps && <Weather race={race} />}
       <Degradation race={race} />
       <PostMortem results={results} stints={stints} />
     </>
+  );
+}
+
+/** The circuit's weather sensors lap by lap: track and air temperature, and the laps with rain. */
+function Weather({ race }: { race: Race }) {
+  const laps = useMemo(() => rows<WeatherLap>(race.weather_laps), [race]);
+  const make = useCallback((width: number) => {
+    const wet = laps.filter((l) => l.rain);
+    const temps = laps.flatMap((l) => [
+      { lap: l.lap, v: l.track, k: "Track" }, { lap: l.lap, v: l.air, k: "Air" },
+    ]).filter((d) => d.v !== null);
+    return Plot.plot({
+      ...plotDefaults(width),
+      height: 260,
+      x: { label: "Lap", domain: [0.5, race.total_laps + 0.5] },
+      y: { label: "°C", grid: true },
+      marks: [
+        Plot.rectX(wet, { x1: (l) => l.lap - 0.5, x2: (l) => l.lap + 0.5, fill: "#2a78d6", fillOpacity: 0.15 }),
+        Plot.line(temps.filter((d) => d.k === "Track"), { x: "lap", y: "v", stroke: color.s2, strokeWidth: 2 }),
+        Plot.line(temps.filter((d) => d.k === "Air"), { x: "lap", y: "v", stroke: color.s1, strokeWidth: 2 }),
+        Plot.tip(laps, Plot.pointerX({ x: "lap", y: (l) => l.track ?? l.air,
+          title: (l) => `Lap ${l.lap}${l.rain ? " · rain" : ""}
+Track ${l.track?.toFixed(1) ?? "–"} °C, air ${l.air?.toFixed(1) ?? "–"} °C` +
+            (l.humidity !== null ? `
+Humidity ${l.humidity.toFixed(0)}%` : "") + (l.wind !== null ? `, wind ${l.wind.toFixed(1)} m/s` : "") })),
+      ],
+    });
+  }, [laps, race.total_laps]);
+  if (!laps.some((l) => l.track !== null || l.air !== null)) return null;
+  return (
+    <section>
+      <h3>Weather</h3>
+      <p className="muted">The circuit's own sensors when the leader finished each lap. Shaded laps had rain.</p>
+      <Legend items={[
+        { label: "Track", color: color.s2, kind: "line" }, { label: "Air", color: color.s1, kind: "line" },
+        ...(laps.some((l) => l.rain) ? [{ label: "Rain", color: "rgba(42,120,214,0.3)" }] : []),
+      ]} />
+      <Chart make={make} height={260} ariaLabel="Track and air temperature by lap, with the laps that had rain" />
+    </section>
   );
 }
 

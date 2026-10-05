@@ -32,6 +32,7 @@ modules/simulator.py       deterministic + Monte Carlo race simulator
 pages/1_Race_Recap.py      replay, tyre-strategy chart, post-mortem, deg plots, export
 pages/2_Live_Race_Tracker.py  battle map, pit-rejoin forecast, undercut threats
 pages/3_Future_Sandbox.py  scenario controls, strategy comparison, Monte Carlo
+modules/weather.py         Open-Meteo forecast/ensemble/climate/nowcast, rain scenarios, track temp
 modules/forecast.py        website forecasts: driver form, race/title Monte Carlo, strategy search
 modules/site_export.py     website data files (web/public/data/*.json)
 modules/history.py         website History files (every season since 1950, from Jolpica's dump)
@@ -73,6 +74,9 @@ web/                       the website (React + TypeScript + Vite, theme copied 
   - outliers above 1.07 × the median for that driver and compound
 
   These are the laps used for degradation modelling.
+- `get_lap_weather`: the track sensors (air/track temp, humidity, wind, rain) at the moment the
+  leader finished each lap, plus the lap's `UTC` time (OpenF1 `t0`; FastF1 has no `t0_date`
+  without car data, so lap 1's start is pinned to the scheduled start).
 - `get_race_timeline` gives per-lap `GapToLeader` and `RunningPosition`. **DNF handling:**
   a driver's rows end at their last valid lap. Nothing is forward-filled or padded.
 - All DataFrame functions are `@st.cache_data` keyed on `(year, event, session_type)`.
@@ -109,8 +113,15 @@ web/                       the website (React + TypeScript + Vite, theme copied 
   and pit loss on the in-lap.
 - `deg_eff = deg × (1 - upgrade%/100) × temp_factor`. A +2 % upgrade means × 0.98, as in
   the spec. Hotter track: more deg, and the cliff comes earlier (`cliff_age / temp_factor`).
-- Rain: from the rain entry lap, a car on slicks pays the penalty for that lap, is forced
-  onto Intermediate or Wet, and its remaining planned dry stops are cancelled.
+- Rain: a weather modifier is `{"rain_lap", "dry_lap", "intensity"}` (`dry_lap` None = wet to the
+  flag). Wet tyres' base is the fastest dry base; the lap adds `RAIN_PROFILES[intensity]`
+  (`slick_penalty` on slicks, `pace_offset[tyre]` on wets) or, dry, `WET_TYRE_ON_DRY` with deg
+  × `WET_TYRE_DRY_DEG_FACTOR`. On a wet lap a car on the wrong tyre pits for the profile's tyre
+  (remaining planned stops lapse) unless the wet laps left × the penalty < the extra stops; once
+  dry, a car on wets pits for `slick_for(laps left)` unless staying out costs less than a stop.
+  If it stays out in the rain, its planned stops still happen. Teams know when rain stops.
+- `_simulate_core(start_age=, race_start=False)` runs the rest of a race from the current lap
+  (Live Race Tracker rain call): no free wet-tyre change on lap 1.
 - `run_sandbox_simulation(base_pace, degradation_rate, total_laps, upgrade_modifier,
   weather_modifier, ...)` keeps the spec's signature. `base_pace` and `degradation_rate`
   accept either a float (expanded across compounds using the presets) or a dict per
@@ -121,7 +132,8 @@ web/                       the website (React + TypeScript + Vite, theme copied 
   - a stop due within 8 laps is brought forward under SC
 
   It uses **common random numbers**: every strategy sees the same noise and SC draw in
-  each simulated race. About 0.13 s for 500 races × 4 strategies.
+  each simulated race. About 0.13 s for 500 races × 4 strategies. `weather_scenarios` (list of
+  modifiers or None = dry) draws one per race, shared by all strategies.
 - Strategy strings: `parse_strategy("S-15, H")`, letters S/M/H/I/W. The last stint may
   omit its length. `normalise_strategy` makes stint lengths sum to the race distance.
 
@@ -229,6 +241,27 @@ and emoji). This is a Windows PowerShell 5.1 / Git Bash environment.
   KaTeX lazy-loaded). Its constants and formulas are copied from `config.py` and the modules: update
   them when the model changes. Table columns that are an order (Pos, Round, Grid) set `rank: true`.
 - Publishing needs GitHub Pages set to "Deploy from a branch: gh-pages".
+
+## Weather (`modules/weather.py`)
+
+- Free only: track sensors from the session data; Open-Meteo (no key, non-commercial, credit
+  "Weather data by Open-Meteo.com" on every page that shows it). OpenF1's *live* feed is paid,
+  so nothing reads weather during a running session; the Live Tracker's rain call takes the
+  forecast or a hand-set outlook. Requests cached in `.openmeteo/` (past: for good; forecasts
+  `FORECAST_FRESH_HOURS`); the Action caches the folder.
+- `outlook()` → rain scenarios from the ensemble (ICON ≤7 days, GFS ≤16) or, further out, the
+  climate (ERA5, ±3 days × 10 years). Hourly rain is interpolated between hour midpoints onto laps
+  (race = `RACE_MINUTES`), wet ≥ `RAIN_WET_MM_H`, heavy ≥ `RAIN_HEAVY_MM_H`, first spell only,
+  dry `TRACK_DRYING_LAPS` after it.
+- Track temp = air + 5.3 + 0.020 × sunshine (fitted on 34 dry 2025–26 races, RMSE 3.5 °C). The
+  temp delta for the simulator is **like-for-like**: the same estimate from the same source for the
+  reference race (archived forecast, or its climate); ERA5 alone is ~13 °C cold at Mexico City.
+  Displayed absolute = reference race's sensors + delta.
+- Live Tracker: archived 15-minute forecast at the lap's UTC (a model, not radar: it missed the
+  2024 Silverstone rain). If the sensor reads rain, the next laps are wet regardless. The rain
+  call compares stay out / pit for wets / pit for slicks, each with its best continuation (≤1
+  more stop onto a slick), so tyre age doesn't masquerade as a rain call.
+- `needs_update.py` rebuilds when the next race is < 4 days away and the export is 6 h old.
 
 ## Known limitations / next steps
 

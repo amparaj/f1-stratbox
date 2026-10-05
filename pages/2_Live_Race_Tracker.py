@@ -10,6 +10,11 @@ Shadow status (icon + label, never colour alone):
     🟠 Loses places — other cars sit inside the shadow, but the rejoin is in clean air
     🟢 Free stop — nobody inside the shadow
 
+Weather & rain call: the track sensors at the selected lap, a rain outlook (Open-Meteo's
+15-minute forecast for that moment, archived for replays, or set by hand) and, for every
+car, the time over the rest of the race of staying out, pitting now for wet tyres or for
+new slicks, from the simulator's lap loop.
+
 Prototype note: the lap selector replays a completed session lap by lap
 (optionally auto-advancing). The undercut models only use laps up to the
 selected lap, so nothing leaks from the future. Wiring in FastF1's live-timing
@@ -23,6 +28,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # allow `import config`
 
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -30,6 +36,8 @@ import streamlit as st
 import config
 from modules import analytics as an
 from modules import data_engine as de
+from modules import simulator as sim
+from modules import weather as wx
 
 STATUS = {
     "critical": ("🔴", "Traffic"),
@@ -86,6 +94,59 @@ def models_up_to_lap(year: int, event: str, stype: str, lap: int):
     clean = de.get_cleaned_laps(year, event, stype)
     deg = an.calculate_tyre_degradation(clean[clean["LapNumber"] <= lap])
     return deg, an.field_compound_model(deg)
+
+
+@st.cache_data(show_spinner=False, max_entries=64, ttl=900)
+def cached_nowcast(lat: float, lon: float, at_utc: pd.Timestamp):
+    try:
+        return wx.nowcast(lat, lon, at_utc), None
+    except wx.WeatherUnavailable as exc:
+        return None, str(exc)
+
+
+def rain_call(snap: pd.DataFrame, models: dict, weather: dict | None, laps_left: int,
+              pit_loss: float) -> pd.DataFrame:
+    """
+    For every car, the time over the rest of the race of three calls now: stay out, pit
+    for the rain tyre, or pit for the best new slick. Each call then takes its best
+    continuation: no more stops, or one more onto any slick at the best lap (the simulator
+    also reacts to the rain by itself). Weather laps count from the next lap.
+    """
+    wet_tyre = config.RAIN_PROFILES[(weather or {}).get("intensity") or "Light rain"]["compound"]
+    n = laps_left
+
+    def best(first: str, age: int) -> tuple[float, str]:
+        plans = [[(first, n)]] + [[(first, k), (c, n - k)] for k in range(1, n) for c in config.DRY_COMPOUNDS]
+        times = [sim._simulate_core(p, n, models, pit_loss, 0.0, weather, detail=False,
+                                    start_age=age, race_start=False)[0] for p in plans]
+        i = int(np.argmin(times))
+        return times[i], sim.strategy_label(plans[i])
+
+    memo: dict[tuple[str, int], tuple[float, str]] = {}
+
+    def cached(first: str, age: int) -> tuple[float, str]:
+        if (first, age) not in memo:
+            memo[(first, age)] = best(first, age)
+        return memo[(first, age)]
+
+    rows = []
+    for _, car in snap.sort_values("RunningPosition").iterrows():
+        comp = car["Compound"]
+        if comp not in models:
+            continue
+        age = int(car["TyreLife"]) if pd.notna(car["TyreLife"]) else 0
+        stay, stay_plan = cached(comp, age)
+        wet, wet_plan = cached(wet_tyre, 0)
+        slick_t, slick_plan = min(cached(c, 0) for c in config.DRY_COMPOUNDS)
+        options = {"Stay out": (stay, stay_plan),
+                   f"Pit for {wet_tyre.title()}s": (wet + pit_loss, wet_plan),
+                   "Pit for slicks": (slick_t + pit_loss, slick_plan)}
+        call = min(options, key=lambda k: options[k][0])
+        rows.append({"Pos": int(car["RunningPosition"]), "Driver": car["Driver"],
+                     "Tyre": f"{config.COMPOUND_SHORT.get(comp, '?')}{age}",
+                     **{k: options[k][0] - stay for k in options if k != "Stay out"},
+                     "Best call": call, "Then": options[call][1], "Gain (s)": stay - options[call][0]})
+    return pd.DataFrame(rows)
 
 
 # ---------------------------------------------------------------------------
@@ -163,9 +224,22 @@ with st.sidebar:
     st.divider()
     auto = st.toggle("Auto-advance laps (replay)", value=False)
     speed = st.select_slider("Seconds per lap", [1, 2, 3, 5, 8], value=2, disabled=not auto)
+    st.divider()
+    st.markdown("### 🌧️ Rain call")
+    rain_src = st.radio("Rain outlook", ["Open-Meteo forecast", "Set by hand"],
+                        help="Forecast: Open-Meteo's 15-minute forecast for the circuit at the selected "
+                             "lap (archived for a replay; it's a weather model, not radar, so it can miss "
+                             "a shower). By hand: what your own radar or weather service says.")
+    if rain_src == "Set by hand":
+        rain_in = st.number_input("Rain arrives in (laps)", 0, 80, 3, help="0 = it's raining now")
+        rain_for = st.number_input("Track wet for (laps, 0 = to the flag)", 0, 80, 10,
+                                   help="Until slicks are quicker again, drying time included.")
+        rain_int = st.radio("Intensity", list(config.RAIN_PROFILES), horizontal=True, key="live_rain_int")
 
 st.caption(f"{info['year']} {info['event_name']} · {info['session_name']} — replaying lap by lap. "
            "Models only use laps already completed.")
+lap_wx = de.get_lap_weather(*active)
+coords = wx.circuit_coords(info["location"], info["event_name"])
 
 
 def live_view() -> None:
@@ -226,6 +300,85 @@ def live_view() -> None:
             )
             st.caption(f"B pits now onto fresh {fresh.title()}; A stays out {respond} lap(s). "
                        "A is vulnerable when the gap is smaller than B's projected gain.")
+
+    weather_panel(lap, max_lap, snap, eff_loss)
+
+
+def weather_panel(lap: int, max_lap: int, snap: pd.DataFrame, eff_loss: float) -> None:
+    """Conditions at this lap, the rain outlook and the rain call for every car."""
+    st.markdown("##### Weather & rain call")
+    now = lap_wx[lap_wx["LapNumber"] == lap]
+    if not now.empty:
+        r = now.iloc[0]
+        w = st.columns(4)
+        w[0].metric("Track temp", f"{r['TrackTemp']:.1f} °C" if pd.notna(r["TrackTemp"]) else "—")
+        w[1].metric("Air temp", f"{r['AirTemp']:.1f} °C" if pd.notna(r["AirTemp"]) else "—")
+        w[2].metric("Humidity", f"{r['Humidity']:.0f}%" if pd.notna(r["Humidity"]) else "—")
+        w[3].metric("Track sensor", "Rain" if r["Rainfall"] else "Dry")
+
+    laps_left = max_lap - lap
+    if laps_left < 1:
+        st.info("Last lap: nothing left to call.")
+        return
+    weather, note, known = None, "", True
+    if rain_src == "Set by hand":
+        if rain_in <= laps_left:
+            start = max(1, int(rain_in))
+            dry = start + int(rain_for) if rain_for else None
+            weather = {"rain_lap": start, "dry_lap": dry if dry and dry <= laps_left else None,
+                       "intensity": rain_int}
+    else:
+        at = now["UTC"].iloc[0] if not now.empty else pd.NaT
+        if coords is None or pd.isna(at):
+            known, note = False, "No forecast: circuit position or time of day unknown. Set the rain by hand."
+        else:
+            rain, err = cached_nowcast(*coords, at.floor("15min"))
+            if err:
+                known, note = False, f"Forecast unavailable ({err}). Set the rain by hand."
+            else:
+                led = timeline[(timeline["LapNumber"] <= lap) & (timeline["RunningPosition"] == 1)]
+                lap_s = float(led["LapTime"].tail(5).median()) if led["LapTime"].notna().any() else 95.0
+                raining = bool(now["Rainfall"].iloc[0])
+                weather = wx.nowcast_rain_laps(rain, at, lap_s, laps_left, raining_now=raining)
+                note = (f"Open-Meteo 15-minute forecast from {at:%H:%M} UTC, laps of {lap_s:.0f} s"
+                        + (", and the track sensor reports rain now" if raining else "")
+                        + f"; the track dries {config.TRACK_DRYING_LAPS} laps after the rain stops. "
+                        f"{wx.CREDIT}.")
+    if weather:
+        a = lap + weather["rain_lap"]
+        b = lap + weather["dry_lap"] if weather["dry_lap"] else None
+        st.markdown(f"**Outlook:** {weather['intensity'].lower()} from lap {a}"
+                    + (f" until lap {b - 1}." if b else " to the flag."))
+    elif known:
+        st.markdown("**Outlook:** dry for the rest of the race.")
+    if note:
+        st.caption(note)
+
+    _, field = models_up_to_lap(*active, lap)
+    dry = {c: m for c, m in field.items() if c in config.DRY_COMPOUNDS}
+    if dry:
+        models = sim.build_compound_models({c: m["base_pace"] for c, m in dry.items()},
+                                           {c: m["deg_rate"] for c, m in dry.items()})
+    else:
+        models = sim.build_compound_models(float(snap["LapTime"].median()),
+                                           config.COMPOUND_PRESETS["MEDIUM"]["deg_rate"])
+    call = rain_call(snap, models, weather, laps_left, eff_loss)
+    if call.empty:
+        return
+    call["Best call"] = ["✅ " + b if b == "Stay out" else "🔧 " + b for b in call["Best call"]]
+    st.dataframe(call, hide_index=True, width="stretch", height=min(420, 36 * len(call) + 40),
+                 column_config={**{c: st.column_config.NumberColumn(format="%+.1f")
+                                   for c in call.columns if c.startswith("Pit for")},
+                                "Gain (s)": st.column_config.NumberColumn(format="%.1f")})
+    st.caption(f"Seconds over the last {laps_left} laps against staying out (negative = quicker), "
+               f"with a {eff_loss:.1f} s stop. Every call then takes its best continuation (no more "
+               "stops, or one more onto a slick: **Then**, in laps from now), and the simulator still "
+               "reacts to rain by itself (wet tyres when it lasts long enough, slicks once it's dry). "
+               "Field-median tyre models up to this lap; wet-tyre pace offsets are config.py assumptions.")
+    if not lap_wx.empty:
+        with st.expander("Weather so far"):
+            st.plotly_chart(wx.build_weather_figure(lap_wx, upto_lap=lap, height=280),
+                            width="stretch", theme="streamlit")
 
 
 st.fragment(live_view, run_every=f"{speed}s" if auto else None)()
