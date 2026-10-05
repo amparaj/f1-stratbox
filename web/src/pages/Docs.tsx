@@ -490,8 +490,7 @@ function Qualifying() {
         taken against the median time of the drivers who reached Q3 in that same segment, a driver's pace is the best
         of those ratios, and the field median is subtracted (negative = faster). It feeds qualifying form.
       </p>
-      <M block t={String.raw`p^{Q}_d = \min_q \left(\frac{t_{d,q}}{\operatorname{med}_{d' \in Q3}\, t_{d',q}} - 1
-ight) \times 100 \;-\; \text{field median}`} />
+      <M block t={String.raw`p^{Q}_d = \min_q \left(\frac{t_{d,q}}{\operatorname{med}_{d' \in Q3}\, t_{d',q}} - 1\right) \times 100 \;-\; \text{field median}`} />
       <Example>
         Q1 1:37.041 against a Q3-runners' Q1 median of 1:36.95 is +0.09%; Q2 1:35.959 against 1:36.03 is −0.07%;
         Q3 1:35.631 against 1:35.67 is −0.04%. The best, −0.07%, is the driver's pace before the field median comes off.

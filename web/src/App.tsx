@@ -14,7 +14,7 @@ import { SiteContext, useHash, useSiteData, type Site } from "./site";
 const PAGES = [
   { id: "about", label: "About", short: "About", component: About },
   { id: "season", label: "Current Season", short: "Current Season", component: Season },
-  { id: "races", label: "Race Results & Analysis", short: "Races", component: Races },
+  { id: "races", label: "Race Results & Analysis", short: "Past Races", component: Races },
   { id: "next", label: "Next Race Forecast", short: "Next Race", component: NextRace },
   { id: "history", label: "History", short: "History", component: History },
 ] as const;
