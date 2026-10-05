@@ -262,6 +262,13 @@ and emoji). This is a Windows PowerShell 5.1 / Git Bash environment.
   call compares stay out / pit for wets / pit for slicks, each with its best continuation (≤1
   more stop onto a slick), so tyre age doesn't masquerade as a rain call.
 - `needs_update.py` rebuilds when the next race is < 4 days away and the export is 6 h old.
+- **Live rain radar** (`web/src/components/Radar.tsx`, Next Race page): RainViewer's free API
+  keeps only the last 2 h (10-min frames, no nowcast, max zoom 7), so it's **live only**: shown
+  from 30 min before a race/sprint start to 3 h (race) / 1.5 h (sprint) after, fetched in the
+  browser, never archived. Basemap: OpenStreetMap tiles (CARTO's now need a key), darkened by a
+  CSS filter in dark mode. Circuit `lat`/`lon` are in meta.json's calendar. During a session the
+  page opens on that round even if an export moved `next_round` on. `?radar` in the URL forces it
+  on for layout checks.
 
 ## Known limitations / next steps
 

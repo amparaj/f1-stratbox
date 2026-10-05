@@ -2,6 +2,7 @@ import * as Plot from "@observablehq/plot";
 import { useCallback, useMemo } from "react";
 import { color } from "../colors";
 import { ChanceBars, DriverChip, Plan } from "../components/f1";
+import { liveSession, Radar, useNow } from "../components/Radar";
 import { Chart, Legend, Loading, Note, plotDefaults, Table, Tiles } from "../components/ui";
 import {
   forecastFile, rows, type Forecast, type ForecastDriver, type StrategyForecast, type StrategyPlan, type WeatherForecast,
@@ -18,7 +19,10 @@ export default function NextRace() {
   const hash = useHash();
   const upcoming = site.meta.calendar.filter((e) => !e.done_R && site.meta.forecasts.includes(e.round));
   const asked = Number(hash.split("/")[1]);
-  const round = upcoming.some((e) => e.round === asked) ? asked : site.meta.next_round ?? upcoming[0]?.round;
+  // While a race or sprint is on, open on it (an export during the race moves next_round on).
+  const now = useNow();
+  const live = upcoming.find((e) => liveSession(e, now));
+  const round = upcoming.some((e) => e.round === asked) ? asked : live?.round ?? site.meta.next_round ?? upcoming[0]?.round;
   const ev = round ? site.event.get(round) : undefined;
   const forecast = useData<Forecast>(round ? forecastFile(round) : null);
   const drivers = useMemo(() => rows<ForecastDriver>(forecast?.drivers).sort((a, b) => b.p_win - a.p_win), [forecast]);
@@ -27,6 +31,8 @@ export default function NextRace() {
   if (forecast === undefined) return <Loading />;
   if (forecast === null) return <p>No forecast for {ev.event} yet.</p>;
   const fav = drivers[0];
+  // ?radar in the address shows the radar outside a session (for checking the layout).
+  const session = liveSession(ev, now) ?? (new URLSearchParams(window.location.search).has("radar") ? { code: "R" as const, start: now } : null);
 
   return (
     <>
@@ -35,6 +41,16 @@ export default function NextRace() {
         {ev.location}, {ev.country} · race {when(ev.race_utc)}{ev.sprint_utc && <> · sprint {when(ev.sprint_utc)}</>}.
         The forecast uses the {forecast.based_on.length} races so far this season.
       </p>
+      {session && ev.lat != null && ev.lon != null && (
+        <section>
+          <h3><span className="live-dot" aria-hidden="true" />Live Rain Radar</h3>
+          <p className="muted">
+            {ev.event} {session.code === "S" ? "sprint" : "race"} {now < session.start ? "starts soon" : "is on"}: rain
+            around {ev.location} over the last two hours. It's shown only while the session is on, as the radar isn't kept.
+          </p>
+          <Radar lat={ev.lat} lon={ev.lon} place={ev.location} />
+        </section>
+      )}
       {upcoming.length > 1 && (
         <div className="toolbar">
           <label>
@@ -186,6 +202,8 @@ function Strategy({ s }: { s: StrategyForecast }) {
           { key: "win", label: "Fastest in", title: "Share of simulated races where this plan was the quickest", value: (p) => p.win_prob, render: (p) => pct(p.win_prob), numeric: true },
         ]}
       />
+      <p className="muted">Each plan's coloured dot is its line in the chart below.</p>
+      <Legend items={s.strategies.map((p) => ({ label: p.plan, color: colorOf(p.name), kind: "line" as const }))} />
       <StrategyTrace s={s} colorOf={colorOf} />
       <Note>
         Best plan with no Safety Car: {best.plan} ({best.stops} stop{best.stops === 1 ? "" : "s"}, pit on lap {best.pit_laps.join(" and ")}).

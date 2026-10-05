@@ -26,6 +26,9 @@ export interface CalendarEvent {
   format: string;
   race_utc: string | null;
   sprint_utc: string | null;
+  /** The circuit's position, for the live rain radar (absent in files from before it). */
+  lat?: number | null;
+  lon?: number | null;
   done_R: boolean;
   done_S: boolean;
   winner: string | null;

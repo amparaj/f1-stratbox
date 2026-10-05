@@ -88,17 +88,20 @@ def _utc(ts) -> str | None:
 # Calendar
 # ---------------------------------------------------------------------------
 def calendar(year: int) -> list[dict]:
-    """Every event of the season with its race (and sprint) start in UTC."""
+    """Every event of the season with its race (and sprint) start in UTC and the circuit's
+    position (the site's live rain radar)."""
     sched = fastf1.get_event_schedule(year, include_testing=False)
     events = []
     for _, ev in sched.iterrows():
         sessions = {ev[f"Session{i}"]: ev[f"Session{i}DateUtc"] for i in range(1, 6)}
+        coords = wx.circuit_coords(str(ev["Location"]), str(ev["EventName"]))
         events.append({
             "round": int(ev["RoundNumber"]), "event": str(ev["EventName"]),
             "location": str(ev["Location"]), "country": str(ev["Country"]),
             "format": str(ev["EventFormat"]),
             "race_utc": _utc(sessions.get("Race")),
             "sprint_utc": _utc(sessions.get("Sprint")) if ev["EventFormat"] in SPRINT_FORMATS else None,
+            "lat": coords[0] if coords else None, "lon": coords[1] if coords else None,
         })
     return events
 

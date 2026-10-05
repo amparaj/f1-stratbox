@@ -692,3 +692,36 @@ nav.report-toc { overflow: visible; margin-top: 0; padding-bottom: 0; }
   .checks-test { font-size: 12.5px; }
   .checks-n { display: none; }
 }
+
+/* ---------------------------------------------------------------- live rain radar */
+.radar-map {
+  position: relative; overflow: hidden; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--surface); touch-action: pan-y;
+}
+.radar-tile { position: absolute; width: 256px; height: 256px; max-width: none; user-select: none; pointer-events: none; }
+.radar-rain { transition: opacity 0.25s; }
+.radar-base { position: absolute; inset: 0; filter: grayscale(0.6) opacity(0.75); }
+.radar-dark .radar-base { filter: grayscale(1) invert(1) brightness(0.75) contrast(0.9); }
+.radar-pin {
+  position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%;
+  background: #d03b3b; box-shadow: 0 0 0 2px var(--surface), 0 0 0 7px rgba(208, 59, 59, 0.25);
+}
+.radar-label {
+  position: absolute; transform: translate(-50%, 12px); padding: 1px 6px; border-radius: 4px;
+  background: var(--surface); color: var(--ink); font-size: 12px; font-weight: 600; white-space: nowrap;
+  box-shadow: 0 0 0 1px var(--border);
+}
+.radar-msg { position: absolute; left: 12px; top: 12px; color: var(--muted); font-size: 13px; }
+.radar-controls { display: flex; align-items: center; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
+.radar-controls input[type="range"] { flex: 1 1 160px; min-width: 120px; }
+.radar-time { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.radar-play {
+  font: inherit; font-size: 13px; padding: 4px 12px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface); color: var(--ink);
+}
+.live-dot {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #d03b3b;
+  margin-right: 6px; vertical-align: middle; animation: live-pulse 1.6s ease-in-out infinite;
+}
+@keyframes live-pulse { 50% { opacity: 0.3; } }
+@media (prefers-reduced-motion: reduce) { .live-dot { animation: none; } .radar-rain { transition: none; } }

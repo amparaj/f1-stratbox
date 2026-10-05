@@ -109,7 +109,10 @@ function Overview() {
         from the <a href="https://openf1.org">OpenF1</a> API; the calendar through the{" "}
         <a href="https://docs.fastf1.dev/">FastF1</a> library; starting grids from the Jolpica (Ergast) API.
         Weather forecasts and climate for the races ahead come from{" "}
-        <a href="https://open-meteo.com/">Open-Meteo</a> (CC BY 4.0).
+        <a href="https://open-meteo.com/">Open-Meteo</a> (CC BY 4.0). While a race or sprint is on, Next Race
+        shows a live rain radar from <a href="https://www.rainviewer.com/">RainViewer</a> on an{" "}
+        <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> map; RainViewer keeps only the last
+        two hours, so finished races have none.
         The <a href="#history">History</a> pages (every season since 1950) come from{" "}
         <a href="https://github.com/jolpica/jolpica-f1">Jolpica</a>'s database, licensed{" "}
         <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a>: results, grids and
