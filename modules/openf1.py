@@ -26,8 +26,12 @@ Archive: once a session is final (CACHE_FINAL_DAYS after it started, with its re
 in) everything fetched for it is written to archive/openf1/<year>/rNN-R.json.gz, which is
 committed to the repo. From then on the session is read from there and never fetched again.
 Before that, requests go through a cache in .openf1/ (kept between GitHub runs) and a recent
-session is re-fetched after CACHE_FRESH_MINUTES, so late classifications and penalties come
-through. Requests are spaced to stay inside OpenF1's free rate limit and retried on HTTP 429.
+session is re-fetched after CACHE_FRESH_MINUTES (RACE_DAY_FRESH_MINUTES on the day), so late
+classifications and penalties come through.
+
+Unfinished sessions: on the day, race-control messages are fetched first, and until the chequered
+flag is in (config.session_finished) loading raises SessionRunning without fetching anything else,
+so a race is never published half-run. Requests are spaced to stay inside OpenF1's free rate limit and retried on HTTP 429.
 """
 
 from __future__ import annotations
@@ -55,6 +59,7 @@ ENDPOINTS = ("drivers", "laps", "stints", "pit", "race_control", "weather", "ses
 CACHE_FINAL_DAYS = 4
 ARCHIVE_WITHOUT_GRID_DAYS = 14  # archive anyway if Jolpica still has no grid by then
 CACHE_FRESH_MINUTES = 20
+RACE_DAY_FRESH_MINUTES = 3      # until LATEST_FINISH_H: catch the chequered flag quickly
 MIN_INTERVAL_S = 2.1            # ~28 requests a minute: under the free tier's 30/min
 SESSION_MATCH = pd.Timedelta(hours=6)
 
@@ -63,6 +68,10 @@ _last_request = 0.0
 
 class OpenF1Error(RuntimeError):
     pass
+
+
+class SessionRunning(OpenF1Error):
+    """The session hasn't finished yet (no chequered flag)."""
 
 
 # ---------------------------------------------------------------------------
@@ -119,8 +128,11 @@ def _write_archive(path: Path, raw: dict) -> None:
 
 def _max_age(start: pd.Timestamp) -> dt.timedelta | None:
     """Final sessions never expire; recent ones are re-fetched now and then."""
-    if pd.Timestamp.now(tz="UTC") - start > pd.Timedelta(days=CACHE_FINAL_DAYS):
+    age = pd.Timestamp.now(tz="UTC") - start
+    if age > pd.Timedelta(days=CACHE_FINAL_DAYS):
         return None
+    if age < pd.Timedelta(hours=config.LATEST_FINISH_H):
+        return dt.timedelta(minutes=RACE_DAY_FRESH_MINUTES)
     return dt.timedelta(minutes=CACHE_FRESH_MINUTES)
 
 
@@ -131,14 +143,25 @@ def find_session(year: int, start_utc: pd.Timestamp, code: str) -> dict:
     """OpenF1's session starting within SESSION_MATCH of `start_utc` (matching by time,
     not name: OpenF1 still lists cancelled rounds, and names change)."""
     name = "Sprint" if code == "S" else "Race"
-    sessions = _api("sessions", dt.timedelta(hours=6), year=int(year), session_name=name)
-    if sessions.empty:
-        raise OpenF1Error(f"OpenF1 has no {name} sessions for {year}")
-    starts = pd.to_datetime(sessions["date_start"], utc=True, format="ISO8601")
-    gap = (starts - start_utc).abs()
-    if gap.min() > SESSION_MATCH:
-        raise OpenF1Error(f"No OpenF1 {name} near {start_utc:%Y-%m-%d %H:%M} UTC")
-    return sessions.loc[gap.idxmin()].to_dict()
+    for max_age in (dt.timedelta(hours=6), dt.timedelta(0)):   # a cached list may predate it
+        sessions = _api("sessions", max_age, year=int(year), session_name=name)
+        if sessions.empty:
+            continue
+        starts = pd.to_datetime(sessions["date_start"], utc=True, format="ISO8601")
+        gap = (starts - start_utc).abs()
+        if gap.min() <= SESSION_MATCH:
+            return sessions.loc[gap.idxmin()].to_dict()
+    raise OpenF1Error(f"No OpenF1 {name} near {start_utc:%Y-%m-%d %H:%M} UTC")
+
+
+def chequered_at(rc: list[dict] | pd.DataFrame) -> pd.Timestamp | None:
+    """When the chequered flag was shown, from the race-control messages, or None."""
+    rc = pd.DataFrame(rc)
+    if rc.empty or "flag" not in rc:
+        return None
+    t = pd.to_datetime(rc.loc[rc["flag"].astype(str).str.upper() == "CHEQUERED", "date"],
+                       utc=True, format="ISO8601")
+    return t.min() if not t.empty else None
 
 
 # ---------------------------------------------------------------------------
@@ -220,7 +243,15 @@ class Session:
         info = find_session(year, self.start, code)
         sk, age = int(info["session_key"]), _max_age(self.start)
         endpoints = {}
+        now = pd.Timestamp.now(tz="UTC")
+        if now - self.start < pd.Timedelta(hours=config.LATEST_FINISH_H):
+            # Race day: nothing else until the flag is out, and everything else fetched after it.
+            endpoints["race_control"] = _get(API + "race_control", {"session_key": sk}, age)
+            if not config.session_finished(self.start, chequered_at(endpoints["race_control"]), now):
+                raise SessionRunning(f"{self.name} {year} round {rnd} hasn't finished yet")
         for name in ENDPOINTS:
+            if name in endpoints:
+                continue
             endpoints[name] = _get(API + name, {"session_key": sk}, age)
             if name in ("drivers", "laps") and not endpoints[name]:
                 break                              # not out yet: don't spend requests on the rest

@@ -36,6 +36,10 @@ class DataUnavailableError(RuntimeError):
     """Raised when no usable lap-timing data could be loaded for a session."""
 
 
+class SessionRunningError(DataUnavailableError):
+    """The session hasn't finished yet: no chequered flag (config.session_finished)."""
+
+
 # ---------------------------------------------------------------------------
 # Initialisation
 # ---------------------------------------------------------------------------
@@ -44,6 +48,31 @@ def initialize_fastf1() -> None:
     config.FASTF1_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     fastf1.Cache.enable_cache(str(config.FASTF1_CACHE_DIR))
     fastf1.set_log_level("WARNING")
+
+
+def _session_start(year: int, location: str, session_type: str) -> pd.Timestamp | None:
+    """Scheduled start of a race ('R') or sprint ('S'), tz-aware UTC, or None."""
+    try:
+        event = fastf1.get_event(int(year), location)
+    except Exception:  # noqa: BLE001
+        return None
+    name = "Sprint" if session_type == "S" else "Race"
+    for i in range(1, 6):
+        if event.get(f"Session{i}") == name and pd.notna(event.get(f"Session{i}DateUtc")):
+            return pd.Timestamp(event[f"Session{i}DateUtc"]).tz_localize("UTC")
+    return None
+
+
+def _fastf1_chequered(session) -> pd.Timestamp | None:
+    """When FastF1's race-control messages show the chequered flag, or None."""
+    try:
+        rcm = session.race_control_messages
+    except Exception:  # noqa: BLE001 — messages not loaded
+        return None
+    if rcm is None or rcm.empty or "Flag" not in rcm:
+        return None
+    t = pd.to_datetime(rcm.loc[rcm["Flag"].astype(str).str.upper() == "CHEQUERED", "Time"])
+    return t.min().tz_localize("UTC") if not t.empty else None
 
 
 # ---------------------------------------------------------------------------
@@ -75,32 +104,54 @@ def load_session(year: int, location: str, session_type: str, with_telemetry: bo
     Tier 2 'timing-only' session.laps only — historical lap-timing profile
 
     Returns (session, info) where info = {"tier": str, "warnings": [str]}.
-    Raises DataUnavailableError if even lap timing cannot be obtained.
+    Raises SessionRunningError before the chequered flag, DataUnavailableError if even lap
+    timing cannot be obtained.
+
+    A session less than config.RECENT_DAYS old is loaded past FastF1's disk cache, which
+    would otherwise keep a half-finished download (and the classification before penalties)
+    for good; it must also have a chequered flag, so only the full tier is tried.
     """
     initialize_fastf1()
     if config.DATA_SOURCE == "openf1":
         from modules import openf1
         try:
             return openf1.load_session(year, location, session_type), {"tier": "openf1", "warnings": []}
+        except openf1.SessionRunning as exc:
+            raise SessionRunningError(str(exc)) from exc
         except Exception as exc:  # noqa: BLE001 — same contract as the FastF1 tiers
             raise DataUnavailableError(f"No OpenF1 data for {year} {location} {session_type}: {exc}") from exc
     tiers = [
         ("full", dict(laps=True, telemetry=with_telemetry, weather=True, messages=True)),
         ("timing-only", dict(laps=True, telemetry=False, weather=False, messages=False)),
     ]
+    now = pd.Timestamp.now(tz="UTC")
+    start = _session_start(year, location, session_type)
+    recent = start is not None and now - start < pd.Timedelta(days=config.RECENT_DAYS)
+    if recent:
+        tiers = tiers[:1]
     warnings: list[str] = []
     for tier, kwargs in tiers:
         try:
             session = fastf1.get_session(int(year), location, session_type)
-            session.load(**kwargs)
+            if recent:
+                with fastf1.Cache.disabled():
+                    session.load(**kwargs)
+                if not config.session_finished(start, _fastf1_chequered(session), now):
+                    raise SessionRunningError(f"{year} {location} {session_type} hasn't finished yet")
+            else:
+                session.load(**kwargs)
             laps = session.laps  # raises DataNotLoadedError if timing is absent
             if laps is None or laps.empty:
                 raise DataUnavailableError("lap table is empty")
             return session, {"tier": tier, "warnings": warnings}
+        except SessionRunningError:
+            raise
         except Exception as exc:  # noqa: BLE001 — any feed failure drops a tier
             warnings.append(f"{tier} load failed: {exc}")
             log.warning("FastF1 %s load failed for %s %s %s: %s",
                         tier, year, location, session_type, exc)
+    if recent and start + pd.Timedelta(hours=config.LATEST_FINISH_H) > now:
+        raise SessionRunningError(f"{year} {location} {session_type}: no timing yet. " + " | ".join(warnings))
     raise DataUnavailableError(
         f"No lap timing available for {year} {location} {session_type}. "
         + " | ".join(warnings)
@@ -282,6 +333,13 @@ def get_session_info(year: int, location: str, session_type: str) -> dict:
     if not total_laps or pd.isna(total_laps):
         total_laps = int(laps["LapNumber"].max())
 
+    # Provisional: a recent session whose official classification or starting grid isn't in
+    # yet (the website's "complete" rule in site_export._results).
+    start = _session_start(year, location, session_type)
+    recent = start is not None and pd.Timestamp.now(tz="UTC") - start < pd.Timedelta(days=config.RECENT_DAYS)
+    has = lambda c: c in results and results[c].replace("", np.nan).notna().any()  # noqa: E731
+    provisional = recent and not (has("Points") and has("Status") and has("GridPosition"))
+
     event = session.event
     return {
         "year": int(year),
@@ -294,21 +352,33 @@ def get_session_info(year: int, location: str, session_type: str) -> dict:
         "neutralised": _neutralised_laps(laps),
         "load_tier": load_info["tier"],
         "load_warnings": load_info["warnings"],
+        "provisional": bool(provisional),
     }
 
 
-@st.cache_data(show_spinner=False, ttl=6 * 3600)
 def get_event_names(year: int) -> list[str]:
-    """Names of events in a season whose race date has already passed."""
+    """Names of events in a season whose race or sprint could have finished by now."""
+    now = pd.Timestamp.now(tz="UTC").tz_localize(None)
+    return [name for name, start in _session_starts(year) if start + pd.Timedelta(
+        minutes=min(config.EARLIEST_FINISH_MIN.values())) <= now]
+
+
+@st.cache_data(show_spinner=False, ttl=6 * 3600)
+def _session_starts(year: int) -> list[tuple[str, pd.Timestamp]]:
+    """(event name, earliest race/sprint start in naive UTC) for every event of a season."""
     initialize_fastf1()
     try:
         sched = fastf1.get_event_schedule(int(year), include_testing=False)
     except Exception as exc:  # noqa: BLE001
         log.warning("Schedule fetch failed for %s: %s", year, exc)
         return []
-    today = pd.Timestamp(dt.date.today())
-    past = sched[pd.to_datetime(sched["EventDate"]) < today]
-    return past["EventName"].tolist()
+    out = []
+    for _, ev in sched.iterrows():
+        starts = [ev[f"Session{i}DateUtc"] for i in range(1, 6)
+                  if ev[f"Session{i}"] in ("Race", "Sprint") and pd.notna(ev[f"Session{i}DateUtc"])]
+        if starts:
+            out.append((str(ev["EventName"]), pd.Timestamp(min(starts))))
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -358,13 +428,28 @@ def load_active_session(active: tuple[int, str, str]) -> dict | None:
         with st.spinner(f"Loading {year} {event} — first load downloads from F1 timing, "
                         "later loads come from the local cache…"):
             info = get_session_info(year, event, stype)
+    except SessionRunningError:
+        st.info("This session hasn't finished yet. Results appear here a few minutes after "
+                "the chequered flag.")
+        if st.button("Check again"):
+            st.rerun()
+        return None
     except DataUnavailableError as exc:
         st.error(f"Timing data unavailable for this session.\n\n{exc}")
         return None
     except Exception as exc:  # noqa: BLE001 — keep the UI alive during a debrief
         st.error(f"Unexpected error loading {year} {event}: {exc}")
         return None
-    if info["load_tier"] != "full":
+    if info.get("provisional"):
+        cols = st.columns([5, 1])
+        cols[0].warning("Provisional result: the official classification or starting grid isn't "
+                        "out yet, so positions and retirements come from timing and may still "
+                        "change (penalties).")
+        if cols[1].button("Check for updates", width="stretch"):
+            st.cache_data.clear()
+            load_session.clear()
+            st.rerun()
+    if info["load_tier"] not in ("full", "openf1"):
         st.warning("Full feed unavailable — running on historical lap-timing data only "
                    "(weather and race-control messages missing).")
     return info

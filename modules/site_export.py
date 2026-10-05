@@ -37,7 +37,6 @@ from modules import forecast as fc
 log = logging.getLogger(__name__)
 
 SPRINT_FORMATS = {"sprint", "sprint_shootout", "sprint_qualifying"}
-SESSION_DURATION = dt.timedelta(hours=3)        # start time to "should be finished"
 
 
 # ---------------------------------------------------------------------------
@@ -104,12 +103,13 @@ def calendar(year: int) -> list[dict]:
 
 
 def due_sessions(events: list[dict], now: dt.datetime) -> list[tuple[dict, str]]:
-    """(event, 'R'|'S') for every session that should have finished by `now`."""
+    """(event, 'R'|'S') for every session that could have finished by `now` (loading one
+    that hasn't raises SessionRunningError)."""
     out = []
     for ev in events:
         for code, key in (("S", "sprint_utc"), ("R", "race_utc")):
             start = ev.get(key)
-            if start and pd.Timestamp(start) + SESSION_DURATION < now:
+            if start and pd.Timestamp(start) + dt.timedelta(minutes=config.EARLIEST_FINISH_MIN[code]) < now:
                 out.append((ev, code))
     return out
 
@@ -312,7 +312,7 @@ def last_season_models(year: int) -> dict[str, dict]:
     """circuit -> {"event", "total_laps", "field"} for every race of `year`."""
     out = {}
     for ev in calendar(year):
-        if not ev["race_utc"] or pd.Timestamp(ev["race_utc"]) + SESSION_DURATION > pd.Timestamp.now(tz="UTC"):
+        if not ev["race_utc"] or pd.Timestamp(ev["race_utc"]) > pd.Timestamp.now(tz="UTC"):
             continue
         try:
             info = de.get_session_info(year, ev["event"], "R")
@@ -364,6 +364,9 @@ def export_season(year: int, out_dir: Path, now: dt.datetime | None = None) -> d
         sid = session_id(ev["round"], code)
         try:
             rec = export_session(year, ev, code)
+        except de.SessionRunningError:
+            print(f"  {sid} {ev['event']}: still running", flush=True)
+            continue
         except Exception as exc:  # noqa: BLE001 — data not out yet, or a broken feed
             print(f"  {sid} {ev['event']}: no data yet ({str(exc)[:200]})", flush=True)
             pending.append(sid)

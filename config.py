@@ -9,6 +9,7 @@ measured numbers before relying on them for a live call.
 
 from __future__ import annotations
 
+import datetime as dt
 import unicodedata
 from pathlib import Path
 
@@ -22,6 +23,23 @@ FASTF1_CACHE_DIR = PROJECT_ROOT / ".fastf1"
 # dashboard's default) or "openf1" (modules/openf1.py; the website's export uses it,
 # because the live-timing server doesn't answer GitHub's runners).
 DATA_SOURCE = "fastf1"
+
+# When a race or sprint counts as finished. Before EARLIEST_FINISH nobody looks; from then on
+# a session is loaded once its chequered flag is FINISH_SETTLE old (the last cars cross the line
+# and the feed catches up), or, with no flag at all (abandoned), LATEST_FINISH after the start.
+# scripts/needs_update.py keeps its own copy (standard library only): keep them in step.
+EARLIEST_FINISH_MIN = {"R": 75, "S": 25}   # start to the earliest chequered flag (Monza ~75 min)
+FINISH_SETTLE_MIN = 5
+LATEST_FINISH_H = 6                        # 3 h race limit plus a delayed start
+RECENT_DAYS = 4                            # until then a session may still change (penalties, grid)
+
+
+def session_finished(start_utc, chequered_utc, now_utc) -> bool:
+    """Has a race or sprint that started at `start_utc` finished? All tz-aware timestamps;
+    `chequered_utc` is the chequered flag's time, or None if it hasn't been shown."""
+    if chequered_utc is not None:
+        return now_utc >= chequered_utc + dt.timedelta(minutes=FINISH_SETTLE_MIN)
+    return now_utc >= start_utc + dt.timedelta(hours=LATEST_FINISH_H)
 
 # ---------------------------------------------------------------------------
 # Pit lane time loss (seconds) — full green-flag stop, pit entry to pit exit

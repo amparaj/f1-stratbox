@@ -22,10 +22,11 @@ Formula 1 race strategy, built on lap timing from [OpenF1](https://openf1.org) a
 
 ### How it updates
 
-`.github/workflows/site.yml` runs hourly Saturday to Monday (UTC) and daily otherwise. Each run
-first asks `scripts/needs_update.py`, which reads the published `meta.json`, whether a race or
-sprint finished more than 3 hours ago but isn't on the site yet, or a provisional result may now
-have its official classification. Only then does it export the data (`scripts/export_site.py`),
+`.github/workflows/site.yml` runs every 10 minutes on Saturday and Sunday (UTC), hourly on Monday
+and daily otherwise. Each run first asks `scripts/needs_update.py`, which reads the published
+`meta.json`, whether a race or sprint whose chequered flag is out (OpenF1) isn't on the site yet,
+or a provisional result may now have its official classification (checked hourly at most). A race
+is usually on the site 15–40 minutes after the flag. Only then does it export the data (`scripts/export_site.py`),
 build the site (`web/`, React + Vite) and push it to the `gh-pages` branch. A push to `main`
 that touches the code, or **Actions → Update site → Run workflow**, always rebuilds.
 

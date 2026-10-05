@@ -1,8 +1,10 @@
 # Rebuilds the website and publishes it to GitHub Pages (the gh-pages branch).
 #
 # Scheduled runs first ask scripts/needs_update.py (standard library only, a few seconds) whether
-# anything is due: a race or sprint that finished more than 3 hours ago but isn't on the site, a
-# provisional result whose official classification may now be out, or data more than a week old.
+# anything is due: a race or sprint whose chequered flag is out (OpenF1) but isn't on the site, a
+# provisional result whose official classification may now be out (hourly at most), or data more
+# than a week old. Checking every 10 minutes over the weekend puts a race on the site about
+# 15-40 minutes after the flag (GitHub often starts scheduled runs late).
 # Only then do they export the data (scripts/export_site.py), build the site and publish it.
 # A push to main that touches the code, or Run workflow by hand, always rebuilds.
 #
@@ -19,7 +21,8 @@ name: Update site
 
 on:
   schedule:
-    - cron: "20 * * * 0,1,6"    # hourly Saturday to Monday (UTC): race and sprint weekends
+    - cron: "*/10 * * * 0,6"    # every 10 minutes Saturday and Sunday (UTC): races and sprints
+    - cron: "20 * * * 1"        # hourly Monday: provisional results, late grids
     - cron: "20 6 * * 2-5"      # daily otherwise: late official classifications
   push:
     branches: [main]

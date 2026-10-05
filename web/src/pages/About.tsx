@@ -58,13 +58,8 @@ function Overview() {
 
       <h3>How it stays up to date</h3>
       <p>
-        The site rebuilds itself. It checks for new data every hour over a race weekend and once a day the
-        rest of the week. About three hours after a race or sprint starts, the timing data is downloaded,
-        every page is rebuilt and the new version goes live, usually within an hour or two of the chequered
-        flag. Until the official classification is out the race is marked provisional, with points worked
-        out from the order the cars finished in; the starting grid usually follows within a day, and later
-        updates fill both in (and pick up any penalties). Once a race is final it's stored for good and never
-        downloaded again. Last update: {dayYear(meta.generated)}.
+        Results usually appear within half an hour of the chequered flag. They're marked provisional until
+        the official classification is out. Last update: {dayYear(meta.generated)}.
       </p>
 
       <h3>The race analysis</h3>

@@ -159,7 +159,17 @@ and emoji). This is a Windows PowerShell 5.1 / Git Bash environment.
 
 ## Website
 
-- `site_export.export_season` loads every session due by now (start + 3 h), writes
+- **When a session counts as finished** (`config.session_finished`, constants beside
+  `DATA_SOURCE`): its chequered flag is 5 min old, or 6 h have passed since the start with no
+  flag. Nothing looks before start + 75 min (race) / 25 min (sprint). Before the flag, loading
+  raises `data_engine.SessionRunningError` (`openf1.SessionRunning`): OpenF1 fetches race control
+  first on race day and nothing else until the flag; the dashboard shows "hasn't finished yet".
+  Never go back to a fixed timer: 2026 R16 (KL) took 3 h 20 min. `needs_update.py` keeps a copy of
+  the constants and asks OpenF1 for the flag itself. A FastF1 session < `RECENT_DAYS` (4) old is
+  loaded past FastF1's disk cache (it would pickle a partial or pre-penalty load for good), full
+  tier only; `get_session_info` returns `provisional`, and the dashboard shows a banner with
+  "Check for updates" (clears the memory caches).
+- `site_export.export_season` loads every session that could have finished, skips running ones, writes
   `meta.json`, `races/rNN-R|S.json` and `forecasts/rNN.json`. Tables are column-wise
   (`{"col": [...]}`); `web/src/data.ts` `rows()` turns them back into rows.
 - The data-engine functions carry `@st.cache_data`; they work outside Streamlit (memory
