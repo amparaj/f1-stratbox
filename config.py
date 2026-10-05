@@ -24,22 +24,48 @@ FASTF1_CACHE_DIR = PROJECT_ROOT / ".fastf1"
 # because the live-timing server doesn't answer GitHub's runners).
 DATA_SOURCE = "fastf1"
 
-# When a race or sprint counts as finished. Before EARLIEST_FINISH nobody looks; from then on
-# a session is loaded once its chequered flag is FINISH_SETTLE old (the last cars cross the line
-# and the feed catches up), or, with no flag at all (abandoned), LATEST_FINISH after the start.
+# The sessions of a weekend, by code. A sprint weekend runs SQ, S, Q, R; a conventional one Q, R.
+# Names are FastF1's schedule names (and OpenF1's session_name); 2023 called SQ "Sprint Shootout".
+SESSION_NAMES = {"R": "Race", "S": "Sprint", "Q": "Qualifying", "SQ": "Sprint Qualifying"}
+SESSION_NAME_ALIASES = {"SQ": ("Sprint Qualifying", "Sprint Shootout")}
+SESSION_LABELS = {"R": "Grand Prix", "S": "Sprint", "Q": "Qualifying", "SQ": "Sprint Qualifying"}
+RACE_CODES = ("R", "S")
+QUALI_CODES = ("Q", "SQ")
+WEEKEND_ORDER = ("SQ", "S", "Q", "R")
+RACE_OF_QUALI = {"Q": "R", "SQ": "S"}       # the race a qualifying session sets the grid for
+QUALI_OF_RACE = {"R": "Q", "S": "SQ"}
+
+
+def session_names(code: str) -> tuple[str, ...]:
+    """Every schedule name a session code has gone by."""
+    return SESSION_NAME_ALIASES.get(code, (SESSION_NAMES[code],))
+
+
+# When a session counts as finished. Before EARLIEST_FINISH nobody looks; from then on a session
+# is loaded once its last chequered flag (qualifying shows one at the end of each of Q1, Q2 and
+# Q3) is FINISH_SETTLE old (the last cars cross the line and the feed catches up), or, with no
+# flag at all (abandoned, or qualifying ended under a red flag), LATEST_FINISH after the start.
 # scripts/needs_update.py keeps its own copy (standard library only): keep them in step.
-EARLIEST_FINISH_MIN = {"R": 75, "S": 25}   # start to the earliest chequered flag (Monza ~75 min)
+EARLIEST_FINISH_MIN = {"R": 75, "S": 25, "Q": 55, "SQ": 40}   # start to the earliest last flag
+CHEQUERED_FLAGS = {"R": 1, "S": 1, "Q": 3, "SQ": 3}
 FINISH_SETTLE_MIN = 5
-LATEST_FINISH_H = 6                        # 3 h race limit plus a delayed start
+LATEST_FINISH_H = {"R": 6, "S": 6, "Q": 3, "SQ": 3}           # race: 3 h limit plus a delayed start
 RECENT_DAYS = 4                            # until then a session may still change (penalties, grid)
 
 
-def session_finished(start_utc, chequered_utc, now_utc) -> bool:
-    """Has a race or sprint that started at `start_utc` finished? All tz-aware timestamps;
-    `chequered_utc` is the chequered flag's time, or None if it hasn't been shown."""
+def session_finished(start_utc, chequered_utc, now_utc, code: str = "R") -> bool:
+    """Has a session that started at `start_utc` finished? All tz-aware timestamps;
+    `chequered_utc` is its last chequered flag's time (last_chequered), or None."""
     if chequered_utc is not None:
         return now_utc >= chequered_utc + dt.timedelta(minutes=FINISH_SETTLE_MIN)
-    return now_utc >= start_utc + dt.timedelta(hours=LATEST_FINISH_H)
+    return now_utc >= start_utc + dt.timedelta(hours=LATEST_FINISH_H[code])
+
+
+def last_chequered(times, code: str):
+    """The flag that ends the session: the CHEQUERED_FLAGS[code]-th one, or None before it."""
+    times = sorted(t for t in times if t is not None)
+    n = CHEQUERED_FLAGS[code]
+    return times[n - 1] if len(times) >= n else None
 
 # ---------------------------------------------------------------------------
 # Pit lane time loss (seconds) — full green-flag stop, pit entry to pit exit
@@ -136,6 +162,11 @@ SC_STATUS_CODES = ("4",)
 VSC_STATUS_CODES = ("6", "7")
 RED_FLAG_STATUS_CODES = ("5",)
 
+# Qualifying (data_engine.get_quali_laps / get_quali_results).
+QUALI_PUSH_FACTOR = 1.05        # a lap within this of the driver's best is a push lap, not a cool-down
+QUALI_PACE_OUTLIER = 3.0        # % behind the field median beyond which a qualifying pace is ignored
+QUALI_GAIN_MIN_DRIVERS = 5      # drivers with two push laps a segment needs for its track-gain slope
+
 # Minimum laps needed to fit a degradation line for one driver/compound.
 MIN_LAPS_FOR_FIT = 5
 
@@ -206,7 +237,7 @@ WET_TYRE_DRY_DEG_FACTOR = 3.0
 # Forecast precipitation -> laps of rain (modules/weather.py). mm per hour at the circuit.
 RAIN_WET_MM_H = 0.3              # a wet hour: enough to need intermediates
 RAIN_HEAVY_MM_H = 3.0            # heavy: full wets
-RACE_MINUTES = {"R": 95, "S": 32}   # typical start-to-flag time: forecast hours -> laps
+RACE_MINUTES = {"R": 95, "S": 32, "Q": 60, "SQ": 44}   # typical start-to-flag time: forecast hours -> laps
 TRACK_DRYING_LAPS = 4            # laps after the rain stops before slicks are quicker. approx.
 
 # Track temperature from a forecast: air + offset + gain x sunshine (W/m², shortwave
@@ -258,12 +289,35 @@ FORM_MIN_CLEAN_LAPS = 8          # clean laps a driver needs for a race-pace fig
 FORM_DECAY = 0.75                # weight of each earlier race vs the next one (most recent = 1)
 FORM_MAX_RACES = 6               # races that count towards form
 FORECAST_SIMS = 10_000           # simulated races per forecast / simulated seasons for title odds
-FORECAST_RACE_SD = 0.45          # % of lap time: race-to-race spread of a driver's pace. Best log-likelihood of
-                                 # the actual winners over 2026 rounds 2-16 replayed (podium Brier score prefers ~0.7)
 FORM_DRIFT_SD = 0.35             # % of lap time: how far a driver's form moves over the rest of a season, one
                                  # draw per simulated season (title odds). 2026: the sd of (mean pace over the
                                  # next 7 races - form now) is 0.41, part of which is race-to-race noise
 DNF_PRIOR_STARTS = 10            # shrink each driver's DNF rate to the field's, as if from this many starts
+# Session forecasts (forecast.forecast_session), per session code. Fitted by replaying every session
+# of 2025-26 from the sessions before it (scripts/calibrate_forecast.py 2025 2026, score = log chance
+# of the actual winner/pole + mean log chance of a podium/top 3 for the actual top three). Oct 2026,
+# 102 sessions (2025 Baku qualifying gap-filled from F1 live timing):
+#   race before the weekend -2.57, after qualifying -1.74; sprint -3.18 / -1.56; qualifying -2.82.
+SESSION_SD = {"R": 0.35, "S": 0.6, "Q": 0.35, "SQ": 0.35}   # % of lap time: spread on the day (pre-grid)
+SESSION_SD_GRID = {"R": 0.2, "S": 0.45}   # ... of a race once its grid (qualifying) is known
+SPRINT_FORM_WEIGHT = 0.75        # a sprint's race pace counts this much of a Grand Prix's (0-1 all within 0.01)
+RACE_QUALI_BLEND = 0.75          # share of qualifying form in a race's expected pace
+RACE_QUALI_BLEND_WEEKEND = 0.85  # ... of the pace in the race's own qualifying, once it's done
+GRID_WEIGHT = {"R": 0.02, "S": 0.2}    # % per grid place: track position (a sprint is mostly decided by it)
+# Share of last season's team-circuit offset. On 2026 (new rules) 0 and 0.25 tie for races (-2.667 vs
+# -2.672) and qualifying prefers 0: kept at 0.25 for races only, as circuits do suit some cars.
+CIRCUIT_WEIGHT = {"R": 0.25, "S": 0.25, "Q": 0.0, "SQ": 0.0}
+CIRCUIT_CLIP = 1.0               # % bound on a team's circuit offset
+DRIFT_PER_ROUND = 0.1            # % of form drift per sqrt(round) beyond the next one
+SPRINT_DNF_FACTOR = 0.4          # a sprint's retirement chance against a Grand Prix's (a third the distance)
+QUALI_NO_TIME = 0.01             # chance a driver sets no qualifying time (crash, failure)
+QUALI_EDGE = (0.25, 0.75)        # a driver whose chance of a cut-off is in here is "on the edge" of it
+# Teams under their current name, so last season's circuit figures carry over a rename.
+TEAM_LINEAGE = {
+    "Kick Sauber": "Audi", "Stake F1 Team Kick Sauber": "Audi", "Sauber": "Audi", "Alfa Romeo": "Audi",
+    "RB": "Racing Bulls", "Visa Cash App RB": "Racing Bulls", "AlphaTauri": "Racing Bulls",
+    "Haas": "Haas F1 Team",
+}
 CLASSIFIED_FRACTION = 0.9        # share of the winner's laps needed to be classified (FIA rule)
 
 # Strategy search for upcoming races: every 1- and 2-stop plan over the dry compounds.

@@ -28,9 +28,9 @@ initialize_fastf1()
 def home() -> None:
     """Landing page: what each tool is for and the modelling assumptions in force."""
     st.title("🏁 F1 Stratbox")
-    st.caption("Post-race review · live second-screen tactics · future-race planning")
+    st.caption("Post-race review · qualifying analysis · live second-screen tactics · future-race planning")
 
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, c4 = st.columns(4)
     with c1, st.container(border=True):
         st.markdown("#### 📝 Race Recap")
         st.markdown("Animated gap-to-leader replay, fuel-corrected tyre degradation per "
@@ -49,6 +49,12 @@ def home() -> None:
                     "and rain scenarios, deterministically and via Monte Carlo with "
                     "random Safety Cars.")
         st.page_link("pages/3_Future_Sandbox.py", label="Open Future Sandbox", icon="➡️")
+    with c4, st.container(border=True):
+        st.markdown("#### ⏱️ Qualifying")
+        st.markdown("Q1 / Q2 / Q3 times, how close everyone was to each cut-off, best sectors "
+                    "and the ideal lap, track evolution, when each driver ran and what a late "
+                    "run was worth, and one-lap against race pace.")
+        st.page_link("pages/4_Qualifying.py", label="Open Qualifying", icon="➡️")
 
     st.markdown("---")
     left, right = st.columns([3, 2])
@@ -56,14 +62,17 @@ def home() -> None:
         st.markdown("##### Getting started")
         st.markdown(
             "1. Pick a season, Grand Prix and session in the sidebar of any page and press "
-            "**Load session**. The choice carries across all pages.\n"
+            "**Load session**. A sprint weekend has four sessions (Sprint Qualifying, Sprint, "
+            "Qualifying, Grand Prix), a conventional one two. The choice carries across all pages: "
+            "the race pages show the race a qualifying pick set the grid for, and the Qualifying "
+            "page the qualifying for a race.\n"
             "2. The first load of a session downloads from the F1 timing API (around 30–90 s); "
             "after that it comes from the local `.fastf1/` cache and Streamlit's memory cache.\n"
             "3. If the full feed fails, the app falls back to lap timing only and tells you."
         )
         active = st.session_state.get(ACTIVE_SESSION_KEY)
         if active:
-            st.success(f"Active session: **{active[0]} {active[1]}** ({active[2]})")
+            st.success(f"Active session: **{active[0]} {active[1]}**, {config.SESSION_LABELS[active[2]]}")
     with right:
         st.markdown("##### Model assumptions")
         st.markdown(
@@ -80,5 +89,6 @@ pages = [
     st.Page("pages/1_Race_Recap.py", title="Race Recap", icon="📝"),
     st.Page("pages/2_Live_Race_Tracker.py", title="Live Race Tracker", icon="📡"),
     st.Page("pages/3_Future_Sandbox.py", title="Future Sandbox", icon="🧪"),
+    st.Page("pages/4_Qualifying.py", title="Qualifying", icon="⏱️"),
 ]
 st.navigation(pages).run()

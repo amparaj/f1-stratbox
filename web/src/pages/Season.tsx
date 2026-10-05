@@ -1,7 +1,7 @@
 import * as Plot from "@observablehq/plot";
 import { useCallback, useMemo, useState } from "react";
 import { color } from "../colors";
-import { ChanceBars, DriverChip, TeamDot } from "../components/f1";
+import { ChanceBars, DriverChip, SessionBadge, TeamDot } from "../components/f1";
 import { Chart, Note, plotDefaults, Segmented, Table, Tiles, type Column } from "../components/ui";
 import { rows, type CalendarEvent, type DriverStanding, type TeamStanding, type TitleOdds } from "../data";
 import { day, int, pct, shortEvent } from "../format";
@@ -16,6 +16,8 @@ export default function Season() {
   const oddsT = useMemo(() => new Map(rows<TitleOdds>(meta.title_odds?.teams).map((o) => [o.team, o])), [meta]);
   const [lead, second] = drivers;
   const left = meta.calendar.length - done.length;
+  // Files from before sprints were split out don't have the breakdown.
+  const split = drivers.some((d) => d.sprint_points !== undefined) && meta.calendar.some((e) => e.done_S);
 
   return (
     <>
@@ -48,8 +50,14 @@ export default function Season() {
             { key: "driver", label: "Driver", value: (d) => d.name, render: (d) => <><DriverChip code={d.driver} color={d.color} /> {d.name}</> },
             { key: "team", label: "Team", value: (d) => d.team },
             { key: "points", label: "Points", value: (d) => d.points, numeric: true },
-            { key: "wins", label: "Wins", value: (d) => d.wins, numeric: true },
-            { key: "podiums", label: "Podiums", value: (d) => d.podiums, numeric: true },
+            ...(split ? [
+              { key: "gp_points", label: "GP", title: "Points from Grands Prix", value: (d: DriverStanding) => d.gp_points, numeric: true, group: "Points from" },
+              { key: "sprint_points", label: "Sprint", title: "Points from Sprints", value: (d: DriverStanding) => d.sprint_points, numeric: true, group: "Points from" },
+            ] as Column<DriverStanding>[] : []),
+            { key: "wins", label: "Wins", title: "Grand Prix wins", value: (d) => d.wins, numeric: true },
+            ...(split ? [{ key: "sprint_wins", label: "Sprint wins", value: (d: DriverStanding) => d.sprint_wins, numeric: true }] as Column<DriverStanding>[] : []),
+            { key: "podiums", label: "Podiums", title: "Grand Prix podiums", value: (d) => d.podiums, numeric: true },
+            ...(drivers.some((d) => d.poles !== undefined) ? [{ key: "poles", label: "Poles", title: "Pole positions in Qualifying", value: (d: DriverStanding) => d.poles, numeric: true }] as Column<DriverStanding>[] : []),
             { key: "dnfs", label: "DNFs", value: (d) => d.dnfs, numeric: true },
             ...(meta.title_odds ? [
               { key: "exp", label: "Projected", title: "Expected points at the end of the season", value: (d: DriverStanding) => oddsD.get(d.driver)?.exp_points, render: (d: DriverStanding) => int(oddsD.get(d.driver)?.exp_points), numeric: true, group: "Forecast" },
@@ -75,7 +83,8 @@ export default function Season() {
             { key: "position", label: "Pos", value: (t) => t.position, numeric: true, rank: true },
             { key: "team", label: "Team", value: (t) => t.team, render: (t) => <><TeamDot color={t.color} /> {t.team}</> },
             { key: "points", label: "Points", value: (t) => t.points, numeric: true },
-            { key: "wins", label: "Wins", value: (t) => t.wins, numeric: true },
+            ...(split ? [{ key: "sprint_points", label: "From sprints", value: (t: TeamStanding) => t.sprint_points, numeric: true }] as Column<TeamStanding>[] : []),
+            { key: "wins", label: "Wins", title: "Grand Prix wins", value: (t) => t.wins, numeric: true },
             ...(meta.title_odds ? [
               { key: "p_title", label: "Title", value: (t: TeamStanding) => oddsT.get(t.team)?.p_title, render: (t: TeamStanding) => pct(oddsT.get(t.team)?.p_title), numeric: true },
             ] as Column<TeamStanding>[] : []),
@@ -92,14 +101,16 @@ export default function Season() {
           onRow={(e) => { window.location.hash = e.done_R ? `races/${e.round}` : `next/${e.round}`; }}
           cardTitle={(e) => `${e.round}. ${shortEvent(e.event)}`}
           cardSub={["date", "location"]}
-          cardStats={["winner"]}
+          cardStats={["pole", "sprint_winner", "winner"]}
           columns={[
             { key: "round", label: "Round", value: (e) => e.round, numeric: true, rank: true },
             { key: "event", label: "Grand Prix", value: (e) => e.event, render: (e) => <a href={e.done_R ? `#races/${e.round}` : `#next/${e.round}`}>{e.event}</a> },
             { key: "location", label: "Circuit", value: (e) => `${e.location}, ${e.country}` },
             { key: "date", label: "Date", value: (e) => day(e.race_utc) },
-            { key: "format", label: "Sprint", value: (e) => (e.sprint_utc ? "Sprint" : ""), render: (e) => (e.sprint_utc ? <span className="tag">Sprint</span> : "") },
-            { key: "winner", label: "Winner", value: (e) => e.winner ?? "", render: (e) => (e.winner ? <DriverChip code={e.winner} color={e.winner_color} /> : e.round === meta.next_round ? <span className="tag warn">Next</span> : "") },
+            { key: "format", label: "Format", value: (e) => (e.sprint_utc ? "Sprint" : ""), render: (e) => (e.sprint_utc ? <SessionBadge code="S" short /> : "") },
+            { key: "pole", label: "Pole", title: "Pole position in Qualifying", value: (e) => e.pole ?? "", render: (e) => (e.pole ? <DriverChip code={e.pole} color={e.pole_color} /> : "") },
+            { key: "sprint_winner", label: "Sprint", title: "Sprint winner", value: (e) => e.sprint_winner ?? "", render: (e) => (e.sprint_winner ? <DriverChip code={e.sprint_winner} color={e.sprint_winner_color} /> : "") },
+            { key: "winner", label: "Winner", title: "Grand Prix winner", value: (e) => e.winner ?? "", render: (e) => (e.winner ? <DriverChip code={e.winner} color={e.winner_color} /> : e.round === meta.next_round ? <span className="tag warn">Next</span> : "") },
           ]}
         />
         {meta.pending.length > 0 && (
@@ -123,7 +134,8 @@ function TitleOddsSection() {
     <section>
       <h3>Title Odds</h3>
       <p className="muted">
-        The rest of the season played 10,000 times from each driver's recent race pace and retirement rate.
+        The rest of the season played 10,000 times, every Sprint and Grand Prix left, from each driver's
+        recent race and qualifying pace, how their team went at each circuit last season, and their retirement rate.
         How it works is on the <a href="#about">About</a> page.
       </p>
       <div className="toolbar">

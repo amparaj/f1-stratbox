@@ -1,7 +1,7 @@
 # Rebuilds the website and publishes it to GitHub Pages (the gh-pages branch).
 #
 # Scheduled runs first ask scripts/needs_update.py (standard library only, a few seconds) whether
-# anything is due: a race or sprint whose chequered flag is out (OpenF1) but isn't on the site, a
+# anything is due: a session (qualifying, sprint, race) whose chequered flag is out (OpenF1) but isn't on the site, a
 # provisional result whose official classification may now be out (hourly at most), or data more
 # than a week old. Checking every 10 minutes over the weekend puts a race on the site about
 # 15-40 minutes after the flag (GitHub often starts scheduled runs late).
@@ -22,9 +22,9 @@ name: Update site
 
 on:
   schedule:
-    - cron: "*/10 * * * 0,6"    # every 10 minutes Saturday and Sunday (UTC): races and sprints
+    - cron: "*/10 * * * 5,6,0"  # every 10 minutes Friday to Sunday (UTC): qualifying, sprints, races
     - cron: "20 * * * 1"        # hourly Monday: provisional results, late grids
-    - cron: "20 6 * * 2-5"      # daily otherwise: late official classifications
+    - cron: "20 6 * * 2-4"      # daily otherwise: late official classifications
   push:
     branches: [main]
     paths:

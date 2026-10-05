@@ -50,14 +50,26 @@ STRATEGY_PRESETS: dict[str, list[tuple[str, float]]] = {
     "2-Stop · S→M→S": [("SOFT", 0.25), ("MEDIUM", 0.47), ("SOFT", 0.28)],
     "2-Stop · M→H→S": [("MEDIUM", 0.30), ("HARD", 0.45), ("SOFT", 0.25)],
 }
+# A sprint (about 100 km) has no compulsory stop: most run it without one.
+SPRINT_PRESETS: dict[str, list[tuple[str, float]]] = {
+    "No stop · M": [("MEDIUM", 1.0)],
+    "No stop · S": [("SOFT", 1.0)],
+    "No stop · H": [("HARD", 1.0)],
+    "1-Stop · S→S": [("SOFT", 0.5), ("SOFT", 0.5)],
+}
+
+
+def sprint_laps(race_laps: int) -> int:
+    """A sprint is the fewest laps past 100 km; a Grand Prix the fewest past 305 km."""
+    return int(np.ceil(race_laps * 100 / 305))
 
 
 # ---------------------------------------------------------------------------
 # Strategy construction
 # ---------------------------------------------------------------------------
 def preset_strategy(name: str, total_laps: int) -> list[Stint]:
-    """Turn a fractional preset into integer stint lengths summing to total_laps."""
-    fracs = STRATEGY_PRESETS[name]
+    """Turn a fractional preset (Grand Prix or sprint) into integer stint lengths summing to total_laps."""
+    fracs = STRATEGY_PRESETS.get(name) or SPRINT_PRESETS[name]
     laps = [max(1, round(f * total_laps)) for _, f in fracs[:-1]]
     laps.append(max(1, total_laps - sum(laps)))
     return [(c, n) for (c, _), n in zip(fracs, laps)]

@@ -199,6 +199,16 @@ button.link { background: none; border: 0; padding: 0; color: var(--s1); text-de
 .key-line { width: 14px; height: 2px; border-radius: 1px; }
 .key-dot { width: 9px; height: 9px; border-radius: 50%; }
 .tag { font-size: 12px; padding: 1px 6px; border-radius: 4px; background: var(--chip); color: var(--ink-2); white-space: nowrap; }
+/* Session kinds: Grand Prix, Sprint, Qualifying, Sprint Qualifying. */
+.session-badge { display: inline-block; font-size: 12px; font-weight: 600; line-height: 1.6; padding: 0 8px; border-radius: 999px; white-space: nowrap; vertical-align: middle; }
+.session-R { background: color-mix(in srgb, var(--s1) 16%, transparent); color: var(--ink); }
+.session-S { background: color-mix(in srgb, var(--s2) 18%, transparent); color: var(--ink); }
+.session-Q { background: var(--chip); color: var(--ink-2); box-shadow: inset 0 0 0 1px var(--baseline); }
+.session-SQ { background: color-mix(in srgb, var(--s3) 16%, transparent); color: var(--ink); }
+h2.session-title .session-badge { font-size: 14px; margin-left: 6px; position: relative; top: -2px; }
+.session-links { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.session-links a { text-decoration: none; }
+.session-links a:hover .session-badge { box-shadow: inset 0 0 0 1px var(--ink-2); }
 .tag.warn { background: color-mix(in srgb, var(--bad) 16%, transparent); color: var(--bad); }
 .tag.good-tag { background: color-mix(in srgb, var(--good) 16%, transparent); color: var(--good); }
 /* Team News: the press-conference cards and the managers' words. */

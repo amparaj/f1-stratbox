@@ -1,4 +1,4 @@
-// Live rain radar around the circuit while a race or sprint is on (RainViewer's free API).
+// Live rain radar around the circuit while a session (qualifying, sprint, race) is on (RainViewer's free API).
 // RainViewer keeps only the last two hours of radar (a frame every 10 minutes, no forecast
 // frames), so this is live only: it can't show a finished race. Drawn from map tiles at zoom 7
 // (the free tier's limit) on OpenStreetMap's own tiles (free, no key, credit required; CARTO's
@@ -15,12 +15,12 @@ const REFRESH_MS = 5 * 60_000;     // new radar frames every 10 minutes
 
 /** When the radar shows: from LEAD_MIN before the start until the session is surely over. */
 export const RADAR_LEAD_MIN = 30;
-export const RADAR_HOURS = { R: 3, S: 1.5 } as const;
+export const RADAR_HOURS = { R: 3, S: 1.5, Q: 1.5, SQ: 1.25 } as const;
 
-/** The live session at `now`, if any: race or sprint start within the radar window. */
-export function liveSession(ev: { race_utc: string | null; sprint_utc: string | null }, now: number):
-  { code: "R" | "S"; start: number } | null {
-  for (const [code, iso] of [["S", ev.sprint_utc], ["R", ev.race_utc]] as const) {
+/** The live session at `now`, if any: a session's start within the radar window. */
+export function liveSession(ev: { race_utc: string | null; sprint_utc: string | null; quali_utc?: string | null; sprint_quali_utc?: string | null }, now: number):
+  { code: "R" | "S" | "Q" | "SQ"; start: number } | null {
+  for (const [code, iso] of [["SQ", ev.sprint_quali_utc], ["S", ev.sprint_utc], ["Q", ev.quali_utc], ["R", ev.race_utc]] as const) {
     if (!iso) continue;
     const start = Date.parse(iso);
     if (now >= start - RADAR_LEAD_MIN * 60_000 && now <= start + RADAR_HOURS[code] * 3_600_000) return { code, start };

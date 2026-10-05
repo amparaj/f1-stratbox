@@ -3,28 +3,28 @@
 Formula 1 race strategy, built on lap timing from [OpenF1](https://openf1.org) and [FastF1](https://docs.fastf1.dev/). Three parts:
 
 - **Website** (https://amparaj.github.io/f1-stratbox/, phone-friendly): every race of the season
-  reviewed lap by lap, the standings and title odds, and a forecast for each race to come. It
-  updates itself after every race and sprint. Plus every season since 1950: champions,
+  reviewed lap by lap (Qualifying, Sprint Qualifying, Sprints and Grands Prix), the standings
+  and title odds, and a forecast for every session to come. It updates itself after every session. Plus every season since 1950: champions,
   standings, every race result, career records and circuits.
-- **Dashboard** (Streamlit, runs locally): post-race review, a lap-by-lap race tracker and a
-  strategy sandbox.
+- **Dashboard** (Streamlit, runs locally): post-race review, qualifying analysis, a lap-by-lap
+  race tracker and a strategy sandbox (Grand Prix or Sprint).
 - **Analysis code** shared by both: `modules/`.
 
 ## Website
 
 | Page | What's on it |
 | --- | --- |
-| Season | Drivers' and constructors' standings, title odds from 10,000 simulated seasons and how they moved, points through the season, the calendar with every winner |
-| Race Results & Analysis | For each race and sprint: the story in bullet points, the result, the forecast made before the race against what happened, running order by lap, every driver's tyre strategy (with tyre cliffs), gap to the leader, degradation per compound, and a stint-by-stint post-mortem |
-| Next Race Forecast | Win, podium and points chances for every driver, and the fastest 1- or 2-stop tyre strategy (searched, then Monte Carlo'd with Safety Cars), for the next race or any later one |
+| Season | Drivers' and constructors' standings (Grand Prix and Sprint points apart, wins, sprint wins, poles), title odds from 10,000 simulated seasons and how they moved, points through the season, the calendar with every pole, sprint winner and winner |
+| Race Results & Analysis | Every session of every weekend, labelled by kind. Races (Grand Prix, Sprint): the story in bullet points, the result, the forecast against what happened, running order by lap, every driver's tyre strategy (with tyre cliffs), gap to the leader, degradation per compound, a stint-by-stint post-mortem. Qualifying (and Sprint Qualifying): Q1/Q2/Q3, knockout margins, sectors and the ideal lap, track evolution, the forecast against the result |
+| Next Race Forecast | For each session of the weekend: pole / Q3 / knock-out chances, or win, podium and points chances (before the weekend, and after qualifying with the grid); the qualifying strategy; the fastest tyre strategy for the Grand Prix and the Sprint; and the favourite for every round left |
 | History | Every season since 1950: champions, standings and points through the season, every race result (running order lap by lap and pit stops from 1996), every driver's career, every constructor and circuit |
 | About | How the analysis and forecasts work |
 
 ### How it updates
 
-`.github/workflows/site.yml` runs every 10 minutes on Saturday and Sunday (UTC), hourly on Monday
+`.github/workflows/site.yml` runs every 10 minutes Friday to Sunday (UTC), hourly on Monday
 and daily otherwise. Each run first asks `scripts/needs_update.py`, which reads the published
-`meta.json`, whether a race or sprint whose chequered flag is out (OpenF1) isn't on the site yet,
+`meta.json`, whether a session (qualifying, sprint, race) whose last chequered flag is out (OpenF1) isn't on the site yet,
 or a provisional result may now have its official classification (checked hourly at most). A race
 is usually on the site 15–40 minutes after the flag. Only then does it export the data (`scripts/export_site.py`),
 build the site (`web/`, React + Vite) and push it to the `gh-pages` branch. A push to `main`
@@ -53,7 +53,8 @@ files rather than failing.
 ### Archive
 
 Every finished session's raw data (OpenF1's laps, stints, pit stops, race control, weather and
-result, and Jolpica's grid) is kept in `archive/openf1/<year>/rNN-R.json.gz` (`-S` for a sprint),
+result, and Jolpica's grid) is kept in `archive/openf1/<year>/rNN-R.json.gz` (`-S` sprint, `-Q` qualifying,
+`-SQ` sprint qualifying),
 committed to the repo: about 50 kB a race. The History pages' data is archived the same way:
 `archive/jolpica/<year>.json.gz` holds that season's rows from every table of Jolpica's dump
 (about 14 MB for 1950–2025, most of it lap times). A season goes in once a dump taken after
@@ -88,8 +89,22 @@ python -m venv .venv
 .venv\Scripts\streamlit run app.py
 ```
 
-`scripts\prefetch_season.py` downloads every finished race and sprint of a season into the local
-cache (`.fastf1/`) so the dashboard opens them instantly.
+`scripts\prefetch_season.py` downloads every finished session (qualifying, sprint, race) of a
+season into the local cache (`.fastf1/`) so the dashboard opens them instantly.
+
+### Filling OpenF1's gaps
+
+When OpenF1 is missing part of a finished session (2025 Azerbaijan qualifying has no laps there),
+`scriptsackfill_fastf1.py 2025` (or `2025 --round 17 --code Q`) fills it from F1's live-timing
+archive through FastF1, keeping everything OpenF1 has, and writes
+`archive/openf1/<year>/rNN-<code>.fastf1.json.gz`. Run it locally (F1's live-timing server doesn't
+answer GitHub's runners) and commit the file. A qualifying classification OpenF1 hasn't got comes
+from Jolpica automatically.
+
+### Forecast calibration
+
+`scripts\calibrate_forecast.py 2025 2026` replays every session's forecast from the sessions
+before it and fits the "Session forecasts" constants in `config.py` (results noted there).
 
 ## Data
 

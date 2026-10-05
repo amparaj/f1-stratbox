@@ -6,8 +6,10 @@ GitHub Action can ask cheaply before installing anything.
 
 Prints "yes" or "no" (and writes `update=true|false` to $GITHUB_OUTPUT when set). Yes when:
   * the site has no meta.json yet;
-  * a race or sprint isn't published but has finished: OpenF1 shows its chequered flag
-    (config.session_finished: FINISH_SETTLE_MIN ago), or LATEST_FINISH_H have passed since the
+  * a session (Grand Prix, Sprint, Qualifying, Sprint Qualifying: a qualifying result moves the
+    race forecasts onto the grid) isn't published but has finished: OpenF1 shows its last
+    chequered flag (qualifying shows three; config.session_finished: FINISH_SETTLE_MIN ago),
+    or LATEST_FINISH_H have passed since the
     start without one. It's checked from EARLIEST_FINISH_MIN after the start, until RETRY_DAYS
     (so a cancelled session doesn't retry for ever);
   * a session is published but still provisional (no official classification or grid yet), or
@@ -26,9 +28,12 @@ import urllib.parse
 import urllib.request
 
 # Copies of config.py's finish rules (this script runs before anything is installed).
-EARLIEST_FINISH_MIN = {"R": 75, "S": 25}
+EARLIEST_FINISH_MIN = {"R": 75, "S": 25, "Q": 55, "SQ": 40}
+CHEQUERED_FLAGS = {"R": 1, "S": 1, "Q": 3, "SQ": 3}
 FINISH_SETTLE_MIN = 5
-LATEST_FINISH_H = 6
+LATEST_FINISH_H = {"R": 6, "S": 6, "Q": 3, "SQ": 3}
+SESSION_NAMES = {"R": ("Race",), "S": ("Sprint",), "Q": ("Qualifying",), "SQ": ("Sprint Qualifying", "Sprint Shootout")}
+UTC_KEY = {"SQ": "sprint_quali_utc", "S": "sprint_utc", "Q": "quali_utc", "R": "race_utc"}
 RETRY_DAYS = 4
 REFRESH_MINUTES = 50
 MAX_AGE_DAYS = 7
@@ -50,9 +55,9 @@ def _get_json(path: str, **params):
 
 
 def chequered(code: str, start: dt.datetime) -> dt.datetime | None:
-    """When OpenF1 shows the session's chequered flag, or None (not yet, or no answer)."""
+    """When OpenF1 shows the flag that ends the session (qualifying: the third), or None."""
     try:
-        sessions = _get_json("sessions", year=start.year, session_name="Sprint" if code == "S" else "Race")
+        sessions = [s for name in SESSION_NAMES[code] for s in _get_json("sessions", year=start.year, session_name=name)]
         near = [s for s in sessions
                 if abs(dt.datetime.fromisoformat(s["date_start"]) - start) < dt.timedelta(hours=6)]
         if not near:
@@ -61,12 +66,14 @@ def chequered(code: str, start: dt.datetime) -> dt.datetime | None:
     except Exception as exc:  # noqa: BLE001 — OpenF1 down or live-only: try again next run
         print(f"  (OpenF1: {exc})")
         return None
-    times = [dt.datetime.fromisoformat(m["date"]) for m in msgs if m.get("date")]
-    return min(times) if times else None
+    times = sorted(dt.datetime.fromisoformat(m["date"]) for m in msgs if m.get("date"))
+    flags = [t for i, t in enumerate(times) if i == 0 or t - times[i - 1] > dt.timedelta(minutes=1)]
+    n = CHEQUERED_FLAGS[code]
+    return flags[n - 1] if len(flags) >= n else None
 
 
 def finished(code: str, start: dt.datetime, now: dt.datetime) -> bool:
-    if now >= start + dt.timedelta(hours=LATEST_FINISH_H):
+    if now >= start + dt.timedelta(hours=LATEST_FINISH_H[code]):
         return True
     flag = chequered(code, start)
     return flag is not None and now >= flag + dt.timedelta(minutes=FINISH_SETTLE_MIN)
@@ -80,7 +87,7 @@ def reasons(meta: dict | None, now: dt.datetime) -> list[str]:
     age = now - dt.datetime.fromisoformat(meta["generated"])
     refresh = age > dt.timedelta(minutes=REFRESH_MINUTES)
     for ev in meta["calendar"]:
-        for code, key in (("S", "sprint_utc"), ("R", "race_utc")):
+        for code, key in UTC_KEY.items():
             if not ev.get(key):
                 continue
             start = dt.datetime.fromisoformat(ev[key])

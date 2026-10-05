@@ -61,8 +61,8 @@ def session_track_temp(year: int, event: str, stype: str) -> float | None:
 
 
 @st.cache_data(show_spinner=False, max_entries=16, ttl=3600)
-def next_race_at(circuit: str) -> pd.Timestamp | None:
-    """This season's (or next season's) race start at a circuit, if it's still to come."""
+def next_race_at(circuit: str, code: str = "R") -> pd.Timestamp | None:
+    """This season's (or next season's) race ("R") or sprint ("S") start at a circuit, if it's still to come."""
     now = pd.Timestamp.now(tz="UTC")
     for year in (now.year, now.year + 1):
         try:
@@ -73,7 +73,7 @@ def next_race_at(circuit: str) -> pd.Timestamp | None:
             if config.get_pit_loss(ev["Location"], ev["EventName"])[1] != circuit:
                 continue
             for i in range(1, 6):
-                if ev[f"Session{i}"] == "Race" and pd.notna(ev[f"Session{i}DateUtc"]):
+                if ev[f"Session{i}"] == config.SESSION_NAMES[code] and pd.notna(ev[f"Session{i}DateUtc"]):
                     start = pd.Timestamp(ev[f"Session{i}DateUtc"]).tz_localize("UTC")
                     if start > now:
                         return start
@@ -81,9 +81,9 @@ def next_race_at(circuit: str) -> pd.Timestamp | None:
 
 
 @st.cache_data(show_spinner=False, max_entries=16, ttl=1800)
-def cached_outlook(names: tuple, start_utc: pd.Timestamp, total_laps: int, reference_start):
+def cached_outlook(names: tuple, start_utc: pd.Timestamp, total_laps: int, reference_start, code: str = "R"):
     try:
-        return wx.outlook(names, start_utc, total_laps, reference_start=reference_start), None
+        return wx.outlook(names, start_utc, total_laps, code, reference_start=reference_start), None
     except wx.WeatherUnavailable as exc:
         return None, str(exc)
 
@@ -93,9 +93,17 @@ def cached_outlook(names: tuple, start_utc: pd.Timestamp, total_laps: int, refer
 # ---------------------------------------------------------------------------
 st.title("🧪 Future Sandbox")
 active = st.session_state.get(de.ACTIVE_SESSION_KEY)
+if active and active[2] in config.QUALI_CODES:
+    # Tyre wear comes from a race: a qualifying pick calibrates on the race it set the grid for.
+    active = (active[0], active[1], config.RACE_OF_QUALI[active[2]])
 
 with st.sidebar:
     st.markdown("### 📐 Baseline")
+    race_type = st.radio("Race type", ["R", "S"], horizontal=True, format_func=de.session_label,
+                         index=1 if active and active[2] == "S" else 0,
+                         help="A Sprint is about 100 km (a third of a Grand Prix) with no compulsory stop, so "
+                              "its presets are no-stop plans; the distance follows.")
+    sprint = race_type == "S"
     sources = ["Generic compound presets"] + (["Calibrate from loaded session"] if active else [])
     source = st.radio("Pace & degradation source", sources,
                       help="Load a session on Race Recap or Live Race Tracker to enable calibration.")
@@ -113,7 +121,10 @@ with st.sidebar:
         info = calib["info"]
         circuit_default, circuit = config.get_pit_loss(info["location"], info["event_name"])
         circuit_names = (info["location"], info["event_name"])
-        total_laps = st.number_input("Race distance (laps)", 10, 90, int(info["total_laps"]))
+        # The loaded session's distance, scaled when it's the other kind of race.
+        gp_laps = int(info["total_laps"]) if active[2] == "R" else int(round(info["total_laps"] * 305 / 100))
+        own = int(info["total_laps"]) if active[2] == race_type else (sim.sprint_laps(gp_laps) if sprint else gp_laps)
+        total_laps = st.number_input("Race distance (laps)", 5, 90, own)
         base_pace = {c: m["base_pace"] for c, m in calib["field"].items()}
         deg_rate = {c: m["deg_rate"] for c, m in calib["field"].items()}
         st.caption(f"Calibrated on {info['year']} {info['event_name']}.")
@@ -122,7 +133,7 @@ with st.sidebar:
         circuit = st.selectbox("Circuit", circuits, index=circuits.index("Silverstone"))
         circuit_default = config.TRACK_PIT_LOSS[circuit]
         circuit_names = (circuit,)
-        total_laps = st.number_input("Race distance (laps)", 10, 90, 52)
+        total_laps = st.number_input("Race distance (laps)", 5, 90, sim.sprint_laps(52) if sprint else 52)
         base_pace = st.number_input("Fresh-Soft lap time, full fuel (s)", 60.0, 130.0, 91.0, 0.1)
         deg_rate = st.number_input("Medium deg rate (s/lap)", 0.0, 0.5,
                                    config.COMPOUND_PRESETS["MEDIUM"]["deg_rate"], 0.005, format="%.3f",
@@ -142,7 +153,7 @@ with st.sidebar:
                              "dates in the last 10 years. Each simulated race draws one scenario.")
     outlook, outlook_err, race_start = None, None, None
     if risk_src == "Forecast / climate":
-        default_start = next_race_at(circuit) if circuit else None
+        default_start = next_race_at(circuit, race_type) if circuit else None
         if default_start is None and calib and calib["info"].get("start_utc") is not None:
             default_start = calib["info"]["start_utc"]
         default_start = default_start or (pd.Timestamp.now(tz="UTC").normalize() + pd.Timedelta(days=7, hours=13))
@@ -153,7 +164,7 @@ with st.sidebar:
         # way from the same source for both (modules/weather.py).
         ref_start = calib["info"].get("start_utc") if calib else None
         with st.spinner("Fetching the weather outlook…"):
-            outlook, outlook_err = cached_outlook(circuit_names, race_start, int(total_laps), ref_start)
+            outlook, outlook_err = cached_outlook(circuit_names, race_start, int(total_laps), ref_start, race_type)
         if outlook_err:
             st.warning(f"No weather outlook ({outlook_err}).")
     elif risk_src == "Set by hand":
@@ -199,10 +210,12 @@ elif risk_src == "Set by hand":
 # ---------------------------------------------------------------------------
 # Strategy selection
 # ---------------------------------------------------------------------------
+presets = sim.SPRINT_PRESETS if sprint else sim.STRATEGY_PRESETS
+st.markdown(f"{de.session_badge(race_type)} · {total_laps} laps"
+            + (" · no compulsory stop, sprint points to the top eight" if sprint else ""))
 c1, c2 = st.columns([3, 2])
 with c1:
-    picked = st.multiselect("Strategies to compare", list(sim.STRATEGY_PRESETS),
-                            default=list(sim.STRATEGY_PRESETS))
+    picked = st.multiselect("Strategies to compare", list(presets), default=list(presets), key=f"presets_{race_type}")
 with c2:
     custom_txt = st.text_input("Custom strategy (optional)", placeholder="e.g. S-15, H  or  M-20, H-18, S",
                                help="S/M/H/I/W with lap counts; the last stint may omit its length.")
@@ -222,7 +235,7 @@ if len(strategies) > MAX_STRATEGIES:
     strategies = dict(list(strategies.items())[:MAX_STRATEGIES])
 
 # Colour follows the strategy (fixed slot by preset order), never its ranking.
-slot_names = list(sim.STRATEGY_PRESETS) + [n for n in strategies if n not in sim.STRATEGY_PRESETS]
+slot_names = list(presets) + [n for n in strategies if n not in presets]
 colors = {n: config.STRATEGY_COLORS[slot_names.index(n) % MAX_STRATEGIES] for n in strategies}
 
 sim_kwargs = dict(base_pace=base_pace, degradation_rate=deg_rate, total_laps=total_laps,

@@ -268,6 +268,7 @@ active = de.render_session_selector()
 if not active:
     st.info("Pick a season, Grand Prix and session in the sidebar, then press **Load session**.")
     st.stop()
+active = de.page_session(active, "race")
 if de.load_active_session(active) is None:
     st.stop()
 try:
@@ -284,7 +285,9 @@ winner = classified.iloc[0]["Driver"] if not classified.empty else "—"
 tyre_cliffs = [(r["driver"], c) for r in B["reports"] for c in r["cliffs"] if c["cause"] == "tyre"]
 weather_drops = [(r["driver"], c) for r in B["reports"] for c in r["cliffs"] if c["cause"] == "weather"]
 
-st.caption(f"{info['year']} {info['event_name']} · {info['session_name']} · {info['location']}")
+st.markdown(f"{de.session_badge(active[2])} · {info['year']} {info['event_name']} · {info['location']}"
+            + (" · a sprint: about a third of the distance, no compulsory stop, points to the top eight"
+               if active[2] == "S" else ""))
 m = st.columns(5)
 m[0].metric("Winner", winner)
 m[1].metric("Laps", info["total_laps"])

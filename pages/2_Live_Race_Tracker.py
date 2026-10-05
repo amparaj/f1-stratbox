@@ -205,6 +205,7 @@ active = de.render_session_selector()
 if not active:
     st.info("Pick a season, Grand Prix and session in the sidebar, then press **Load session**.")
     st.stop()
+active = de.page_session(active, "race")
 info = de.load_active_session(active)
 if info is None:
     st.stop()
@@ -236,8 +237,8 @@ with st.sidebar:
                                    help="Until slicks are quicker again, drying time included.")
         rain_int = st.radio("Intensity", list(config.RAIN_PROFILES), horizontal=True, key="live_rain_int")
 
-st.caption(f"{info['year']} {info['event_name']} · {info['session_name']} — replaying lap by lap. "
-           "Models only use laps already completed.")
+st.markdown(f"{de.session_badge(active[2])} · {info['year']} {info['event_name']} — replaying lap by lap. "
+            "Models only use laps already completed.")
 lap_wx = de.get_lap_weather(*active)
 coords = wx.circuit_coords(info["location"], info["event_name"])
 

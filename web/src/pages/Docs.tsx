@@ -23,7 +23,15 @@ const PRESETS = {
 } as const;
 const FORM_DECAY = 0.75;
 const FORM_RACES = 6;
-const RACE_SD = 0.45;
+// Session forecasts (config.py "Session forecasts", fitted by scripts/calibrate_forecast.py).
+const SD = { R: 0.35, S: 0.6, Q: 0.35 };
+const SD_GRID = { R: 0.2, S: 0.45 };
+const BLEND = 0.75;
+const BLEND_WEEKEND = 0.85;
+const GRID = { R: 0.02, S: 0.2 };
+const CIRCUIT = 0.25;
+const DRIFT_ROUND = 0.1;
+const RACE_SD = SD.R;
 const DRIFT_SD = 0.35;
 const WET = { mm: 0.3, heavy: 3, raceMin: 95, drying: 4, sunGain: 0.02, offset: 5.3, years: 10, days: 3 };
 const RAIN = {
@@ -42,8 +50,9 @@ const SECTIONS = [
   { id: "degradation", title: "Tyre degradation" },
   { id: "cliffs", title: "Tyre cliffs" },
   { id: "pace", title: "Race pace" },
+  { id: "qualifying", title: "Qualifying analysis" },
   { id: "form", title: "Form" },
-  { id: "race", title: "Race forecast" },
+  { id: "race", title: "Session forecasts" },
   { id: "title", title: "Title odds" },
   { id: "strategy", title: "Tyre strategy" },
   { id: "weather", title: "Weather" },
@@ -126,6 +135,7 @@ export default function Docs() {
       <Degradation />
       <Cliffs />
       <Pace />
+      <Qualifying />
       <Form />
       <RaceForecast />
       <TitleOdds />
@@ -149,8 +159,8 @@ function Architecture() {
         search for the fastest tyre strategy at the next circuit. Click a box to jump to its section.
       </p>
       <Flow label="The whole system, from timing data to the pages" stages={[
-        { label: "Data", join: "one session at a time", nodes: [
-          { title: "Laps & stints", text: "lap times, tyre compound and age, pit in and out", kind: "source", section: "data" },
+        { label: "Data", join: "one session at a time: Qualifying, Sprint Qualifying, Sprint, Grand Prix", nodes: [
+          { title: "Laps & stints", text: "lap times, sectors, speed traps, tyre compound and age, pit in and out", kind: "source", section: "data" },
           { title: "Race control", text: "SC, VSC and red flag periods, deleted laps", kind: "source", section: "data" },
           { title: "Weather", text: "track sensors through the race; Open-Meteo forecast and climate ahead", kind: "source", section: "weather" },
           { title: "Results & grid", text: "classification, points, starting grid", kind: "source", section: "data" },
@@ -164,20 +174,21 @@ function Architecture() {
           { title: "Degradation", text: "a line per driver and compound: s/lap of tyre age", kind: "model", section: "degradation" },
           { title: "Cliffs", text: "a two-piece line per stint", kind: "model", section: "cliffs" },
           { title: "Race pace", text: "% against the field median, per compound", kind: "model", section: "pace" },
+          { title: "Qualifying", text: "Q1/Q2/Q3, cut-offs, sectors, track evolution, one-lap pace", kind: "model", section: "qualifying" },
         ] },
         { label: "Form", join: "fed into three simulations", nodes: [
-          { title: "Driver form", text: "decayed average of the last six race paces, plus each driver's DNF rate", kind: "key", section: "form" },
+          { title: "Driver form", text: "race form (Grands Prix and sprints) and qualifying form, last six rounds, plus each driver's DNF rate", kind: "key", section: "form" },
         ] },
         { label: "Forecast", join: "", nodes: [
-          { title: "Race odds", text: "10,000 races: win, podium, points, expected finish", kind: "model", section: "race" },
+          { title: "Session odds", text: "10,000 runs of each Qualifying, Sprint and Grand Prix", kind: "model", section: "race" },
           { title: "Title odds", text: "10,000 seasons on top of the points so far", kind: "model", section: "title" },
-          { title: "Tyre strategy", text: "circuit tyre severity → every 1- and 2-stop plan → Monte Carlo", kind: "model", section: "strategy" },
+          { title: "Tyre strategy", text: "circuit tyre severity → every 1- and 2-stop plan (a sprint: no-stop too) → Monte Carlo", kind: "model", section: "strategy" },
         ] },
         { label: "Out", nodes: [
           { title: "Current Season", text: "standings, title odds, calendar", kind: "out" },
           { title: "Race Results & Analysis", text: "result, charts, strategy, deg, forecast vs result", kind: "out" },
-          { title: "Next Race Forecast", text: "odds and the best strategies", kind: "out" },
-        ], note: <>↺ Every finished race is re-forecast from only the races before it, and shown against the result.</> },
+          { title: "Next Race Forecast", text: "odds per session, qualifying and tyre strategy", kind: "out" },
+        ], note: <>↺ Every finished session is re-forecast from only the sessions before it, and shown against the result.</> },
       ]} />
     </Section>
   );
@@ -189,8 +200,9 @@ function Data() {
   return (
     <Section id="data">
       <p>
-        Lap timing, tyre stints, pit stops, race control messages, weather and the official classification come
-        from the <a href="https://openf1.org">OpenF1</a> API. The season's calendar comes from the{" "}
+        Lap timing (with sector times and speed traps), tyre stints, pit stops, race control messages, weather and the
+        official classification come from the <a href="https://openf1.org">OpenF1</a> API, for every session of a
+        weekend: Qualifying and the Grand Prix, and on a sprint weekend Sprint Qualifying and the Sprint. The season's calendar comes from the{" "}
         <a href="https://docs.fastf1.dev/">FastF1</a> library and starting grids from the Jolpica (Ergast) API.
         The History pages use Jolpica's database dump (CC BY-NC-SA 4.0); none of the models below run on it.
         A few things have to be rebuilt from what those sources give:
@@ -209,8 +221,16 @@ function Data() {
         follow that order. The race is shown as provisional until the official figures replace it.
       </p>
       <p>
-        <b>Final results are frozen.</b> Four days after a session (once its classification and grid are in) its
-        raw data is archived and never downloaded again, so a finished race always shows the same numbers.
+        <b>Final results are frozen.</b> Four days after a session (once its classification and, for a race, its grid
+        are in) its raw data is archived and never downloaded again, so a finished session always shows the same numbers.
+      </p>
+      <p>
+        <b>Gaps.</b> When OpenF1 is missing part of a session (2025's Azerbaijan qualifying has no lap timing there),
+        the missing part is filled from F1's own live-timing archive, read through FastF1, and the classification of a
+        qualifying session OpenF1 hasn't got from Jolpica. Everything OpenF1 does have is kept. Live timing counts
+        time from its own session clock, which is tied to UTC by the moment the session started (its status feed
+        against race control's "SESSION STARTED"); as a check, its segment ends then land within a second of race
+        control's chequered flags. A session filled this way says so on its page.
       </p>
       <p>The gap from driver <M t="d" /> to the car ahead at the end of lap <M t="n" /> is the difference in the session clock <M t="T" /> as they crossed the line:</p>
       <M block t={String.raw`g_{d,n} = T_{d,n} - T_{\text{ahead},n}`} />
@@ -441,6 +461,42 @@ function Pace() {
   );
 }
 
+// ---------------------------------------------------------------- qualifying
+
+function Qualifying() {
+  return (
+    <Section id="qualifying">
+      <p>
+        Qualifying (and Sprint Qualifying, the same format, shorter) runs in three segments; the slowest cars go out
+        after Q1 and Q2 (20 cars: 15 then 10 go through; 22 cars: 16 then 10). The laps are split into segments by
+        the chequered flag that ends each one: a lap started before the flag counts in that segment.
+      </p>
+      <ul>
+        <li><b>Through or out</b> goes by the classification, not by having a time: a driver can reach Q2 and set none.</li>
+        <li><b>Cut-off margin.</b> For a driver who went through, their time against the fastest driver knocked out;
+          for one knocked out, against the slowest who went through.</li>
+        <li><b>Ideal lap.</b> The driver's best three sectors from any of their valid laps, added up. The time left on
+          the table is their best lap minus that.</li>
+        <li><b>Track evolution.</b> Between segments: the median change of the same drivers' times from Q1 to Q2 and
+          Q2 to Q3. Within a segment: the slope of push laps (within 5% of the driver's best) against the clock, each
+          lap taken against the same driver's mean push lap in that segment, so the car's pace drops out:</li>
+      </ul>
+      <M block t={String.raw`g_q = \frac{\sum (m_i - \bar m_{d})(t_i - \bar t_{d})}{\sum (m_i - \bar m_{d})^2} \quad \text{s per minute}`} />
+      <p>
+        <b>Qualifying pace</b> puts every driver on one scale although the track gets faster: each segment's times are
+        taken against the median time of the drivers who reached Q3 in that same segment, a driver's pace is the best
+        of those ratios, and the field median is subtracted (negative = faster). It feeds qualifying form.
+      </p>
+      <M block t={String.raw`p^{Q}_d = \min_q \left(\frac{t_{d,q}}{\operatorname{med}_{d' \in Q3}\, t_{d',q}} - 1
+ight) \times 100 \;-\; \text{field median}`} />
+      <Example>
+        Q1 1:37.041 against a Q3-runners' Q1 median of 1:36.95 is +0.09%; Q2 1:35.959 against 1:36.03 is −0.07%;
+        Q3 1:35.631 against 1:35.67 is −0.04%. The best, −0.07%, is the driver's pace before the field median comes off.
+      </Example>
+    </Section>
+  );
+}
+
 // ---------------------------------------------------------------- 8. form
 
 function Form() {
@@ -465,10 +521,12 @@ function Form() {
   return (
     <Section id="form">
       <p>
-        Form is a weighted average of a driver's race paces over their last six races. The most recent race counts
+        Form is a weighted average of a driver's paces over the last six rounds. The most recent round counts
         fully and each earlier one 0.75 times the one after it, so form follows a car that's improving without
-        being thrown by one bad afternoon. Races a driver has no pace figure for (a DNF, too few clean laps) are
-        left out and the weights re-normalised:
+        being thrown by one bad afternoon. There are two: <b>race form</b> from Grand Prix and Sprint race pace (a
+        sprint counts 0.75 of a Grand Prix: the replays could barely tell weights from 0 to 1 apart), and
+        <b>qualifying form</b> from Qualifying and Sprint Qualifying pace. Sessions a driver has no pace figure for
+        (a DNF, too few clean laps) are left out and the weights re-normalised:
       </p>
       <M block t={String.raw`f_d = \frac{\sum_{k=0}^{5} w_k\, p_{d,R-k}}{\sum_{k=0}^{5} w_k}, \qquad w_k = 0.75^{\,k}`} />
       <Figure caption="How much each of the last six races counts towards form.">
@@ -505,14 +563,19 @@ function RaceForecast() {
   }, []);
   return (
     <Section id="race">
-      <p>The next race is played 10,000 times. Each simulated race:</p>
+      <p>
+        Every session of a weekend gets its own forecast, played 10,000 times: Sprint Qualifying, the Sprint,
+        Qualifying and the Grand Prix. Each comes in two versions: before the weekend (from the rounds before), and,
+        once earlier sessions of the weekend have run, the latest one (a race then knows its grid). Each simulated session:
+      </p>
       <Flow label="One simulated race" stages={[
         { label: "In", join: "for each driver", nodes: [
-          { title: "Form", text: "from the last six races", kind: "source", section: "form" },
+          { title: "Form", text: "race and qualifying form, last six rounds", kind: "source", section: "form" },
+          { title: "Weekend", text: "this race's qualifying pace and grid, once they're in", kind: "source", section: "qualifying" },
           { title: "DNF rate", text: "their retirements, shrunk to the field's", kind: "source" },
         ] },
         { label: "Draw", join: "", nodes: [
-          { title: "Pace on the day", text: <>form + a random draw, spread 0.45%</>, kind: "model" },
+          { title: "Pace on the day", text: <>expected pace + a random draw (Grand Prix spread {SD.R}%, Sprint {SD.S}%, Qualifying {SD.Q}%)</>, kind: "model" },
           { title: "Retirement?", text: "yes with the driver's DNF rate", kind: "model" },
         ] },
         { label: "Order", join: "× 10,000 races", nodes: [
@@ -521,16 +584,30 @@ function RaceForecast() {
         { label: "Out", nodes: [
           { title: "Win, podium, points %", text: "share of races in each place", kind: "out" },
           { title: "Expected finish", text: "a DNF counts as last", kind: "out" },
-          { title: "Expected points", text: "25-18-15-12-10-8-6-4-2-1", kind: "out" },
+          { title: "Expected points", text: "25-18-…-1, a sprint 8-7-…-1", kind: "out" },
+          { title: "Qualifying", text: "pole, front row, Q3, out in Q1, expected grid", kind: "out" },
         ] },
       ]} />
-      <p>In symbols, for simulation <M t="s" />:</p>
-      <M block t={String.raw`x_{d,s} = f_d + \varepsilon_{d,s}, \quad \varepsilon_{d,s} \sim \mathcal{N}\!\left(0,\ 0.45^2\right)`} />
+      <p>The expected pace depends on the session. Qualifying uses qualifying form <M t="f^Q_d" />. A race blends race form with qualifying form, and once its own qualifying is done, with that session's pace <M t="p^{Q*}_d" /> plus a step per grid place <M t="g_d" />:</p>
+      <M block t={String.raw`\mu_d = (1-${BLEND})\,f^R_d + ${BLEND}\,f^Q_d \qquad \text{after qualifying: } \mu_d = (1-${BLEND_WEEKEND})\,f^R_d + ${BLEND_WEEKEND}\,p^{Q*}_d + \gamma\,(g_d - \bar g)`} />
+      <p>
+        with <M t="\gamma" /> = {GRID.R}% per place in a Grand Prix and {GRID.S}% in a Sprint (overtaking is harder over
+        a third of the distance, so the grid decides more). One-lap pace turned out to say more about the next race than
+        recent race pace does (the replays put {BLEND * 100}% of the weight on it). Then, for simulation <M t="s" />:
+      </p>
+      <M block t={String.raw`x_{d,s} = \mu_d + w\,c_{\text{team}(d)} + \delta_{d,s} + \varepsilon_{d,s}, \quad \delta_{d,s} \sim \mathcal{N}\!\left(0,\ (${DRIFT_ROUND}\sqrt{h-1})^2\right), \quad \varepsilon_{d,s} \sim \mathcal{N}\!\left(0,\ \sigma_{\text{session}}^2\right)`} />
+      <p>
+        <M t="c" /> is the circuit term: how much faster or slower the team was at this circuit last season than its
+        own season median, weighted <M t={`w = ${CIRCUIT}`} /> for races (0 for qualifying). <M t="h" /> is how many
+        rounds ahead the session is: a round further away has its form drift too, so its odds are flatter. Once a race's
+        grid is in, the spread on the day drops to {SD_GRID.R}% (Grand Prix) and {SD_GRID.S}% (Sprint).
+      </p>
       <M block t={String.raw`\text{DNF}_{d,s} \sim \operatorname{Bernoulli}(q_d)`} />
       <M block t={String.raw`P(\text{win}_d) \approx \frac{1}{S}\sum_{s=1}^{S} \mathbf{1}\big[\text{pos}_{d,s} = 1\big], \qquad S = 10{,}000`} />
       <p>
-        The spread of 0.45% is how much a driver's pace really moves from one race to the next: it gave the highest
-        likelihood to the actual winners when the season's earlier rounds were replayed. A driver's DNF rate is
+        The spreads are how much a driver's result really moves around their expected pace: they gave the highest
+        likelihood to what happened when 2025 and 2026 were replayed (see Checking the forecasts). A sprint retires a
+        driver at 0.4 times their Grand Prix rate, and qualifying has a 1% chance of no time. A driver's DNF rate is
         their own record pulled towards the field's, as if they'd had 10 extra starts at the field rate, so one early
         retirement doesn't brand a driver unreliable:
       </p>
@@ -540,9 +617,9 @@ function RaceForecast() {
         <Chart make={make} height={240} ariaLabel="Distributions of simulated race pace for three drivers" />
       </Figure>
       <p>For two drivers alone, the chance one beats the other has a closed form (<M t={String.raw`\Phi`} /> is the standard normal's cumulative chance):</p>
-      <M block t={String.raw`P(x_A < x_B) = \Phi\!\left(\frac{f_B - f_A}{\sqrt{2}\times 0.45}\right)`} />
+      <M block t={String.raw`P(x_A < x_B) = \Phi\!\left(\frac{\mu_B - \mu_A}{\sqrt{2}\times ${SD.R}}\right)`} />
       <Example>
-        Form −0.5% against −0.2%: <M t={String.raw`\Phi(0.3 / 0.636) = \Phi(0.47) = 68\%`} />. A driver with 2 DNFs in 8 starts, in a
+        Expected pace −0.5% against −0.2% before the weekend: <M t={String.raw`\Phi(0.3 / 0.495) = \Phi(0.61) = 73\%`} />. A driver with 2 DNFs in 8 starts, in a
         field retiring 10% of the time, gets <M t={String.raw`q = (2 + 1)/(8 + 10) = 17\%`} />, not 25%.
       </Example>
     </Section>
@@ -555,9 +632,10 @@ function TitleOdds() {
   return (
     <Section id="title">
       <p>
-        The rest of the season is played 10,000 times with the same race simulation, on top of the points already
-        scored. One extra step: form isn't fixed for the rest of the year (cars get upgrades, teams find or lose their
-        way), so in each simulated season every driver's form is shifted once, by a random amount:
+        The rest of the season is played 10,000 times with the same simulation, every Sprint and Grand Prix left (each
+        with its own circuit term), on top of the points already scored. One extra step: form isn't fixed for the rest
+        of the year (cars get upgrades, teams find or lose their way), so in each simulated season every driver's form
+        is shifted once, by a random amount:
       </p>
       <Flow label="One simulated season" stages={[
         { label: "Start", join: "once per season", nodes: [
@@ -671,8 +749,9 @@ function Strategy() {
         { label: "Plans", join: "each run lap by lap, no Safety Car", nodes: [
           { title: "1-stop", text: "two different compounds, every stop lap (stints ≥ 8 laps)" },
           { title: "2-stop", text: "three stints using at least two compounds, stops every 2 laps" },
+          { title: "Sprint", text: "no stop on any compound, and 1-stops (a sprint has no two-compound rule)" },
         ], note: <>A 57-lap race has 3,924 plans.</> },
-        { label: "Dedupe", join: "best 5 (always the best 1-stop and 2-stop)", nodes: [
+        { label: "Dedupe", join: "best 5 (always the best 1-stop and 2-stop; a sprint's best no-stop and 1-stop)", nodes: [
           { title: "Best plan per compound set", text: "without a Safety Car, S→H→H takes as long as H→H→S: 10 sets", kind: "model" },
         ] },
         { label: "Monte Carlo", join: "", nodes: [
@@ -683,6 +762,12 @@ function Strategy() {
           { title: "Best strategies", text: "race time, gap to best, P10–P90 range, chance of being fastest", kind: "out" },
         ] },
       ]} />
+      <p>
+        A <b>Sprint</b> gets its own search: its distance is the fewest laps past 100 km (a Grand Prix runs past 305 km,
+        so about a third of the laps), with the same circuit tyre wear, pit loss and weather (for the sprint's own start
+        time). With no compulsory stop and no rule to use two compounds, running the whole sprint on one set usually
+        wins: a stop costs the full pit loss over too few laps to win it back.
+      </p>
       <p>In each Monte Carlo race, with lap noise <M t={String.raw`e_n \sim \mathcal{N}(0, 0.30^2)`} /> shared by every plan:</p>
       <M block t={String.raw`\begin{aligned}
 t_{\text{SC}}(n) &= \max\big(t(n),\ 1.4\,b_{\min}\big) && \text{laps behind the Safety Car} \\
@@ -781,19 +866,23 @@ function Checking() {
   return (
     <Section id="checking">
       <p>
-        Every finished race is re-forecast using only the races before it, with the current model, and shown next
-        to the result under Forecast vs Result: the favourite's chance, the winner's chance and rank, and how many
-        of the predicted podium made it. Because they're re-made rather than saved, a change to the model shows up in
+        Every finished session is re-forecast using only the sessions before it, with the current model, and shown next
+        to the result under Forecast vs Result: the favourite's chance, the winner's (or pole sitter's) chance and rank,
+        and how many of the predicted podium (or Q3) made it. Because they're re-made rather than saved, a change to the model shows up in
         every past round, and its effect on past races can be seen straight away.
       </p>
       <p>
-        The two spreads were chosen this way. The race spread (0.45%) maximises the log-likelihood of the
-        actual winners across the season's replayed rounds,
+        The constants were fitted the same way (scripts/calibrate_forecast.py): every session of 2025 and 2026 from round
+        2 on was forecast from the sessions before it, before its weekend, a few rounds ahead, and (races) after its
+        qualifying, and each constant was moved over a grid, one at a time, to maximise
       </p>
-      <M block t={String.raw`\hat\sigma = \arg\max_\sigma \sum_{r} \ln P_\sigma\big(\text{win}_{\text{winner}(r)}\big)`} />
+      <M block t={String.raw`\sum_{\text{sessions}} \Big[\ln P(\text{win}_{\text{winner}}) + \tfrac13 \sum_{d \in \text{top 3}} \ln P(\text{top 3}_d)\Big]`} />
       <p>
-        (the podium Brier score prefers a slightly wider 0.7%), and the form drift (0.35%) from how far form
-        really moved over the following seven races.
+        What came out: the weekend's own qualifying and grid are worth the most (the Grand Prix score goes from −2.57
+        before the weekend to −1.74 after qualifying, the Sprint's from −3.18 to −1.56); qualifying form is worth more
+        than race form for the next race; the circuit term barely helps in a season of new rules (0 and 0.25 tie for
+        races), and the horizon drift is small. The title-odds drift (0.35%) comes from how far form really moved over
+        the following seven races.
       </p>
     </Section>
   );
@@ -805,8 +894,10 @@ function Limits() {
   return (
     <Section id="limits">
       <ul>
-        <li><b>The race forecast is pace only.</b> It doesn't know the grid, the circuit, upgrades or weather; it's
-          "who's been quickest lately", with luck. (Weather only enters the strategy forecast.)</li>
+        <li><b>The forecasts are pace and grid.</b> They know recent race and qualifying pace, the grid once it's set and,
+          lightly, last season at the circuit; not upgrades, penalties announced later or weather (which only enters the
+          strategy forecast). Before a weekend the rounds ahead look alike: last season's circuit form says little after a
+          rule change, and the replays didn't support more.</li>
         <li><b>Weather.</b> The rain timeline comes from hourly forecasts at the circuit, so a passing shower can be
           missed, and only the first spell counts. Wet-tyre pace and the drying time are fixed assumptions, and
           teams are assumed to know when the rain stops.</li>

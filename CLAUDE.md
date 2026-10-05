@@ -1,7 +1,7 @@
 # F1 Stratbox
 
-Streamlit prototype for an F1 team's strategy workflow: post-race review, a lap-by-lap
-race tracker, and a future-race strategy sandbox. Built on FastF1 lap timing. Plus a public
+Streamlit prototype for an F1 team's strategy workflow: post-race review, qualifying analysis,
+a lap-by-lap race tracker, and a future-race strategy sandbox. Built on FastF1 lap timing. Plus a public
 website (https://amparaj.github.io/f1-stratbox/) that a GitHub Action rebuilds after every
 race: see "Website" below and README.md.
 
@@ -16,8 +16,8 @@ race: see "Website" below and README.md.
 - First load of a session downloads from the F1 timing API (30–90 s). After that it
   comes from `.fastf1/` (FastF1 disk cache, git-ignored) plus Streamlit's memory cache.
 - `.venv\Scripts\python scripts\prefetch_season.py [years...]` pre-downloads every
-  completed race + sprint of a season (default: current) into `.fastf1/`. Re-run after
-  each race weekend.
+  completed session (Q, SQ, Sprint, Grand Prix) of a season (default: current) into `.fastf1/`.
+  Re-run after each race weekend.
 - Sessions verified to work: 2024 British GP (rain), 2024 Bahrain GP (dry),
   2024 São Paulo GP (SC + VSC + red flag + 3 DNFs). Use these when testing.
 
@@ -31,12 +31,14 @@ modules/analytics.py       deg fits, cliff detector, undercut maths, post-mortem
 modules/simulator.py       deterministic + Monte Carlo race simulator
 pages/1_Race_Recap.py      replay, tyre-strategy chart, post-mortem, deg plots, export
 pages/2_Live_Race_Tracker.py  battle map, pit-rejoin forecast, undercut threats
-pages/3_Future_Sandbox.py  scenario controls, strategy comparison, Monte Carlo
+pages/3_Future_Sandbox.py  scenario controls, strategy comparison, Monte Carlo (Grand Prix or Sprint)
+pages/4_Qualifying.py      Q/SQ result, cut-off margins, sectors & ideal lap, evolution, run plan
 modules/weather.py         Open-Meteo forecast/ensemble/climate/nowcast, rain scenarios, track temp
 modules/forecast.py        website forecasts: driver form, race/title Monte Carlo, strategy search
 modules/site_export.py     website data files (web/public/data/*.json)
 modules/history.py         website History files (every season since 1950, from Jolpica's dump)
 scripts/export_site.py     runs site_export; scripts/needs_update.py: the Action's "anything new?"
+scripts/calibrate_forecast.py  fits config's "Session forecasts" constants by replaying 2025-26
 web/                       the website (React + TypeScript + Vite, theme copied from xpfpl)
 .github/workflows/site.yml scheduled export + build + push to gh-pages
 ```
@@ -47,9 +49,15 @@ web/                       the website (React + TypeScript + Vite, theme copied 
 - Each page starts with a `sys.path.insert(...)` shim so it can `import config` when run
   directly (e.g. by `AppTest`). Keep it.
 - The shared session picker (`render_session_selector`) lives in `data_engine.py` to keep
-  to the original spec's file tree. It stores the chosen `(year, event_name, "R"|"S")` under
+  to the original spec's file tree. It stores the chosen `(year, event_name, code)` under
   the non-widget key `st.session_state["active_session"]`, so the choice survives page
-  switches (Streamlit deletes widget-keyed state on navigation).
+  switches (Streamlit deletes widget-keyed state on navigation). It lists only the event's
+  finished sessions, in weekend order.
+- **Session codes** (config.SESSION_NAMES / SESSION_LABELS): `R` Grand Prix, `S` Sprint, `Q`
+  Qualifying, `SQ` Sprint Qualifying ("Sprint Shootout" in 2023: `config.session_names`). A sprint
+  weekend runs SQ, S, Q, R. Race pages call `de.page_session(active, "race")` (Q→R, SQ→S) and the
+  Qualifying page `de.page_session(active, "quali")` (R→Q, S→SQ), so no pick is a dead end.
+  Show which kind a session is with `de.session_badge(code)` (Streamlit) / `SessionBadge` (site).
 
 ## Data pipeline (`modules/data_engine.py`)
 
@@ -80,6 +88,14 @@ web/                       the website (React + TypeScript + Vite, theme copied 
 - `get_race_timeline` gives per-lap `GapToLeader` and `RunningPosition`. **DNF handling:**
   a driver's rows end at their last valid lap. Nothing is forward-filled or padded.
 - All DataFrame functions are `@st.cache_data` keyed on `(year, event, session_type)`.
+- **Qualifying** (`get_quali_laps`, `get_quali_results`, `quali_sectors`, `quali_evolution`,
+  `quali_track_gain`): laps are split into Q1/Q2/Q3 by the chequered flags that end each
+  segment (OpenF1 `Session.segment_ends`) or FastF1's `split_qualifying_sessions`. Who went
+  through is by classified position against `quali_cutoffs(n)` (20 cars 15/10, 22 cars 16/10),
+  not by having a time (a driver can reach Q2 and set none). Quali pace = each segment's time
+  against the Q3 runners' median in that segment, best of them, centred (comparable across
+  segments on an evolving track). Track gain = slope of push laps on the clock, each against the
+  driver's own mean in that segment.
 
 ## Modelling conventions (`modules/analytics.py`)
 
@@ -172,8 +188,9 @@ and emoji). This is a Windows PowerShell 5.1 / Git Bash environment.
 ## Website
 
 - **When a session counts as finished** (`config.session_finished`, constants beside
-  `DATA_SOURCE`): its chequered flag is 5 min old, or 6 h have passed since the start with no
-  flag. Nothing looks before start + 75 min (race) / 25 min (sprint). Before the flag, loading
+  `DATA_SOURCE`): its last chequered flag (`config.last_chequered`: qualifying shows three, one
+  per segment) is 5 min old, or 6 h (race) / 3 h (qualifying) have passed since the start with no
+  flag. Nothing looks before start + 75 min (race) / 25 (sprint) / 55 (Q) / 40 (SQ). Before the flag, loading
   raises `data_engine.SessionRunningError` (`openf1.SessionRunning`): OpenF1 fetches race control
   first on race day and nothing else until the flag; the dashboard shows "hasn't finished yet".
   Never go back to a fixed timer: 2026 R16 (KL) took 3 h 20 min. `needs_update.py` keeps a copy of
@@ -181,8 +198,9 @@ and emoji). This is a Windows PowerShell 5.1 / Git Bash environment.
   loaded past FastF1's disk cache (it would pickle a partial or pre-penalty load for good), full
   tier only; `get_session_info` returns `provisional`, and the dashboard shows a banner with
   "Check for updates" (clears the memory caches).
-- `site_export.export_season` loads every session that could have finished, skips running ones, writes
-  `meta.json`, `races/rNN-R|S.json` and `forecasts/rNN.json`. Tables are column-wise
+- `site_export.export_season` loads every session that could have finished (all four kinds), skips
+  running ones, writes `meta.json`, `races/rNN-R|S|Q|SQ.json` (qualifying: `export_quali`) and
+  `forecasts/rNN.json`. Tables are column-wise
   (`{"col": [...]}`); `web/src/data.ts` `rows()` turns them back into rows.
 - The data-engine functions carry `@st.cache_data`; they work outside Streamlit (memory
   cache). `export_site.py` calls `logging.disable(WARNING)` because FastF1 and Streamlit log
@@ -195,22 +213,35 @@ and emoji). This is a Windows PowerShell 5.1 / Git Bash environment.
   "fastf1"). TrackStatus comes from race-control messages, deleted laps from "... DELETED ...
   LAP n", grid from Jolpica. Sessions are matched to FastF1's calendar by start time (OpenF1
   still lists cancelled rounds). Requests are cached in `.openf1/` and paced to ~28/min.
-  **Archive:** a final session (start + 4 days, result and grid in; grid optional after 14
-  days) is written to `archive/openf1/<year>/rNN-R|S.json.gz` (raw endpoint JSON + Jolpica
+  **Archive:** a final session (start + 4 days, result and, for a race, grid in; grid optional
+  after 14 days) is written to `archive/openf1/<year>/rNN-R|S|Q|SQ.json.gz` (raw endpoint JSON + Jolpica
   grid, deterministic gzip) and read from there for good; the Action commits new files to
   main. Don't hand-edit archive files; delete one to force a re-fetch.
+  **Gaps:** if OpenF1 lacks a session's laps (2025 Baku Q), `scripts/backfill_fastf1.py <year>` (local only)
+  fills the missing endpoints from FastF1, keeping OpenF1's, into `rNN-<code>.fastf1.json.gz` (`sources`
+  names what came from where; the site and dashboard show it). FastF1's session clock is tied to UTC by
+  its first "Started" status vs OpenF1's SESSION STARTED message (checked: segment ends vs chequered
+  flags, 0.2 s on Baku). A Q classification OpenF1 lacks comes from Jolpica (`_jolpica_quali`).
   OpenF1's result is the official classification; FastF1's timing order can differ (2026
   KL: LEC P4 officially, P17 in FastF1's timing order).
 - **Provisional results:** until the classification and grid are both in, `_results` derives
   points from timing order and classification from laps ≥ 90 % of the winner's, and the
   session has `complete: false`; `needs_update.py` rebuilds while a session < 4 days old is
   provisional or anything is pending.
-- **Forecasts** (`modules/forecast.py`, constants in `config.py` "Season forecasts"):
-  - race pace = median fuel-corrected clean lap / field median on that compound, in %
-  - form = decayed mean of last 6 race paces; race MC adds `FORECAST_RACE_SD` per race;
-    title odds also add one `FORM_DRIFT_SD` shift per simulated season. Both were checked
-    against replays of 2026 rounds 2–16 (see the config comments)
-  - forecasts for finished rounds are recomputed from earlier races on every export, not
+- **Forecasts** (`modules/forecast.py`, constants in `config.py` "Season forecasts"; fitted by
+  `scripts/calibrate_forecast.py 2025 2026`, which replays every session from the ones before it):
+  - race pace = median fuel-corrected clean lap / field median on that compound, in %; quali pace
+    as above. Race form (R + S, a sprint `SPRINT_FORM_WEIGHT`) and quali form (Q + SQ) = decayed
+    mean over the last 6 rounds
+  - every session of a weekend gets odds (`forecast_session`): expected pace (race: race form
+    blended with quali form `RACE_QUALI_BLEND`, or with that race's own qualifying
+    `RACE_QUALI_BLEND_WEEKEND` + `GRID_WEIGHT` per grid place once it's in) + last season's team
+    circuit offset × `CIRCUIT_WEIGHT` + horizon drift `DRIFT_PER_ROUND`·√(rounds ahead − 1) +
+    `SESSION_SD[code]` (`SESSION_SD_GRID` once the grid is known). The circuit term was weak on
+    2026 (new rules): keep the weights the calibration gives, don't inflate them
+  - each forecast file has `sessions[code] = {pre, latest, latest_after}`: before the weekend, and
+    after the weekend's earlier sessions. Title odds play every S and R left with its circuit term
+  - forecasts for finished rounds are recomputed from earlier sessions on every export, not
     saved, so they change if the model changes
   - strategy: per-compound deg fits and intercepts from one race are too noisy (late-run
     Hards fit faster than Softs; a compound few drivers used fits 0 deg). So a circuit gets
@@ -237,6 +268,9 @@ and emoji). This is a Windows PowerShell 5.1 / Git Bash environment.
 - Circuits are matched across seasons by `circuit_key(location)` (via the pit-loss table),
   never by event name: the 2026 "Bahrain Grand Prix" was in Kuala Lumpur.
 - Pages must render at phone width (`usePhone`, cards via `Table`). Screenshot both widths.
+- Site routes: `#races/16` Grand Prix (or the weekend's latest finished session before it),
+  `#races/16/S|Q|SQ`; `#next/17/<code>` a session's forecast. `web/src/data.ts` has the session
+  helpers (`weekendSessions`, `sessionDone`, `sessionHash`, `sessionOdds`).
 - About has an Overview and a Technical Documentation (`web/src/pages/Docs.tsx`, `#about/docs[/section]`,
   KaTeX lazy-loaded). Its constants and formulas are copied from `config.py` and the modules: update
   them when the model changes. Table columns that are an order (Pos, Round, Grid) set `rank: true`.

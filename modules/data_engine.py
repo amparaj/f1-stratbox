@@ -8,6 +8,12 @@ Pipeline
     get_cleaned_laps()    model-grade laps: no pit/SC/VSC/lap-1/outliers, CleanAir flag
     get_race_timeline()   per-lap running order + gap to leader (DNFs truncated)
     get_session_info()    event metadata, driver colours, neutralised laps
+    get_quali_laps()      qualifying: every lap with its segment (Q1/Q2/Q3), sectors, speed trap
+    get_quali_results()   qualifying: Q1/Q2/Q3 times, gap to pole, cut-off margins, pace
+    quali_sectors()       qualifying: best sectors, ideal lap, top speed per driver
+
+Session codes: "R" Grand Prix, "S" Sprint, "Q" Qualifying, "SQ" Sprint Qualifying
+(config.SESSION_NAMES).
 
 All public DataFrame-returning functions are wrapped in @st.cache_data keyed on
 (year, event, session_type) so a debrief room flipping between pages never
@@ -50,21 +56,27 @@ def initialize_fastf1() -> None:
     fastf1.set_log_level("WARNING")
 
 
-def _session_start(year: int, location: str, session_type: str) -> pd.Timestamp | None:
-    """Scheduled start of a race ('R') or sprint ('S'), tz-aware UTC, or None."""
+def _schedule_session(year: int, location: str, session_type: str) -> tuple[str, pd.Timestamp] | None:
+    """(FastF1 session name, scheduled start in tz-aware UTC) of a session code, or None."""
     try:
         event = fastf1.get_event(int(year), location)
     except Exception:  # noqa: BLE001
         return None
-    name = "Sprint" if session_type == "S" else "Race"
     for i in range(1, 6):
-        if event.get(f"Session{i}") == name and pd.notna(event.get(f"Session{i}DateUtc")):
-            return pd.Timestamp(event[f"Session{i}DateUtc"]).tz_localize("UTC")
+        name = event.get(f"Session{i}")
+        if name in config.session_names(session_type) and pd.notna(event.get(f"Session{i}DateUtc")):
+            return str(name), pd.Timestamp(event[f"Session{i}DateUtc"]).tz_localize("UTC")
     return None
 
 
-def _fastf1_chequered(session) -> pd.Timestamp | None:
-    """When FastF1's race-control messages show the chequered flag, or None."""
+def _session_start(year: int, location: str, session_type: str) -> pd.Timestamp | None:
+    """Scheduled start of a session ('R', 'S', 'Q', 'SQ'), tz-aware UTC, or None."""
+    found = _schedule_session(year, location, session_type)
+    return found[1] if found else None
+
+
+def _fastf1_chequered(session, session_type: str) -> pd.Timestamp | None:
+    """When FastF1's race-control messages show the flag that ends the session, or None."""
     try:
         rcm = session.race_control_messages
     except Exception:  # noqa: BLE001 — messages not loaded
@@ -72,7 +84,8 @@ def _fastf1_chequered(session) -> pd.Timestamp | None:
     if rcm is None or rcm.empty or "Flag" not in rcm:
         return None
     t = pd.to_datetime(rcm.loc[rcm["Flag"].astype(str).str.upper() == "CHEQUERED", "Time"])
-    return t.min().tz_localize("UTC") if not t.empty else None
+    flag = config.last_chequered(list(t), session_type)
+    return pd.Timestamp(flag).tz_localize("UTC") if flag is not None else None
 
 
 # ---------------------------------------------------------------------------
@@ -125,18 +138,20 @@ def load_session(year: int, location: str, session_type: str, with_telemetry: bo
         ("timing-only", dict(laps=True, telemetry=False, weather=False, messages=False)),
     ]
     now = pd.Timestamp.now(tz="UTC")
-    start = _session_start(year, location, session_type)
+    found = _schedule_session(year, location, session_type)
+    # FastF1 takes the schedule's name ("Sprint Shootout" in 2023), the code as a fallback.
+    identifier, start = found if found else (session_type, None)
     recent = start is not None and now - start < pd.Timedelta(days=config.RECENT_DAYS)
     if recent:
         tiers = tiers[:1]
     warnings: list[str] = []
     for tier, kwargs in tiers:
         try:
-            session = fastf1.get_session(int(year), location, session_type)
+            session = fastf1.get_session(int(year), location, identifier)
             if recent:
                 with fastf1.Cache.disabled():
                     session.load(**kwargs)
-                if not config.session_finished(start, _fastf1_chequered(session), now):
+                if not config.session_finished(start, _fastf1_chequered(session, session_type), now, session_type):
                     raise SessionRunningError(f"{year} {location} {session_type} hasn't finished yet")
             else:
                 session.load(**kwargs)
@@ -150,7 +165,7 @@ def load_session(year: int, location: str, session_type: str, with_telemetry: bo
             warnings.append(f"{tier} load failed: {exc}")
             log.warning("FastF1 %s load failed for %s %s %s: %s",
                         tier, year, location, session_type, exc)
-    if recent and start + pd.Timedelta(hours=config.LATEST_FINISH_H) > now:
+    if recent and start + pd.Timedelta(hours=config.LATEST_FINISH_H[session_type]) > now:
         raise SessionRunningError(f"{year} {location} {session_type}: no timing yet. " + " | ".join(warnings))
     raise DataUnavailableError(
         f"No lap timing available for {year} {location} {session_type}. "
@@ -390,7 +405,10 @@ def get_session_info(year: int, location: str, session_type: str) -> dict:
     start = _session_start(year, location, session_type)
     recent = start is not None and pd.Timestamp.now(tz="UTC") - start < pd.Timedelta(days=config.RECENT_DAYS)
     has = lambda c: c in results and results[c].replace("", np.nan).notna().any()  # noqa: E731
-    provisional = recent and not (has("Points") and has("Status") and has("GridPosition"))
+    if session_type in config.QUALI_CODES:
+        provisional = recent and not (has("Position") and has("Q1"))
+    else:
+        provisional = recent and not (has("Points") and has("Status") and has("GridPosition"))
 
     event = session.event
     return {
@@ -399,6 +417,8 @@ def get_session_info(year: int, location: str, session_type: str) -> dict:
         "location": str(event.get("Location", location)),
         "country": str(event.get("Country", "")),
         "session_name": str(getattr(session, "name", session_type)),
+        "session_code": session_type,
+        "session_label": config.SESSION_LABELS[session_type],
         "total_laps": int(total_laps),
         "drivers": drivers.reset_index(drop=True),
         "neutralised": _neutralised_laps(laps),
@@ -406,38 +426,261 @@ def get_session_info(year: int, location: str, session_type: str) -> dict:
         "load_warnings": load_info["warnings"],
         "provisional": bool(provisional),
         "start_utc": start,
+        # Data that didn't come from the session's own source (openf1.Session.sources), e.g.
+        # {"laps": "F1 live timing (FastF1)"} for a gap filled by scripts/backfill_fastf1.py.
+        "sources": dict(getattr(session, "sources", {}) or {}),
     }
 
 
-def get_event_names(year: int) -> list[str]:
-    """Names of events in a season whose race or sprint could have finished by now."""
+def get_event_sessions(year: int) -> dict[str, list[str]]:
+    """Event name -> the codes of its sessions that could have finished by now, in weekend
+    order (SQ, S, Q, R), for every event with at least one."""
     now = pd.Timestamp.now(tz="UTC").tz_localize(None)
-    return [name for name, start in _session_starts(year) if start + pd.Timedelta(
-        minutes=min(config.EARLIEST_FINISH_MIN.values())) <= now]
+    out = {}
+    for name, starts in _session_starts(year):
+        done = [c for c in config.WEEKEND_ORDER if c in starts
+                and starts[c] + pd.Timedelta(minutes=config.EARLIEST_FINISH_MIN[c]) <= now]
+        if done:
+            out[name] = done
+    return out
+
+
+def get_event_names(year: int) -> list[str]:
+    """Names of events in a season with a session that could have finished by now."""
+    return list(get_event_sessions(year))
 
 
 @st.cache_data(show_spinner=False, ttl=6 * 3600)
-def _session_starts(year: int) -> list[tuple[str, pd.Timestamp]]:
-    """(event name, earliest race/sprint start in naive UTC) for every event of a season."""
+def _session_starts(year: int) -> list[tuple[str, dict[str, pd.Timestamp]]]:
+    """(event name, {session code: start in naive UTC}) for every event of a season."""
     initialize_fastf1()
     try:
         sched = fastf1.get_event_schedule(int(year), include_testing=False)
     except Exception as exc:  # noqa: BLE001
         log.warning("Schedule fetch failed for %s: %s", year, exc)
         return []
+    code_of = {n: c for c in config.SESSION_NAMES for n in config.session_names(c)}
     out = []
     for _, ev in sched.iterrows():
-        starts = [ev[f"Session{i}DateUtc"] for i in range(1, 6)
-                  if ev[f"Session{i}"] in ("Race", "Sprint") and pd.notna(ev[f"Session{i}DateUtc"])]
+        starts = {code_of[ev[f"Session{i}"]]: pd.Timestamp(ev[f"Session{i}DateUtc"]) for i in range(1, 6)
+                  if ev[f"Session{i}"] in code_of and pd.notna(ev[f"Session{i}DateUtc"])}
         if starts:
-            out.append((str(ev["EventName"]), pd.Timestamp(min(starts))))
+            out.append((str(ev["EventName"]), starts))
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Qualifying
+# ---------------------------------------------------------------------------
+SEGMENTS = ("Q1", "Q2", "Q3")
+
+
+def _quali_segment(session, raw: pd.DataFrame) -> pd.Series:
+    """The segment (1, 2, 3) each lap of `raw` (session.laps, float seconds) started in."""
+    ends = getattr(session, "segment_ends", None)            # modules/openf1.Session
+    if ends is not None:
+        if not ends:
+            return pd.Series(np.nan, index=raw.index)
+        seg = 1 + np.searchsorted(np.asarray(ends[:2], float), raw["LapStartTime"].to_numpy(float), side="right")
+        return pd.Series(np.where(raw["LapStartTime"].notna(), seg, np.nan), index=raw.index)
+    seg = pd.Series(np.nan, index=raw.index)
+    try:                                                     # FastF1: from the session status feed
+        for i, part in enumerate(session.laps.split_qualifying_sessions()):
+            if part is not None:
+                seg.loc[seg.index.intersection(part.index)] = i + 1
+    except Exception as exc:  # noqa: BLE001 — no status feed (timing-only tier)
+        log.warning("Couldn't split qualifying into segments: %s", exc)
+    return seg
+
+
+@st.cache_data(show_spinner=False, max_entries=12)
+def get_quali_laps(year: int, location: str, session_type: str) -> pd.DataFrame:
+    """
+    Every qualifying lap: Driver, Team, LapNumber, Segment (1-3, NaN if unknown), LapTime,
+    Sector1-3Time, SpeedST, Compound, TyreLife, LapStartTime/Time (session s), Deleted,
+    Valid (a full timed lap, not deleted, not an in- or out-lap) and Push (valid and within
+    QUALI_PUSH_FACTOR of the driver's best: not a cool-down or aborted lap).
+    """
+    session, _ = load_session(year, location, session_type)
+    raw = pd.DataFrame(session.laps)
+    seg = _quali_segment(session, timedeltas_to_seconds(raw))
+    laps = timedeltas_to_seconds(raw).assign(Segment=seg)
+    for c in ("Sector1Time", "Sector2Time", "Sector3Time", "SpeedST", "Deleted"):
+        if c not in laps:
+            laps[c] = np.nan
+    laps["Compound"] = laps["Compound"].fillna("UNKNOWN").replace("", "UNKNOWN")
+    laps["Deleted"] = laps["Deleted"].fillna(False).astype(bool)
+    laps["Valid"] = (laps["LapTime"].notna() & ~laps["Deleted"]
+                     & laps["PitInTime"].isna() & laps["PitOutTime"].isna())
+    best = laps[laps["Valid"]].groupby("Driver")["LapTime"].min()
+    laps["Push"] = laps["Valid"] & (laps["LapTime"] <= laps["Driver"].map(best) * config.QUALI_PUSH_FACTOR)
+    cols = ["Driver", "Team", "LapNumber", "Segment", "LapTime", "Sector1Time", "Sector2Time",
+            "Sector3Time", "SpeedST", "Compound", "TyreLife", "LapStartTime", "Time", "Deleted",
+            "Valid", "Push"]
+    return laps[cols].sort_values(["Driver", "LapNumber"]).reset_index(drop=True)
+
+
+def quali_cutoffs(n_drivers: int) -> tuple[int, int]:
+    """How many go through to Q2 and to Q3: Q1 and Q2 each knock out half the cars beyond
+    ten (20 cars: 15 and 10; 22 cars: 16 and 10)."""
+    return 10 + -(-(n_drivers - 10) // 2), 10
+
+
+@st.cache_data(show_spinner=False, max_entries=12)
+def get_quali_results(year: int, location: str, session_type: str) -> pd.DataFrame:
+    """
+    Qualifying classification, one row per driver, in order: Position, Driver, FullName, Team,
+    Color, IsSecondDriver, Q1/Q2/Q3 (s), Best, Reached (1-3: the last segment with a time),
+    GapToPole (best lap against pole, s), Q1Margin/Q2Margin (time against the cut-off in that
+    segment, s: negative = through with that much to spare), TeammateGap (against the teammate
+    in the last segment both set a time, s) and Pace (% against the field median, see below).
+
+    Q times are the official ones where the source has them, otherwise each segment's best
+    valid lap. Pace puts every driver on one scale although later segments run on a faster
+    track: each segment's times are taken against the median time of the Q3 runners in that
+    segment, a driver's pace is the best of those ratios, centred on the field median.
+    """
+    session, _ = load_session(year, location, session_type)
+    info = get_session_info(year, location, session_type)
+    res = timedeltas_to_seconds(pd.DataFrame(session.results)).rename(
+        columns={"Abbreviation": "Driver", "TeamName": "Team"})
+    laps = get_quali_laps(year, location, session_type)
+    for q in SEGMENTS:
+        if q not in res:
+            res[q] = np.nan
+    if res[list(SEGMENTS)].isna().all().all() and laps["Segment"].notna().any():
+        best = laps[laps["Valid"]].groupby(["Driver", "Segment"])["LapTime"].min().unstack()
+        for i, q in enumerate(SEGMENTS, start=1):
+            res[q] = res["Driver"].map(best[i]) if i in best else np.nan
+    res = res[res["Driver"].notna()].copy()
+    times = res[list(SEGMENTS)].apply(pd.to_numeric, errors="coerce")
+    res[list(SEGMENTS)] = times
+    if "Position" not in res or res["Position"].isna().all():
+        timed = np.select([times["Q3"].notna(), times["Q2"].notna(), times["Q1"].notna()], [3, 2, 1], 0)
+        last = np.select([timed == 3, timed == 2], [times["Q3"], times["Q2"]], times["Q1"])
+        order = np.lexsort((np.nan_to_num(last, nan=1e9), -timed))
+        res["Position"] = np.empty(len(res))
+        res.iloc[order, res.columns.get_loc("Position")] = np.arange(1, len(res) + 1)
+    res = res.sort_values("Position", na_position="last").reset_index(drop=True)
+    # Who went through goes by the classification (a driver can reach Q2 and set no time there).
+    to_q2, to_q3 = quali_cutoffs(len(res))
+    res["Reached"] = np.select([res["Position"] <= to_q3, res["Position"] <= to_q2], [3, 2], 1)
+    res["Best"] = res[list(SEGMENTS)].min(axis=1)
+    pole = res["Best"].iloc[0] if len(res) and pd.notna(res["Best"].iloc[0]) else res["Best"].min()
+    res["GapToPole"] = res["Best"] - pole
+
+    # Margin against the cut-off line in Q1 and Q2: for a driver who went through, against the
+    # fastest driver knocked out; for one knocked out, against the slowest who went through.
+    for q, level in (("Q1", 2), ("Q2", 3)):
+        through = res[res["Reached"] >= level]
+        out = res[(res["Reached"] == level - 1) & res[q].notna()]
+        first_out = out[q].min() if not out.empty else np.nan
+        last_in = through[q].max() if not through.empty else np.nan
+        res[f"{q}Margin"] = np.where(res["Reached"] >= level, res[q] - first_out,
+                                     np.where(res["Reached"] == level - 1, res[q] - last_in, np.nan))
+
+    drv = info["drivers"].set_index("Driver")
+    res["Color"] = res["Driver"].map(drv["Color"])
+    res["IsSecondDriver"] = res["Driver"].map(drv["IsSecondDriver"]).astype("boolean").fillna(False).astype(bool)
+    if "Team" not in res or res["Team"].isna().all():
+        res["Team"] = res["Driver"].map(drv["Team"])
+    if "FullName" not in res:
+        res["FullName"] = res["Driver"]
+
+    def teammate_gap(r):
+        mate = res[(res["Team"] == r["Team"]) & (res["Driver"] != r["Driver"])]
+        if mate.empty:
+            return np.nan
+        m = mate.iloc[0]
+        for q in reversed(SEGMENTS):
+            if pd.notna(r[q]) and pd.notna(m[q]):
+                return r[q] - m[q]
+        return np.nan
+    res["TeammateGap"] = res.apply(teammate_gap, axis=1)
+    res["Pace"] = res["Driver"].map(quali_pace(res))
+    cols = ["Position", "Driver", "FullName", "Team", "Color", "IsSecondDriver", "Q1", "Q2", "Q3",
+            "Best", "Reached", "GapToPole", "Q1Margin", "Q2Margin", "TeammateGap", "Pace"]
+    return res[cols]
+
+
+def quali_pace(res: pd.DataFrame) -> pd.Series:
+    """Each driver's qualifying pace, % against the field median (negative = faster): every
+    segment's times against the median of that segment's times by the drivers who reached Q3
+    (so a Q1 lap isn't compared with a quicker track in Q3), the best of them."""
+    top = res[res["Q3"].notna()] if res["Q3"].notna().sum() >= 3 else res[res["Q2"].notna()]
+    rel = []
+    for q in SEGMENTS:
+        ref = top[q].median()
+        if pd.notna(ref) and ref > 0:
+            rel.append((res[q] / ref - 1.0) * 100.0)
+    if not rel:
+        return pd.Series(dtype=float)
+    pace = pd.concat(rel, axis=1).min(axis=1)
+    pace.index = res["Driver"].to_numpy()
+    pace = pace.dropna()
+    # A lap far off (a crash, a red flag, a mistake on the only run) says nothing about pace.
+    pace = pace[pace <= pace.median() + config.QUALI_PACE_OUTLIER]
+    return pace - pace.median()
+
+
+def quali_sectors(laps: pd.DataFrame) -> pd.DataFrame:
+    """Per driver: best lap, its segment and compound, best sector times, the ideal lap (the
+    sum of the best sectors), time lost against it, and top speed at the speed trap."""
+    valid = laps[laps["Valid"]]
+    if valid.empty:
+        return pd.DataFrame(columns=["Driver", "BestLap", "BestSegment", "BestCompound", "S1", "S2", "S3",
+                                     "Ideal", "LostToIdeal", "TopSpeed", "PushLaps"])
+    best = valid.loc[valid.groupby("Driver")["LapTime"].idxmin()].set_index("Driver")
+    sec = valid.groupby("Driver")[["Sector1Time", "Sector2Time", "Sector3Time"]].min()
+    out = pd.DataFrame({
+        "BestLap": best["LapTime"], "BestSegment": best["Segment"], "BestCompound": best["Compound"],
+        "S1": sec["Sector1Time"], "S2": sec["Sector2Time"], "S3": sec["Sector3Time"],
+    })
+    out["Ideal"] = out[["S1", "S2", "S3"]].sum(axis=1, min_count=3)
+    out["LostToIdeal"] = (out["BestLap"] - out["Ideal"]).clip(lower=0)
+    out["TopSpeed"] = laps.groupby("Driver")["SpeedST"].max()
+    out["PushLaps"] = laps[laps["Push"]].groupby("Driver").size()
+    out["PushLaps"] = out["PushLaps"].fillna(0).astype(int)
+    return out.reset_index(names="Driver").sort_values("BestLap").reset_index(drop=True)
+
+
+def quali_track_gain(laps: pd.DataFrame) -> dict[str, float | None]:
+    """
+    How fast the track came to the drivers within each segment, s per minute (negative =
+    quicker later): the slope of push-lap times against the clock, each lap taken against the
+    same driver's mean push lap in that segment (so car pace drops out). Drivers need two push
+    laps in the segment; the segment needs QUALI_GAIN_MIN_DRIVERS of them.
+    """
+    out: dict[str, float | None] = {}
+    push = laps[laps["Push"] & laps["Segment"].notna() & laps["Time"].notna()]
+    for i, q in enumerate(SEGMENTS, start=1):
+        seg = push[push["Segment"] == i]
+        n = seg.groupby("Driver")["LapTime"].transform("size")
+        seg = seg[n >= 2]
+        if seg["Driver"].nunique() < config.QUALI_GAIN_MIN_DRIVERS:
+            out[q] = None
+            continue
+        x = seg["Time"] / 60.0 - seg.groupby("Driver")["Time"].transform("mean") / 60.0
+        y = seg["LapTime"] - seg.groupby("Driver")["LapTime"].transform("mean")
+        out[q] = float((x * y).sum() / (x * x).sum()) if (x * x).sum() > 0 else None
+    return out
+
+
+def quali_evolution(res: pd.DataFrame) -> dict[str, float | None]:
+    """How much quicker the same drivers went from one segment to the next (median, s and %):
+    the track rubbering in plus fresher tyres and engine modes. Negative = quicker."""
+    out: dict[str, float | None] = {}
+    for a, b in (("Q1", "Q2"), ("Q2", "Q3")):
+        both = res[res[a].notna() & res[b].notna()]
+        d = (both[b] - both[a]).median() if len(both) >= 3 else np.nan
+        out[f"{a}_{b}"] = None if pd.isna(d) else float(d)
+        out[f"{a}_{b}_pct"] = None if pd.isna(d) else float(d / both[a].median() * 100.0)
     return out
 
 
 # ---------------------------------------------------------------------------
 # Shared Streamlit helpers
 # ---------------------------------------------------------------------------
-SESSION_TYPES = {"Race": "R", "Sprint": "S"}
 ACTIVE_SESSION_KEY = "active_session"   # survives page switches (not a widget key)
 
 
@@ -456,22 +699,54 @@ def render_session_selector() -> tuple[int, str, str] | None:
         default_year = active[0] if active else this_year - 1
         year = st.selectbox("Season", years, index=years.index(default_year)
                             if default_year in years else 1)
-        events = get_event_names(year)
+        sessions = get_event_sessions(year)
+        events = list(sessions)
         if not events:
             st.warning("Could not fetch the schedule for this season.")
             return active
         default_event = active[1] if active and active[1] in events else (
             "British Grand Prix" if "British Grand Prix" in events else events[-1])
         event = st.selectbox("Grand Prix", events, index=events.index(default_event))
-        stype_label = st.radio("Session", list(SESSION_TYPES), horizontal=True,
-                               index=0 if not active or active[2] == "R" else 1)
+        # The weekend's finished sessions, in running order: a sprint weekend has four.
+        codes = sessions[event]
+        default_code = active[2] if active and active[2] in codes else ("R" if "R" in codes else codes[-1])
+        code = st.radio("Session", codes, index=codes.index(default_code), horizontal=True,
+                        format_func=lambda c: config.SESSION_LABELS[c])
         if st.button("Load session", type="primary", width="stretch"):
-            st.session_state[ACTIVE_SESSION_KEY] = (year, event, SESSION_TYPES[stype_label])
+            st.session_state[ACTIVE_SESSION_KEY] = (year, event, code)
             active = st.session_state[ACTIVE_SESSION_KEY]
         if active:
-            st.caption(f"Loaded: **{active[0]} {active[1]}** ({active[2]})")
+            st.caption(f"Loaded: **{active[0]} {active[1]}**, {session_label(active[2])}")
         st.divider()
     return active
+
+
+def session_label(code: str) -> str:
+    """'Grand Prix', 'Sprint', 'Qualifying' or 'Sprint Qualifying'."""
+    return config.SESSION_LABELS.get(code, code)
+
+
+def page_session(active: tuple[int, str, str], kind: str) -> tuple[int, str, str]:
+    """
+    The session a page shows for the active choice: race pages ("race") show the race a
+    qualifying session set the grid for, the Qualifying page ("quali") the qualifying for a
+    race, so switching pages never lands on a dead end. Says so when it swaps.
+    """
+    year, event, code = active
+    if kind == "race" and code in config.QUALI_CODES:
+        swapped = config.RACE_OF_QUALI[code]
+    elif kind == "quali" and code in config.RACE_CODES:
+        swapped = config.QUALI_OF_RACE[code]
+    else:
+        return active
+    st.caption(f"You picked {session_label(code)}: this page shows the weekend's {session_label(swapped)}.")
+    return year, event, swapped
+
+
+def session_badge(code: str) -> str:
+    """A coloured Markdown badge naming the session type (Sprint and Grand Prix look different)."""
+    colour = {"R": "red", "S": "orange", "Q": "violet", "SQ": "blue"}.get(code, "gray")
+    return f":{colour}-badge[{session_label(code)}]"
 
 
 def load_active_session(active: tuple[int, str, str]) -> dict | None:
@@ -502,6 +777,9 @@ def load_active_session(active: tuple[int, str, str]) -> dict | None:
             st.cache_data.clear()
             load_session.clear()
             st.rerun()
+    if info.get("sources"):
+        st.caption("Gap-filled: " + ", ".join(f"{k.replace('_', ' ')} from {v}" for k, v in info["sources"].items())
+                   + " (the primary source had none).")
     if info["load_tier"] not in ("full", "openf1"):
         st.warning("Full feed unavailable — running on historical lap-timing data only "
                    "(weather and race-control messages missing).")

@@ -1,5 +1,6 @@
 import { Component, useEffect, useRef, useState, type ReactNode } from "react";
 import { Loading, usePhone } from "./components/ui";
+import { SESSION_LABEL, sessionStart, weekendSessions } from "./data";
 import { dayYear, shortEvent, when } from "./format";
 import About from "./pages/About";
 import History from "./pages/History";
@@ -120,9 +121,10 @@ function Status({ site }: { site: Site }) {
   const done = meta.calendar.filter((e) => e.done_R);
   const last = done.at(-1);
   const next = meta.next_round ? site.event.get(meta.next_round) : undefined;
-  // The next session to start: the sprint on a sprint weekend, if it's still to come.
-  const nextStart = next && [next.sprint_utc, next.race_utc].find((t) => t && Date.parse(t) > Date.now());
-  const nextLabel = next && nextStart === next.sprint_utc ? "Sprint" : "Race";
+  // The weekend's next session to start: qualifying, the sprint, or the Grand Prix.
+  const nextCode = next && weekendSessions(next).find((c) => { const t = sessionStart(next, c); return t && Date.parse(t) > Date.now(); });
+  const nextStart = next && nextCode ? sessionStart(next, nextCode) : null;
+  const nextLabel = nextCode ? SESSION_LABEL[nextCode] : "Race";
   return (
     <div className="status-row">
       <div className="status">
@@ -131,7 +133,7 @@ function Status({ site }: { site: Site }) {
           {last && <>Results up to {shortEvent(last.event)} (Round {last.round}) · </>}Data Last Updated {dayYear(meta.generated)}
         </span>
         {next && nextStart && (
-          <span>Next: <strong>{shortEvent(next.event)}</strong> {nextLabel.toLowerCase()}, {when(nextStart)}</span>
+          <span>Next: <strong>{shortEvent(next.event)}</strong> {nextLabel === "Grand Prix" ? "race" : nextLabel.toLowerCase()}, {when(nextStart)}</span>
         )}
       </div>
       {next && nextStart && <Countdown to={nextStart} label={`${nextLabel} in`} />}

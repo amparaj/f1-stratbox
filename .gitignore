@@ -5,3 +5,4 @@ __pycache__/
 .openf1/
 .jolpica/
 .openmeteo/
+.calibration/
