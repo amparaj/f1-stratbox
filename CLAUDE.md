@@ -1,7 +1,8 @@
 # F1 Stratbox
 
-Streamlit prototype for an F1 team's strategy workflow: post-race review, qualifying analysis,
-a lap-by-lap race tracker, and a future-race strategy sandbox. Built on FastF1 lap timing. Plus a public
+Streamlit prototype for an F1 team's strategy workflow: post-race review (with a track replay),
+qualifying analysis, lap telemetry head-to-head, a lap-by-lap race tracker, and a future-race
+strategy sandbox. Built on FastF1 lap timing. Plus a public
 website (https://amparaj.github.io/f1-stratbox/) that a GitHub Action rebuilds after every
 race: see "Website" below and README.md.
 
@@ -29,10 +30,13 @@ config.py                  ALL tunable constants and model assumptions
 modules/data_engine.py     FastF1 loading, cleaning, timeline; shared sidebar session picker
 modules/analytics.py       deg fits, cliff detector, undercut maths, post-mortem text
 modules/simulator.py       deterministic + Monte Carlo race simulator
-pages/1_Race_Recap.py      replay, tyre-strategy chart, post-mortem, deg plots, export
+pages/1_Race_Recap.py      track replay, tyre-strategy chart, post-mortem, deg plots, export
 pages/2_Live_Race_Tracker.py  battle map, pit-rejoin forecast, undercut threats
 pages/3_Future_Sandbox.py  scenario controls, strategy comparison, Monte Carlo (Grand Prix or Sprint)
 pages/4_Qualifying.py      Q/SQ result, cut-off margins, sectors & ideal lap, evolution, run plan
+pages/5_Telemetry.py       two laps head to head: traces, delta, corner zones, faster-where map
+modules/telemetry.py       car telemetry: replay frames, lap traces, lap comparison
+modules/replay_player.html the track replay (canvas + JS), payload swapped in by telemetry.replay_html
 modules/weather.py         Open-Meteo forecast/ensemble/climate/nowcast, rain scenarios, track temp
 modules/forecast.py        website forecasts: driver form, race/title Monte Carlo, strategy search
 modules/site_export.py     website data files (web/public/data/*.json)
@@ -96,6 +100,33 @@ web/                       the website (React + TypeScript + Vite, theme copied 
   against the Q3 runners' median in that segment, best of them, centred (comparable across
   segments on an evolving track). Track gain = slope of push laps on the clock, each against the
   driver's own mean in that segment.
+
+## Telemetry (`modules/telemetry.py`)
+
+- Always FastF1 car + position data (`load_telemetry_session`, `@st.cache_resource` keeps **2**:
+  a race is ~1.3 M rows), whatever `config.DATA_SOURCE` says. It calls `get_session_info` first, so
+  running/missing sessions raise the usual errors. A race downloads in ~20 s, then `.fastf1/`.
+- **Track replay** (`replay_payload`, Race Recap's first tab behind a "Load track replay" button
+  remembered in `st.session_state["replay_session"]`): every car on one clock at
+  `config.REPLAY_HZ`, gzip'd int16 arrays (x, y, speed, gear, throttle, brake, drs, pos, gap) in
+  base64 (~1.3 MB a race), unpacked in the browser with `DecompressionStream`; the player
+  interpolates between frames. Embedded with `st.iframe` (`components.v1.html` is deprecated).
+  - Running order = laps completed + fraction round the lap from projecting x/y onto the outline
+    (the fastest lap). Lap timing (`by_time`, from each lap's own start to end) takes over in the
+    pit lane or when the projection is > 0.25 lap off. A car never goes backwards.
+  - Before the start: grid order (pit-lane starters last, and held at -0.5 until their pit exit).
+    Ties (at the flag, parked under red) go to whoever crossed the line first.
+  - Red flag: order and gaps frozen at the moment it came out; gaps use a clock that stops under
+    red. The red-flag queue in the pit lane is not a stop. Known glitch: a few seconds of
+    shuffling as cars leave the pit lane at the restart.
+  - Gap = how long ago the leader was where the car is; at the flag it's exact (lap end − the
+    first car's end of that lap). Checked: 2024 Silverstone and São Paulo final gaps match the
+    official result to 0.1 s.
+- **Head-to-head** (`lap_trace`, `compare_laps`): each lap pinned to the line at 0 s and at its lap
+  time, B's distance scaled to A's lap length, so the delta ends on the lap-time gap and the zone
+  gains sum to it. Corner zones: corners within `CORNER_GROUP_GAP_M` grouped, ± `CORNER_ZONE_PAD_M`,
+  classed by minimum speed (`CORNER_SPEED_CLASSES`); straights between. DRS = codes ≥ 10 (open);
+  no DRS from 2026 (row hidden).
 
 ## Modelling conventions (`modules/analytics.py`)
 
@@ -308,6 +339,14 @@ and emoji). This is a Windows PowerShell 5.1 / Git Bash environment.
 
 - **Live Race Tracker replays a finished session** lap by lap (optionally auto-advancing
   via `st.fragment(run_every=...)`). FastF1's live-timing client is not wired in yet.
+- **Bookmarked: live strategy screen** (like RaceOS F1: live track map, timing, strategy sim during a
+  session). OpenF1's real-time tier is paid. F1's own live-timing stream (FastF1 `livetiming`,
+  unofficial) is still free for timing (positions, gaps, laps, sectors), tyres, race control, track
+  status and weather; since the 2025 Dutch GP the driver tracker (car positions), DRS, pit-stop times
+  and championship tables need an F1 TV login (FastF1's client supports one). So a free version gets
+  the leaderboard and strategy calls but no live track map. Needs a recorder process during the
+  session (Streamlit can't hold the connection); local only (GitHub's runners can't reach F1's
+  server). The replay player could take a live payload unchanged. Not started.
 - **Pit losses** in `config.TRACK_PIT_LOSS`: Silverstone, Monaco, Spa and Monza come from
   the original spec. The rest are approximate public figures. Replace them with team
   data. Lookup goes through `config.get_pit_loss` (FastF1 location or event name, with

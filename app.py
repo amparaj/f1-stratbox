@@ -28,12 +28,14 @@ initialize_fastf1()
 def home() -> None:
     """Landing page: what each tool is for and the modelling assumptions in force."""
     st.title("🏁 F1 Stratbox")
-    st.caption("Post-race review · qualifying analysis · live second-screen tactics · future-race planning")
+    st.caption("Post-race review · qualifying analysis · telemetry head-to-head · "
+               "live second-screen tactics · future-race planning")
 
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3 = st.columns(3)
+    c4, c5, _ = st.columns(3)
     with c1, st.container(border=True):
         st.markdown("#### 📝 Race Recap")
-        st.markdown("Animated gap-to-leader replay, fuel-corrected tyre degradation per "
+        st.markdown("Track replay of every car from its telemetry, fuel-corrected tyre degradation per "
                     "driver/compound, and a rule-based post-mortem that names the exact "
                     "lap each stint fell off the cliff.")
         st.page_link("pages/1_Race_Recap.py", label="Open Race Recap", icon="➡️")
@@ -55,6 +57,12 @@ def home() -> None:
                     "and the ideal lap, track evolution, when each driver ran and what a late "
                     "run was worth, and one-lap against race pace.")
         st.page_link("pages/4_Qualifying.py", label="Open Qualifying", icon="➡️")
+    with c5, st.container(border=True):
+        st.markdown("#### 📈 Telemetry")
+        st.markdown("Any two laps head to head: speed, throttle, brake, RPM, gear and DRS over the "
+                    "lap, the time delta, who was faster through each corner on a track map, and "
+                    "how much of each lap was flat out, braking and cornering.")
+        st.page_link("pages/5_Telemetry.py", label="Open Telemetry", icon="➡️")
 
     st.markdown("---")
     left, right = st.columns([3, 2])
@@ -90,5 +98,6 @@ pages = [
     st.Page("pages/2_Live_Race_Tracker.py", title="Live Race Tracker", icon="📡"),
     st.Page("pages/3_Future_Sandbox.py", title="Future Sandbox", icon="🧪"),
     st.Page("pages/4_Qualifying.py", title="Qualifying", icon="⏱️"),
+    st.Page("pages/5_Telemetry.py", title="Telemetry", icon="📈"),
 ]
 st.navigation(pages).run()

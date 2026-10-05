@@ -167,6 +167,15 @@ QUALI_PUSH_FACTOR = 1.05        # a lap within this of the driver's best is a pu
 QUALI_PACE_OUTLIER = 3.0        # % behind the field median beyond which a qualifying pace is ignored
 QUALI_GAIN_MIN_DRIVERS = 5      # drivers with two push laps a segment needs for its track-gain slope
 
+# Car telemetry (modules/telemetry.py): the track replay and lap head-to-head. Always FastF1:
+# OpenF1 has car data too, but paging every car's 4 Hz feed at ~28 requests/min is too slow.
+REPLAY_HZ = 2                   # replay frames per second of race (the player interpolates between)
+REPLAY_OUTLINE_STEP_M = 5       # track outline resolution for placing cars along the lap (m)
+FULL_THROTTLE_PCT = 98          # throttle at or above this counts as flat out
+CORNER_GROUP_GAP_M = 150        # corners closer than this form one zone (Baku's 8-12)
+CORNER_ZONE_PAD_M = 100         # a corner zone runs this far either side of its corners
+CORNER_SPEED_CLASSES = ((120, "Low speed"), (200, "Medium speed"), (1e9, "High speed"))  # min km/h <
+
 # Minimum laps needed to fit a degradation line for one driver/compound.
 MIN_LAPS_FOR_FIT = 5
 

@@ -3,7 +3,8 @@ pages/1_Race_Recap.py — Post-race strategy analysis & review.
 
 Tabs
 ----
-🎬 Race Replay      animated gap-to-leader chart for the whole grid (Plotly frames)
+🎬 Race Replay      track replay from car telemetry (modules/replay_player.html), and
+                   the lap-by-lap gap-to-leader chart (Plotly frames)
 📝 Post-Mortem      tyre-strategy chart + rule-based report naming each cliff lap
 📉 Degradation      fuel-corrected lap time vs tyre age with fitted deg lines
 🌦️ Weather          track sensors lap by lap, and what the forecast said (Open-Meteo)
@@ -26,7 +27,12 @@ import streamlit as st
 import config
 from modules import analytics as an
 from modules import data_engine as de
+from modules import telemetry as tm
 from modules import weather as wx
+
+REPLAY_KEY = "replay_session"      # the session whose track replay was asked for (survives reruns)
+REPLAY_HEIGHT = 760
+
 
 # ---------------------------------------------------------------------------
 # Data bundle (cached per session)
@@ -300,22 +306,45 @@ tab_replay, tab_pm, tab_deg, tab_wx, tab_export = st.tabs(
 
 # --- Replay -----------------------------------------------------------------
 with tab_replay:
-    c1, c2 = st.columns([3, 1])
-    with c2:
-        all_drivers = drivers["Driver"].tolist()
-        picked = st.multiselect("Drivers", all_drivers, default=all_drivers, key="replay_drivers")
-        y_cap = st.slider("Max gap shown (s)", 10, 180, 80, step=5,
-                          help="Lapped cars run off the bottom of the chart beyond this gap.")
-        st.caption("Dotted line = second car of a team. ▼ = pit stop. ✕ = retirement. "
-                   "Amber bands = SC/VSC.")
-    with c1:
-        if picked:
-            fig = build_replay_figure(B["timeline"][B["timeline"]["Driver"].isin(picked)],
-                                      drivers[drivers["Driver"].isin(picked)],
-                                      info["neutralised"], float(y_cap))
-            st.plotly_chart(fig, width="stretch", theme="streamlit")
+    if st.session_state.get(REPLAY_KEY) != active:
+        st.markdown("Every car on the circuit, replayed from its telemetry: running order with tyres "
+                    "and gaps, speed, gear, throttle, brake and DRS for the drivers you pick, flags, "
+                    "weather and race-control messages. Car telemetry is a separate download "
+                    "(about 20 s the first time, then cached).")
+        if st.button("Load track replay", type="primary"):
+            st.session_state[REPLAY_KEY] = active
+            st.rerun()
+    else:
+        try:
+            with st.spinner("Building the replay from car telemetry…"):
+                payload = tm.replay_payload(*active)
+        except de.DataUnavailableError as exc:
+            st.warning(f"No car telemetry for this session, so no track replay: {exc}")
+        except Exception as exc:  # noqa: BLE001 — keep the debrief screen alive
+            st.error(f"Could not build the track replay: {exc}")
         else:
-            st.info("Select at least one driver.")
+            st.iframe(tm.replay_html(payload), height=REPLAY_HEIGHT)
+            st.caption("Positions come from F1's car position feed (about 4 per second, smoothed "
+                       "between). Running order: laps completed plus how far round the lap each car "
+                       "is. Gaps are behind the leader at the same point on track.")
+
+    with st.expander("Gap to leader, lap by lap"):
+        c1, c2 = st.columns([3, 1])
+        with c2:
+            all_drivers = drivers["Driver"].tolist()
+            picked = st.multiselect("Drivers", all_drivers, default=all_drivers, key="replay_drivers")
+            y_cap = st.slider("Max gap shown (s)", 10, 180, 80, step=5,
+                              help="Lapped cars run off the bottom of the chart beyond this gap.")
+            st.caption("Dotted line = second car of a team. ▼ = pit stop. ✕ = retirement. "
+                       "Amber bands = SC/VSC.")
+        with c1:
+            if picked:
+                fig = build_replay_figure(B["timeline"][B["timeline"]["Driver"].isin(picked)],
+                                          drivers[drivers["Driver"].isin(picked)],
+                                          info["neutralised"], float(y_cap))
+                st.plotly_chart(fig, width="stretch", theme="streamlit")
+            else:
+                st.info("Select at least one driver.")
 
 # --- Post-mortem --------------------------------------------------------------
 with tab_pm:
