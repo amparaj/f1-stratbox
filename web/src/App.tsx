@@ -7,19 +7,20 @@ import Races from "./pages/Races";
 import Season from "./pages/Season";
 import { SiteContext, useHash, useSiteData, type Site } from "./site";
 
-// The season first (where the site opens), then every race, then the race ahead, then how it works.
+// What the site is and how it works first, then the season (where the site opens), every race, and the race ahead.
 const PAGES = [
+  { id: "about", label: "About", short: "About", component: About },
   { id: "season", label: "Season", short: "Season", component: Season },
   { id: "races", label: "Race Results & Analysis", short: "Races", component: Races },
   { id: "next", label: "Next Race Forecast", short: "Next Race", component: NextRace },
-  { id: "about", label: "About", short: "About", component: About },
 ] as const;
+const HOME = PAGES[1];
 
 export default function App() {
   const site = useSiteData();
   const hash = useHash();
   // The page is the part of the hash before any "/": #races/16/S -> races.
-  const page = PAGES.find((p) => p.id === hash.split("/")[0]) ?? PAGES[0];
+  const page = PAGES.find((p) => p.id === hash.split("/")[0]) ?? HOME;
   const Page = page.component;
 
   useEffect(() => {

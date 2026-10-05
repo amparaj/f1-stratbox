@@ -99,6 +99,9 @@ export interface Column<T> {
   /** Whether it can be sorted on. Default: when its values are numbers; names and descriptions can't
    * (set true for text that sorts by meaning, such as a date or a season). */
   sortable?: boolean;
+  /** An order where 1 comes first (a position, a round): sorts 1 first when picked, and the phone's
+   * direction button reads "First to last" rather than "Low to high". */
+  rank?: boolean;
 }
 
 /** A column's label as plain text, with its group in front ("xP GW6"): for the phone's sort list and detail sheet. */
@@ -204,9 +207,10 @@ export interface TableProps<T> {
 }
 
 export function Table<T>(props: TableProps<T>) {
-  const { columns, data, sort: initialSort, desc: initialDesc = true, limit, rowKey, onRow, selected } = props;
+  const { columns, data, sort: initialSort, desc: initialDesc, limit, rowKey, onRow, selected } = props;
   const [sort, setSort] = useState(initialSort ?? null);
-  const [desc, setDesc] = useState(initialDesc);
+  // Highest first, except for a rank (P1 first).
+  const [desc, setDesc] = useState(initialDesc ?? !columns.find((c) => c.key === initialSort)?.rank);
   const [all, setAll] = useState(false);
   const [open, setOpen] = useState<T | null>(null);
   const phone = usePhone();
@@ -232,7 +236,7 @@ export function Table<T>(props: TableProps<T>) {
     c.sortable ?? (c.numeric || data.some((r) => typeof c.value(r) === "number"))).map((c) => c.key)), [columns, data]);
   const sortBy = (key: string) => {
     if (sort === key) setDesc(!desc);
-    else { setSort(key); setDesc(!!columns.find((c) => c.key === key)?.numeric); }
+    else { const c = columns.find((c) => c.key === key); setSort(key); setDesc(!!c?.numeric && !c.rank); }
   };
 
   // A row with more to show opens it in a sheet: every column on a phone, plus the page's own detail panel.
@@ -329,6 +333,10 @@ function Cards<T>({ columns, rowKey, selected, cardStats, cardSub, cardTitle, sh
   }
   // The sorted column shows on every card, even when it isn't one of the card's usual numbers.
   const sortCol = columns.find((c) => c.key === sort);
+  // A rank reads in places (P1 is first, not lowest); anything else in amounts.
+  const direction = sortCol?.rank
+    ? (desc ? "▼ Last to first" : "▲ First to last")
+    : (desc ? "▼ High to low" : "▲ Low to high");
   if (sortCol && sortCol !== title && !stats.includes(sortCol) && !subs.includes(sortCol)) stats = [sortCol, ...stats.slice(0, 2)];
   return (
     <div className="cards-wrap">
@@ -341,7 +349,7 @@ function Cards<T>({ columns, rowKey, selected, cardStats, cardSub, cardTitle, sh
           </select>
         </label>
         <button className="cards-dir" onClick={() => setDesc(!desc)}>
-          {desc ? "▼ High to low" : "▲ Low to high"}
+          {direction}
         </button>
       </div>
       <ul className="cards">

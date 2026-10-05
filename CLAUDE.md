@@ -198,6 +198,9 @@ and emoji). This is a Windows PowerShell 5.1 / Git Bash environment.
 - Circuits are matched across seasons by `circuit_key(location)` (via the pit-loss table),
   never by event name: the 2026 "Bahrain Grand Prix" was in Kuala Lumpur.
 - Pages must render at phone width (`usePhone`, cards via `Table`). Screenshot both widths.
+- About has an Overview and a Technical Documentation (`web/src/pages/Docs.tsx`, `#about/docs[/section]`,
+  KaTeX lazy-loaded). Its constants and formulas are copied from `config.py` and the modules: update
+  them when the model changes. Table columns that are an order (Pos, Round, Grid) set `rank: true`.
 - Publishing needs GitHub Pages set to "Deploy from a branch: gh-pages".
 
 ## Known limitations / next steps

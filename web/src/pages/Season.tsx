@@ -41,9 +41,10 @@ export default function Season() {
           rowKey={(d) => d.driver}
           sort="points"
           cardTitle={(d) => <><DriverChip code={d.driver} color={d.color} /> {d.name}</>}
+          cardSub={["team"]}
           cardStats={["points", "wins", "p_title"]}
           columns={[
-            { key: "position", label: "Pos", value: (d) => d.position, numeric: true },
+            { key: "position", label: "Pos", value: (d) => d.position, numeric: true, rank: true },
             { key: "driver", label: "Driver", value: (d) => d.name, render: (d) => <><DriverChip code={d.driver} color={d.color} /> {d.name}</> },
             { key: "team", label: "Team", value: (d) => d.team },
             { key: "points", label: "Points", value: (d) => d.points, numeric: true },
@@ -71,7 +72,7 @@ export default function Season() {
           sort="points"
           cards={false}
           columns={[
-            { key: "position", label: "Pos", value: (t) => t.position, numeric: true },
+            { key: "position", label: "Pos", value: (t) => t.position, numeric: true, rank: true },
             { key: "team", label: "Team", value: (t) => t.team, render: (t) => <><TeamDot color={t.color} /> {t.team}</> },
             { key: "points", label: "Points", value: (t) => t.points, numeric: true },
             { key: "wins", label: "Wins", value: (t) => t.wins, numeric: true },
@@ -87,12 +88,13 @@ export default function Season() {
         <Table<CalendarEvent>
           data={meta.calendar}
           rowKey={(e) => e.round}
+          sort="round"
           onRow={(e) => { window.location.hash = e.done_R ? `races/${e.round}` : `next/${e.round}`; }}
           cardTitle={(e) => `${e.round}. ${shortEvent(e.event)}`}
           cardSub={["date", "location"]}
           cardStats={["winner"]}
           columns={[
-            { key: "round", label: "Rd", value: (e) => e.round, numeric: true },
+            { key: "round", label: "Round", value: (e) => e.round, numeric: true, rank: true },
             { key: "event", label: "Grand Prix", value: (e) => e.event, render: (e) => <a href={e.done_R ? `#races/${e.round}` : `#next/${e.round}`}>{e.event}</a> },
             { key: "location", label: "Circuit", value: (e) => `${e.location}, ${e.country}` },
             { key: "date", label: "Date", value: (e) => day(e.race_utc) },

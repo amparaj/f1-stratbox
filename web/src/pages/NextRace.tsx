@@ -70,6 +70,7 @@ export default function NextRace() {
           rowKey={(d) => d.driver}
           sort="p_win"
           cardTitle={(d) => <><DriverChip code={d.driver} color={d.color} /> {d.team}</>}
+          cardSub={[]}
           cardStats={["p_win", "p_podium", "exp_points"]}
           columns={[
             { key: "driver", label: "Driver", value: (d) => d.driver, render: (d) => <DriverChip code={d.driver} color={d.color} /> },
@@ -79,7 +80,7 @@ export default function NextRace() {
             { key: "p_podium", label: "Podium", value: (d) => d.p_podium, render: (d) => pct(d.p_podium), numeric: true },
             { key: "p_points", label: "Points", value: (d) => d.p_points, render: (d) => pct(d.p_points), numeric: true },
             { key: "p_dnf", label: "DNF", value: (d) => d.p_dnf, render: (d) => pct(d.p_dnf), numeric: true },
-            { key: "exp_pos", label: "Exp. pos", value: (d) => -d.exp_pos, render: (d) => dec(d.exp_pos, 1), numeric: true },
+            { key: "exp_pos", label: "Exp. pos", value: (d) => d.exp_pos, render: (d) => dec(d.exp_pos, 1), numeric: true, rank: true },
             { key: "exp_points", label: "Exp. pts", value: (d) => d.exp_points, render: (d) => dec(d.exp_points, 1), numeric: true },
           ]}
         />

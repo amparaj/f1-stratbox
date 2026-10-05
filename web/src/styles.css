@@ -648,3 +648,47 @@ h4.sub { margin: 0 0 4px; font-size: 13px; font-weight: 600; color: var(--ink-2)
 .pm-driver li { margin: 4px 0; display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
 .pm-driver li .tyre { align-self: center; }
 a.tag { text-decoration: none; }
+
+/* ---------------------------------------------------------------- technical documentation (the flow and report styles are above) */
+
+.flow { max-width: var(--prose); }
+.flow-stage { grid-template-columns: 84px minmax(0, 1fr); }
+.flow-drop { background: var(--chip); color: var(--ink-2); font-size: 12.5px; border-style: dashed; }
+.report h4.sub { font-size: 15px; color: var(--ink); margin: 22px 0 6px; }
+nav.report-toc { overflow: visible; margin-top: 0; padding-bottom: 0; }
+.report-toc a { border: 0; }
+.maths-block { max-width: var(--prose); }
+.docs-figure { margin: 14px 0; max-width: var(--prose); }
+.docs-figure figcaption { margin-top: 4px; }
+.docs-table { max-width: var(--prose); margin: 8px 0; }
+
+/* A chain of checks: the test on the left, "no" leading right to what happens instead, "yes" down to the next. */
+.checks { margin: 16px 0 8px; max-width: 760px; --test: 1.2fr; }
+.checks-row { display: grid; grid-template-columns: minmax(0, 1.2fr) 44px minmax(0, 1fr); }
+.checks-test { flex-direction: row; align-items: center; justify-content: flex-start; gap: 8px; font-weight: 600; }
+.checks-n {
+  flex: none; width: 20px; height: 20px; border-radius: 50%; background: var(--chip); color: var(--ink-2);
+  display: grid; place-items: center; font-size: 11px; font-weight: 700;
+}
+/* The down arrow sits under the middle of the test column: (100% - 44px) * 1.2 / 2.2 wide. */
+.checks-down { position: relative; height: 26px; width: calc((100% - 44px) * 1.2 / 2.2); }
+.checks-down::before { content: ""; position: absolute; top: 2px; bottom: 7px; left: 50%; width: 2px; margin-left: -1px; background: var(--baseline); }
+.checks-down::after {
+  content: ""; position: absolute; bottom: 1px; left: 50%; margin-left: -5px;
+  border: 5px solid transparent; border-top: 6px solid var(--baseline); border-bottom: 0;
+}
+.checks-down span { position: absolute; left: calc(50% + 8px); top: 5px; font-size: 11px; color: var(--muted); }
+.checks-no { position: relative; }
+.checks-no::before { content: ""; position: absolute; left: 2px; right: 7px; top: 50%; height: 2px; margin-top: -1px; background: var(--baseline); }
+.checks-no::after {
+  content: ""; position: absolute; right: 1px; top: 50%; margin-top: -5px;
+  border: 5px solid transparent; border-left: 6px solid var(--baseline); border-right: 0;
+}
+.checks-no span { position: absolute; left: 0; right: 0; text-align: center; top: calc(50% - 18px); font-size: 11px; color: var(--muted); }
+@media (max-width: 640px) {
+  .flow-stage { grid-template-columns: minmax(0, 1fr); }
+  .checks-row { grid-template-columns: minmax(0, 1fr) 28px minmax(0, 0.8fr); }
+  .checks-down { width: calc((100% - 28px) / 1.8); }
+  .checks-test { font-size: 12.5px; }
+  .checks-n { display: none; }
+}

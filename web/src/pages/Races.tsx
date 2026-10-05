@@ -32,12 +32,14 @@ function RaceList() {
       <Table<CalendarEvent>
         data={done}
         rowKey={(e) => e.round}
+        sort="round"
+        desc
         onRow={(e) => { window.location.hash = `races/${e.round}`; }}
         cardTitle={(e) => `${e.round}. ${shortEvent(e.event)}`}
         cardSub={["date"]}
         cardStats={["winner"]}
         columns={[
-          { key: "round", label: "Rd", value: (e) => e.round, numeric: true },
+          { key: "round", label: "Round", value: (e) => e.round, numeric: true, rank: true },
           { key: "event", label: "Grand Prix", value: (e) => e.event, render: (e) => <a href={`#races/${e.round}`}>{e.event}</a> },
           { key: "location", label: "Circuit", value: (e) => e.location },
           { key: "date", label: "Date", value: (e) => dayYear(e.race_utc) },
@@ -119,14 +121,15 @@ function RaceView({ round, code }: { round: number; code: "R" | "S" }) {
         <Table<ResultRow>
           data={results}
           rowKey={(r) => r.driver}
+          sort="position"
           cardTitle={(r) => <><span className="muted">{r.classified ? `P${r.position}` : "DNF"}</span> <DriverChip code={r.driver} color={r.color} /> {r.name}</>}
           cardSub={["team"]}
           cardStats={["gained", "gap", "points"]}
           columns={[
-            { key: "position", label: "Pos", value: (r) => r.position, render: (r) => (r.classified ? r.position : r.dns ? "DNS" : "DNF"), numeric: true },
+            { key: "position", label: "Pos", value: (r) => r.position, render: (r) => (r.classified ? r.position : r.dns ? "DNS" : "DNF"), numeric: true, rank: true },
             { key: "driver", label: "Driver", value: (r) => r.name ?? r.driver, render: (r) => <><DriverChip code={r.driver} color={r.color} /> {r.name}</> },
             { key: "team", label: "Team", value: (r) => r.team },
-            { key: "grid", label: "Grid", value: (r) => r.grid, render: (r) => (r.pit_lane_start ? "Pit lane" : r.grid ?? "–"), numeric: true },
+            { key: "grid", label: "Grid", value: (r) => r.grid, render: (r) => (r.pit_lane_start ? "Pit lane" : r.grid ?? "–"), numeric: true, rank: true },
             { key: "gained", label: "+/−", title: "Places gained from the grid", value: (r) => (r.grid && r.classified && r.position ? r.grid - r.position : null), render: (r) => (r.grid && r.classified && r.position ? signed(r.grid - r.position, 0) : "–"), numeric: true },
             { key: "gap", label: "Gap", value: (r) => r.gap ?? (r.classified ? 1e4 - r.laps : null), render: (r) => (r.position === 1 ? "Winner" : r.gap !== null ? gap(r.gap) : r.status || "–") },
             { key: "plan", label: "Tyres", value: (r) => stopsBy.get(r.driver) ?? null, render: (r) => <Plan stints={planBy.get(r.driver) ?? []} /> },
@@ -214,8 +217,8 @@ function ForecastCheck({ forecast, results }: { forecast: Forecast; results: Res
           { key: "driver", label: "Driver", value: (f) => f.driver, render: (f) => <DriverChip code={f.driver} color={f.color} /> },
           { key: "p_win", label: "Win", value: (f) => f.p_win, render: (f) => pct(f.p_win), numeric: true, group: "Forecast" },
           { key: "p_podium", label: "Podium", value: (f) => f.p_podium, render: (f) => pct(f.p_podium), numeric: true, group: "Forecast" },
-          { key: "exp_pos", label: "Exp. pos", value: (f) => f.exp_pos, render: (f) => dec(f.exp_pos, 1), numeric: true, group: "Forecast" },
-          { key: "actual", label: "Finished", value: (f) => (pos.get(f.driver)?.classified ? pos.get(f.driver)!.position : 99), render: (f) => (pos.get(f.driver) ? (pos.get(f.driver)!.classified ? `P${pos.get(f.driver)!.position}` : "DNF") : "–"), numeric: true, group: "Result" },
+          { key: "exp_pos", label: "Exp. pos", value: (f) => f.exp_pos, render: (f) => dec(f.exp_pos, 1), numeric: true, rank: true, group: "Forecast" },
+          { key: "actual", label: "Finished", value: (f) => (pos.get(f.driver)?.classified ? pos.get(f.driver)!.position : 99), render: (f) => (pos.get(f.driver) ? (pos.get(f.driver)!.classified ? `P${pos.get(f.driver)!.position}` : "DNF") : "–"), numeric: true, rank: true, group: "Result" },
         ]}
       />
     </section>

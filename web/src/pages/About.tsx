@@ -1,25 +1,70 @@
+import { Suspense, lazy } from "react";
+import { Flow } from "../components/Flow";
+import { Loading, Segmented } from "../components/ui";
 import { dayYear } from "../format";
-import { useSite } from "../site";
+import { useHash, useSite } from "../site";
 
+// The maths needs KaTeX, so the technical documentation loads as its own chunk.
+const Docs = lazy(() => import("./Docs"));
+
+/** About: the plain-language overview (#about) or the technical documentation (#about/docs). */
 export default function About() {
-  const { meta } = useSite();
+  const view = useHash().split("/")[1] === "docs" ? "docs" : "overview";
   return (
     <div className="about">
       <h2>About F1 Stratbox</h2>
+      <div className="about-switch">
+        <Segmented label="About" value={view} onChange={(v) => { window.location.hash = v === "docs" ? "about/docs" : "about"; }}
+                   options={[{ value: "overview", label: "Overview" }, { value: "docs", label: "Technical Documentation" }]} />
+      </div>
+      {view === "docs" ? <Suspense fallback={<Loading />}><Docs /></Suspense> : <Overview />}
+    </div>
+  );
+}
+
+function Overview() {
+  const { meta } = useSite();
+  return (
+    <>
       <p className="lede">
         A personal F1 strategy notebook: every race of the {meta.season} season reviewed lap by lap, and a
         forecast for each race still to come. It's the public, read-only side of a Streamlit app that runs on
         my computer (post-race review, a lap-by-lap race tracker and a strategy sandbox).
       </p>
 
+      <Flow label="How F1 Stratbox works, from timing data to the pages" stages={[
+        { label: "Data", join: "every lap of every car", nodes: [
+          { title: "Lap timing", text: "lap times, tyres, pit stops", kind: "source", section: "data" },
+          { title: "Race control", text: "Safety Cars, VSC, red flags, deleted laps", kind: "source", section: "data" },
+          { title: "Results & grid", text: "classification, points, starting grid", kind: "source", section: "data" },
+        ] },
+        { label: "Analyse", join: "per race", nodes: [
+          { title: "Clean laps", text: "neutralised, pit, wet and outlier laps out", section: "cleaning" },
+          { title: "Tyre wear", text: "degradation lines and cliffs", kind: "model", section: "degradation" },
+          { title: "Race pace", text: "each driver against the field", kind: "model", section: "pace" },
+        ] },
+        { label: "Forecast", join: "", nodes: [
+          { title: "Race odds", text: "10,000 simulated races", kind: "model", section: "race" },
+          { title: "Title odds", text: "10,000 simulated seasons", kind: "model", section: "title" },
+          { title: "Tyre strategy", text: "every 1- and 2-stop plan", kind: "model", section: "strategy" },
+        ] },
+        { label: "Pages", nodes: [
+          { title: "Season", kind: "out" },
+          { title: "Race Results & Analysis", kind: "out" },
+          { title: "Next Race Forecast", kind: "out" },
+        ] },
+      ]} />
+      <p className="note">Each box links to its part of the <a href="#about/docs">Technical Documentation</a>, which has the maths.</p>
+
       <h3>How it stays up to date</h3>
       <p>
-        A scheduled GitHub Action checks every hour over race weekends (and once a day otherwise). About
-        three hours after a race or sprint starts it downloads the timing data, rebuilds every page and
-        publishes the site, usually within an hour or two of the chequered flag. If the classification
-        isn't out yet the race is marked provisional, with points worked out from the timing order; the
-        starting grid usually follows a few hours to a day later, and later runs fill both in (and pick up
-        any penalties). Last update: {dayYear(meta.generated)}.
+        The site rebuilds itself. It checks for new data every hour over a race weekend and once a day the
+        rest of the week. About three hours after a race or sprint starts, the timing data is downloaded,
+        every page is rebuilt and the new version goes live, usually within an hour or two of the chequered
+        flag. Until the official classification is out the race is marked provisional, with points worked
+        out from the order the cars finished in; the starting grid usually follows within a day, and later
+        updates fill both in (and pick up any penalties). Once a race is final it's stored for good and never
+        downloaded again. Last update: {dayYear(meta.generated)}.
       </p>
 
       <h3>The race analysis</h3>
@@ -69,6 +114,6 @@ export default function About() {
         Pit-lane losses are approximate public figures. The code is at{" "}
         <a href="https://github.com/amparaj/f1-stratbox">github.com/amparaj/f1-stratbox</a>.
       </p>
-    </div>
+    </>
   );
 }
