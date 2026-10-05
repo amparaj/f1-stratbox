@@ -86,24 +86,42 @@ def race_pace(clean_laps: pd.DataFrame) -> pd.Series:
     return pace - pace.median()
 
 
-def driver_form(paces: list[pd.Series], rounds: list[int] | None = None,
-                weights: list[float] | None = None) -> pd.Series:
+def form_inputs(paces: list[pd.Series], rounds: list[int] | None = None,
+                weights: list[float] | None = None) -> pd.DataFrame:
     """
-    Weighted mean of recent paces (oldest first in `paces`). With `rounds` (each pace's round),
-    paces from the last FORM_MAX_RACES rounds count, each round back weighted FORM_DECAY; without,
-    the last FORM_MAX_RACES paces, one step each. `weights` scales each pace (a sprint's).
+    Every pace that counts towards form (oldest first in `paces`): columns `i` (its index in
+    `paces`), driver, pace, used (the pace within ±FORM_CLIP of the driver's median over the
+    window) and weight. With `rounds` (each pace's round), paces from the last FORM_MAX_RACES
+    rounds count, each round back weighted FORM_DECAY; without, the last FORM_MAX_RACES paces,
+    one step each. `weights` scales each pace (a sprint's).
     """
+    cols = ["i", "driver", "pace", "used", "weight"]
     if not paces:
-        return pd.Series(dtype=float)
+        return pd.DataFrame(columns=cols)
     weights = weights or [1.0] * len(paces)
     if rounds is None:
         rounds = list(range(len(paces)))
     latest = max(rounds)
     keep = [i for i, r in enumerate(rounds) if latest - r < config.FORM_MAX_RACES]
-    w = [weights[i] * config.FORM_DECAY ** (latest - rounds[i]) for i in keep]
-    num = pd.concat([paces[i] * wi for i, wi in zip(keep, w)], axis=1).sum(axis=1)
-    den = pd.concat([paces[i].notna() * wi for i, wi in zip(keep, w)], axis=1).sum(axis=1)
-    return (num / den.where(den > 0)).dropna()
+    parts = [pd.DataFrame({"i": i, "driver": paces[i].index, "pace": paces[i].to_numpy(float),
+                           "weight": weights[i] * config.FORM_DECAY ** (latest - rounds[i])}) for i in keep]
+    out = pd.concat(parts, ignore_index=True).dropna(subset=["pace"]) if parts else pd.DataFrame(columns=cols)
+    out["used"] = out["pace"]
+    if config.FORM_CLIP is not None and not out.empty:
+        centre = out.groupby("driver")["pace"].transform("median")
+        out["used"] = out["pace"].clip(centre - config.FORM_CLIP, centre + config.FORM_CLIP)
+    return out[cols]
+
+
+def driver_form(paces: list[pd.Series], rounds: list[int] | None = None,
+                weights: list[float] | None = None) -> pd.Series:
+    """Weighted mean of each driver's recent paces, outliers held to ±FORM_CLIP (form_inputs)."""
+    inp = form_inputs(paces, rounds, weights)
+    if inp.empty:
+        return pd.Series(dtype=float)
+    w = inp["weight"]
+    den = w.groupby(inp["driver"]).sum()
+    return ((inp["used"] * w).groupby(inp["driver"]).sum() / den.where(den > 0)).dropna()
 
 
 def dnf_rates(starts: pd.Series, dnfs: pd.Series) -> pd.Series:
@@ -178,19 +196,73 @@ def _points(pos: np.ndarray, table: tuple[int, ...]) -> np.ndarray:
     return lookup[pos]
 
 
-def session_mean(code: str, pace: pd.Series, circuit: pd.Series | None = None,
-                 teams: pd.Series | None = None, grid: pd.Series | None = None) -> pd.Series:
-    """Expected performance (%) for the simulation: pace + circuit term + grid term."""
-    mean = pace.copy()
+def penalised_grid(order: pd.Series, penalties: dict[str, int | str] | None) -> pd.Series:
+    """
+    Qualifying order (driver -> place) with grid penalties applied: N places back, "back" (the
+    back of the grid) or "pit" (a pit-lane start, behind everyone). Drivers dropped behind the
+    same slot keep their qualifying order. Returns driver -> grid slot, 1 = pole.
+    """
+    if not penalties:
+        return order
+    key = order.astype(float).copy()
+    for d, p in penalties.items():
+        if d not in key.index:
+            continue
+        key[d] = 2000 + key[d] if p == "pit" else 1000 + key[d] if p == "back" else key[d] + int(p) + 0.5
+    return key.rank(method="first").astype(int)
+
+
+def penalty_places(pace: pd.Series, penalties: dict[str, int | str] | None) -> pd.Series:
+    """
+    Before qualifying: grid places each driver is expected to lose to a penalty. Their expected
+    place is their rank on pace; a drop can't take them past the back ("back"/"pit" = to it).
+    """
+    out = pd.Series(0.0, index=pace.index)
+    if not penalties:
+        return out
+    rank = pace.rank(method="first")
+    n = len(pace)
+    for d, p in penalties.items():
+        if d in out.index:
+            room = n - rank[d] + (1 if p == "pit" else 0)
+            out[d] = room if p in ("back", "pit") else min(int(p), room)
+    return out
+
+
+def session_terms(code: str, pace: pd.Series, circuit: pd.Series | None = None,
+                  teams: pd.Series | None = None, grid: pd.Series | None = None,
+                  penalties: dict[str, int | str] | None = None) -> pd.DataFrame:
+    """
+    Expected performance (%) for the simulation and what makes it: columns pace, circuit_term,
+    grid_term, penalty_places, penalty_term and mean (their sum). `penalties` (config.GRID_PENALTIES
+    for this round) count only while the grid isn't known: once it is, they're in it.
+    """
+    out = pd.DataFrame({"pace": pace.astype(float)})
+    out["circuit_term"] = 0.0
+    out["grid_term"] = 0.0
+    out["penalty_places"] = 0.0
+    out["penalty_term"] = 0.0
     if circuit is not None and not circuit.empty and teams is not None:
-        team = teams.reindex(mean.index).map(lambda t: team_now(t) if isinstance(t, str) else t)
-        mean += config.CIRCUIT_WEIGHT[code] * team.map(circuit).fillna(0.0).to_numpy()
-    if grid is not None and code in config.RACE_CODES and grid.notna().any():
-        # Grid place, 1 = pole; a missing slot (pit lane, no time) goes behind everyone.
-        g = grid.reindex(mean.index)
-        g = g.fillna(g.max() + 1 if g.notna().any() else len(mean))
-        mean += config.GRID_WEIGHT[code] * (g - g.mean()).to_numpy()
-    return mean
+        team = teams.reindex(out.index).map(lambda t: team_now(t) if isinstance(t, str) else t)
+        out["circuit_term"] = config.CIRCUIT_WEIGHT[code] * team.map(circuit).fillna(0.0).to_numpy()
+    if code in config.RACE_CODES:
+        if grid is not None and grid.notna().any():
+            # Grid place, 1 = pole; a missing slot (pit lane, no time) goes behind everyone.
+            g = grid.reindex(out.index)
+            g = g.fillna(g.max() + 1 if g.notna().any() else len(out))
+            out["grid_term"] = config.GRID_WEIGHT[code] * (g - g.mean()).to_numpy()
+        elif penalties:
+            out["penalty_places"] = penalty_places(pace, penalties)
+            out["penalty_term"] = config.GRID_WEIGHT[code] * out["penalty_places"]
+    out["mean"] = out[["pace", "circuit_term", "grid_term", "penalty_term"]].sum(axis=1)
+    return out
+
+
+def session_mean(code: str, pace: pd.Series, circuit: pd.Series | None = None,
+                 teams: pd.Series | None = None, grid: pd.Series | None = None,
+                 penalties: dict[str, int | str] | None = None) -> pd.Series:
+    """Expected performance (%) for the simulation: pace + circuit + grid (or penalty) terms."""
+    return session_terms(code, pace, circuit, teams, grid, penalties)["mean"]
 
 
 def forecast_session(code: str, mean: pd.Series, dnf: pd.Series | None = None,

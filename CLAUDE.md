@@ -264,7 +264,16 @@ and emoji). This is a Windows PowerShell 5.1 / Git Bash environment.
   `scripts/calibrate_forecast.py 2025 2026`, which replays every session from the ones before it):
   - race pace = median fuel-corrected clean lap / field median on that compound, in %; quali pace
     as above. Race form (R + S, a sprint `SPRINT_FORM_WEIGHT`) and quali form (Q + SQ) = decayed
-    mean over the last 6 rounds
+    mean over the last 6 rounds, each session's pace first held to ±`FORM_CLIP` (0.25 %) of the
+    driver's median over the window (`forecast.form_inputs`): without it one bad session (2026 Baku Q:
+    ANT +0.38 %) flipped every race left. Improved every session kind in the replays
+  - grid: official once the race is in, else OpenF1 `starting_grid` (keyed on the qualifying session;
+    has grid penalties, misses only late pit-lane starts: checked on 2025-26), else the qualifying order
+    with `config.GRID_PENALTIES` (hand-kept, Grand Prix only). Before qualifying an announced penalty
+    adds `GRID_WEIGHT` × places expected to be lost (`forecast.session_terms`), in title odds too
+  - forecast files carry the breakdown (race_form, quali_form, quali_share, circuit/grid/penalty terms,
+    summing to `pace`) and `sessions[code].why` (the sessions behind each driver's form, used vs raw
+    pace, share; quali and grid sources): the site's "Why these odds?" panel (`components/WhyOdds.tsx`)
   - every session of a weekend gets odds (`forecast_session`): expected pace (race: race form
     blended with quali form `RACE_QUALI_BLEND`, or with that race's own qualifying
     `RACE_QUALI_BLEND_WEEKEND` + `GRID_WEIGHT` per grid place once it's in) + last season's team

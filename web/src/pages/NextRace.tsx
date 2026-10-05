@@ -3,9 +3,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { color } from "../colors";
 import { ChanceBars, DriverChip, Plan, SessionBadge } from "../components/f1";
 import { liveSession, Radar, useNow } from "../components/Radar";
+import { FORM_CLIP, WhyOdds } from "../components/WhyOdds";
 import { Chart, Legend, Loading, Note, plotDefaults, Segmented, Table, Tiles } from "../components/ui";
 import {
-  forecastFile, isQuali, load, rows, SESSION_LABEL, sessionDone, sessionHash, sessionOdds, sessionStart, weekendSessions,
+  forecastFile, isQuali, load, rows, SESSION_LABEL, sessionDone, sessionHash, sessionOdds, sessionStart, sessionWhy, weekendSessions,
   type CalendarEvent, type Forecast, type ForecastDriver, type QualiForecastDriver, type QualiStrategy, type SessionCode,
   type StrategyForecast, type StrategyPlan, type WeatherForecast, type WeatherHour,
 } from "../data";
@@ -130,14 +131,17 @@ function RaceOdds({ forecast, code, ahead }: { forecast: Forecast; code: "R" | "
   if (!drivers.length) return null;
   const grid = drivers.some((d) => d.grid != null);
   const circuit = drivers.some((d) => d.circuit != null);
+  const penalty = drivers.some((d) => d.penalty != null);
   const name = code === "S" ? "sprint" : "race";
   return (
     <section>
       <h3>Who Wins the {SESSION_LABEL[code]}? <SessionBadge code={code} /></h3>
       <p className="muted">
         The {name} played 10,000 times. Each driver's pace is drawn around their expected pace: recent race
-        pace (sprints count half) blended with qualifying pace{circuit ? ", plus how their team went at this circuit last season" : ""}
-        {grid ? <>, and the grid from this weekend's {after.at(-1)} (track position is worth something)</> : ""}.
+        pace (sprints count three-quarters) blended with qualifying pace, a session more than {FORM_CLIP}% off a
+        driver's usual pace capped as an outlier{circuit ? ", plus how their team went at this circuit last season" : ""}
+        {grid ? <>, and the grid from this weekend's {after.at(-1)}, grid penalties applied (track position is worth something)</> : ""}
+        {!grid && penalty ? ", and announced grid penalties (the places they're expected to lose)" : ""}.
         Retirements come from their (shrunk) DNF rate{code === "S" ? ", lower over a sprint's shorter distance" : ""}.
         {code === "S" ? " Points go to the top eight (8 to 1)." : ""}{which === "pre" ? aheadText(ahead) : ""}
       </p>
@@ -162,9 +166,10 @@ function RaceOdds({ forecast, code, ahead }: { forecast: Forecast; code: "R" | "
         columns={[
           { key: "driver", label: "Driver", value: (d) => d.driver, render: (d) => <DriverChip code={d.driver} color={d.color} /> },
           { key: "team", label: "Team", value: (d) => d.team },
-          { key: "pace", label: "Pace", title: "Expected pace against the field median (negative = faster): race and qualifying form", value: (d) => -(d.pace ?? d.form ?? 0), render: (d) => `${signed(d.pace ?? d.form, 2)}%`, numeric: true },
+          { key: "pace", label: "Pace", title: "Expected performance against the field median (negative = faster): race and qualifying form, plus the circuit, grid and penalty terms", value: (d) => -(d.pace ?? d.form ?? 0), render: (d) => `${signed(d.pace ?? d.form, 2)}%`, numeric: true },
           ...(circuit ? [{ key: "circuit", label: "Circuit", title: "The team's pace here last season against its season average (negative = better here)", value: (d: ForecastDriver) => -(d.circuit ?? 0), render: (d: ForecastDriver) => (d.circuit == null ? "–" : `${signed(d.circuit, 2)}%`), numeric: true }] : []),
           ...(grid ? [{ key: "grid", label: "Grid", value: (d: ForecastDriver) => d.grid ?? 99, render: (d: ForecastDriver) => d.grid ?? "–", numeric: true, rank: true }] : []),
+          ...(penalty ? [{ key: "penalty", label: "Penalty", title: "Announced grid penalty: places back, back of the grid or a pit-lane start", value: (d: ForecastDriver) => d.penalty_places ?? 0, render: (d: ForecastDriver) => (d.penalty == null ? "–" : d.penalty === "back" ? "Back" : d.penalty === "pit" ? "Pit lane" : `+${d.penalty}`), numeric: true }] : []),
           { key: "p_win", label: "Win", value: (d) => d.p_win, render: (d) => pct(d.p_win), numeric: true },
           { key: "p_podium", label: "Podium", value: (d) => d.p_podium, render: (d) => pct(d.p_podium), numeric: true },
           { key: "p_points", label: "Points", value: (d) => d.p_points, render: (d) => pct(d.p_points), numeric: true },
@@ -173,6 +178,7 @@ function RaceOdds({ forecast, code, ahead }: { forecast: Forecast; code: "R" | "
           { key: "exp_points", label: "Exp. pts", value: (d) => d.exp_points, render: (d) => dec(d.exp_points, 1), numeric: true },
         ]}
       />
+      <WhyOdds drivers={drivers} why={sessionWhy(forecast, code, which)} code={code} />
     </section>
   );
 }
@@ -187,7 +193,8 @@ function QualiOdds({ forecast, code, ahead }: { forecast: Forecast; code: "Q" | 
       <h3>Who Takes Pole? <SessionBadge code={code} /></h3>
       <p className="muted">
         The session played 10,000 times from each driver's qualifying pace (Qualifying and Sprint
-        Qualifying, recent sessions weighted most{which === "latest" ? <>, this weekend's {after.join(", ")} included</> : null})
+        Qualifying, recent sessions weighted most, a session more than {FORM_CLIP}% off a driver's usual pace capped
+        as an outlier{which === "latest" ? <>, this weekend's {after.join(", ")} included</> : null})
         {circuit ? ", plus how their team qualified at this circuit last season" : ""}, with a small chance of setting
         no time. It gives each driver's chance of pole, of making Q3 and of going out in Q1.{which === "pre" ? aheadText(ahead) : ""}
       </p>
@@ -221,6 +228,7 @@ function QualiOdds({ forecast, code, ahead }: { forecast: Forecast; code: "Q" | 
           { key: "exp_pos", label: "Exp. grid", value: (d) => d.exp_pos, render: (d) => dec(d.exp_pos, 1), numeric: true, rank: true },
         ]}
       />
+      <WhyOdds drivers={drivers} why={sessionWhy(forecast, code, which)} code={code} />
     </section>
   );
 }

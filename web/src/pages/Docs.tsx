@@ -23,6 +23,7 @@ const PRESETS = {
 } as const;
 const FORM_DECAY = 0.75;
 const FORM_RACES = 6;
+const FORM_CLIP = 0.25;
 // Session forecasts (config.py "Session forecasts", fitted by scripts/calibrate_forecast.py).
 const SD = { R: 0.35, S: 0.6, Q: 0.35 };
 const SD_GRID = { R: 0.2, S: 0.45 };
@@ -569,9 +570,19 @@ function Form() {
         being thrown by one bad afternoon. There are two: <b>race form</b> from Grand Prix and Sprint race pace (a
         sprint counts 0.75 of a Grand Prix: the replays could barely tell weights from 0 to 1 apart), and
         <b>qualifying form</b> from Qualifying and Sprint Qualifying pace. Sessions a driver has no pace figure for
-        (a DNF, too few clean laps) are left out and the weights re-normalised:
+        (a DNF, too few clean laps) are left out and the weights re-normalised. Before averaging, each pace is held to
+        within {FORM_CLIP}% of the driver's median <M t="m_d" /> over those six rounds, so one crash, failure or scrappy
+        lap can't swing their form:
       </p>
-      <M block t={String.raw`f_d = \frac{\sum_{k=0}^{5} w_k\, p_{d,R-k}}{\sum_{k=0}^{5} w_k}, \qquad w_k = 0.75^{\,k}`} />
+      <M block t={String.raw`f_d = \frac{\sum_{k=0}^{5} w_k\, \tilde p_{d,R-k}}{\sum_{k=0}^{5} w_k}, \qquad w_k = 0.75^{\,k}, \qquad \tilde p = \operatorname{clip}\!\left(p,\ m_d - ${FORM_CLIP},\ m_d + ${FORM_CLIP}\right)`} />
+      <p>
+        Without the cap a single session moved form a long way. At Baku in 2026 Antonelli set only a Q1 banker lap
+        (+0.38%, against a median of −0.58%), and as the second most recent round it took his qualifying form from
+        −0.53% to −0.39%: enough to turn the championship leader from a favourite into an outsider for every race left.
+        Capped, it counts as −0.33%. The cap scored better for every kind of session when 2025 and 2026 were replayed
+        (see Checking the forecasts). Each forecast's "Why these odds?" panel lists the sessions behind two drivers'
+        form and marks the capped ones.
+      </p>
       <Figure caption="How much each of the last six races counts towards form.">
         <Chart make={make} height={220} ariaLabel="The weight of each of the last six races in the form figure" />
       </Figure>
@@ -632,11 +643,22 @@ function RaceForecast() {
         ] },
       ]} />
       <p>The expected pace depends on the session. Qualifying uses qualifying form <M t="f^Q_d" />. A race blends race form with qualifying form, and once its own qualifying is done, with that session's pace <M t="p^{Q*}_d" /> plus a step per grid place <M t="g_d" />:</p>
-      <M block t={String.raw`\mu_d = (1-${BLEND})\,f^R_d + ${BLEND}\,f^Q_d \qquad \text{after qualifying: } \mu_d = (1-${BLEND_WEEKEND})\,f^R_d + ${BLEND_WEEKEND}\,p^{Q*}_d + \gamma\,(g_d - \bar g)`} />
+      <M block t={String.raw`\mu_d = (1-${BLEND})\,f^R_d + ${BLEND}\,f^Q_d + \gamma\,n_d \qquad \text{after qualifying: } \mu_d = (1-${BLEND_WEEKEND})\,f^R_d + ${BLEND_WEEKEND}\,p^{Q*}_d + \gamma\,(g_d - \bar g)`} />
       <p>
         with <M t="\gamma" /> = {GRID.R}% per place in a Grand Prix and {GRID.S}% in a Sprint (overtaking is harder over
         a third of the distance, so the grid decides more). One-lap pace turned out to say more about the next race than
-        recent race pace does (the replays put {BLEND * 100}% of the weight on it). Then, for simulation <M t="s" />:
+        recent race pace does (the replays put {BLEND * 100}% of the weight on it).
+      </p>
+      <p>
+        <b>Grid penalties.</b> The grid <M t="g_d" /> is the official one once the race has run. Before that it's
+        OpenF1's published starting grid, which has the grid penalties in (power-unit and gearbox changes, carried-over
+        penalties; against every 2025–26 race it matched the official grid but for late pit-lane starts). Until that's
+        out it's the qualifying order with any announced penalties applied. Before qualifying, an announced penalty costs
+        the places it is expected to lose, <M t="n_d" />: its size, but no further than the back from where the driver's
+        pace puts them (all the way for a back-of-the-grid or pit-lane start). Announced penalties are kept by hand
+        (config.py <code>GRID_PENALTIES</code>, from the stewards' documents): no free feed has them before qualifying,
+        and a power unit that will need changing can't be seen in timing data. A sprint's grid has no such penalties.
+        Then, for simulation <M t="s" />:
       </p>
       <M block t={String.raw`x_{d,s} = \mu_d + w\,c_{\text{team}(d)} + \delta_{d,s} + \varepsilon_{d,s}, \quad \delta_{d,s} \sim \mathcal{N}\!\left(0,\ (${DRIFT_ROUND}\sqrt{h-1})^2\right), \quad \varepsilon_{d,s} \sim \mathcal{N}\!\left(0,\ \sigma_{\text{session}}^2\right)`} />
       <p>
@@ -924,7 +946,9 @@ function Checking() {
         What came out: the weekend's own qualifying and grid are worth the most (the Grand Prix score goes from −2.57
         before the weekend to −1.74 after qualifying, the Sprint's from −3.18 to −1.56); qualifying form is worth more
         than race form for the next race; the circuit term barely helps in a season of new rules (0 and 0.25 tie for
-        races), and the horizon drift is small. The title-odds drift (0.35%) comes from how far form really moved over
+        races), and the horizon drift is small. Capping outlier sessions in form ({FORM_CLIP}%) helped every kind: on the
+        same sessions, the Grand Prix before the weekend −2.574 → −2.558, after qualifying −1.807 → −1.799, the Sprint
+        −3.159 → −3.141, Qualifying −2.818 → −2.754 and Sprint Qualifying −3.403 → −3.318. The title-odds drift (0.35%) comes from how far form really moved over
         the following seven races.
       </p>
     </Section>
@@ -938,8 +962,8 @@ function Limits() {
     <Section id="limits">
       <ul>
         <li><b>The forecasts are pace and grid.</b> They know recent race and qualifying pace, the grid once it's set and,
-          lightly, last season at the circuit; not upgrades, penalties announced later or weather (which only enters the
-          strategy forecast). Before a weekend the rounds ahead look alike: last season's circuit form says little after a
+          lightly, last season at the circuit, and grid penalties once announced; not upgrades, penalties nobody has
+          announced yet or weather (which only enters the strategy forecast). Before a weekend the rounds ahead look alike: last season's circuit form says little after a
           rule change, and the replays didn't support more.</li>
         <li><b>Weather.</b> The rain timeline comes from hourly forecasts at the circuit, so a passing shower can be
           missed, and only the first spell counts. Wet-tyre pace and the drying time are fixed assumptions, and

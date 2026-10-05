@@ -200,6 +200,24 @@ def find_session(year: int, start_utc: pd.Timestamp, code: str) -> dict:
     raise OpenF1Error(f"No OpenF1 {names[0]} near {start_utc:%Y-%m-%d %H:%M} UTC")
 
 
+def starting_grid(year: int, quali_start_utc, code: str) -> pd.Series:
+    """
+    Driver -> grid slot for the race that qualifying session `code` (Q or SQ) sets, with grid
+    penalties applied (OpenF1's starting_grid, keyed on the qualifying session). Pit-lane starts,
+    decided late, aren't in it. Empty until it's published. Not archived: once the race is in,
+    its official grid takes over.
+    """
+    s = find_session(year, pd.Timestamp(quali_start_utc), code)
+    max_age = dt.timedelta(minutes=CACHE_FRESH_MINUTES)
+    g = _api("starting_grid", max_age, session_key=s["session_key"])
+    if g.empty or "position" not in g:
+        return pd.Series(dtype=float)
+    drivers = _api("drivers", max_age, session_key=s["session_key"])
+    acronym = dict(zip(drivers["driver_number"], drivers["name_acronym"])) if not drivers.empty else {}
+    g = g.dropna(subset=["position"])
+    return pd.Series(g["position"].astype(int).to_numpy(), index=g["driver_number"].map(acronym)).loc[lambda x: x.index.notna()]
+
+
 def chequered_times(rc: list[dict] | pd.DataFrame) -> list[pd.Timestamp]:
     """Every time the chequered flag was shown, in order, from the race-control messages."""
     rc = pd.DataFrame(rc)

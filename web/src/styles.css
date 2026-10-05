@@ -499,6 +499,17 @@ h4.profile-sub { margin: 14px 0 6px; font-size: 13px; text-transform: uppercase;
 details.why-details { margin-top: 14px; border-top: 1px solid var(--grid); padding-top: 10px; }
 details.why-details > summary { cursor: pointer; font-weight: 600; font-size: 15px; }
 details.why-details > summary .muted { font-weight: 400; font-size: 13px; }
+details.why-details > .toolbar { margin-top: 10px; }
+table.why-table td { vertical-align: top; }
+table.why-table td:first-child { white-space: normal; }
+.why-raw { font-size: 12px; }
+@media (max-width: 640px) {
+  table.why-table th, table.why-table td { padding: 6px 4px; font-size: 13px; }
+  table.why-table td.num { white-space: normal; }
+  .why-raw { font-size: 11px; }
+  table.why-table .session-badge { display: block; width: fit-content; margin-bottom: 2px; }
+}
+tr.why-total td { font-weight: 600; border-top: 2px solid var(--grid); }
 .fixture-cells { flex-wrap: wrap; }
 
 /* ---------------------------------------------------------------- flow diagram (About, technical report) */

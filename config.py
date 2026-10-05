@@ -300,6 +300,12 @@ SPRINT_POINTS = (8, 7, 6, 5, 4, 3, 2, 1)
 FORM_MIN_CLEAN_LAPS = 8          # clean laps a driver needs for a race-pace figure
 FORM_DECAY = 0.75                # weight of each earlier race vs the next one (most recent = 1)
 FORM_MAX_RACES = 6               # races that count towards form
+# % of lap time: a session's pace counts at most this far from the driver's median pace over the form
+# window, so one crash, failure or scrappy lap (2026 Baku Q: ANT set only a Q1 banker, +0.38% against
+# a -0.6% norm) can't swing form. None = no limit. Replays (calibrate_forecast.py, scores as below):
+# 0.15 -2.774, 0.2 -2.775, 0.25 -2.777, 0.35 -2.790, 0.5 -2.809, none -2.821 (races + quali, 1-2 ahead):
+# 0.15-0.25 tie, 0.25 kept (best summed over every session kind and the after-qualifying forecasts).
+FORM_CLIP = 0.25
 FORECAST_SIMS = 10_000           # simulated races per forecast / simulated seasons for title odds
 FORM_DRIFT_SD = 0.35             # % of lap time: how far a driver's form moves over the rest of a season, one
                                  # draw per simulated season (title odds). 2026: the sd of (mean pace over the
@@ -310,6 +316,11 @@ DNF_PRIOR_STARTS = 10            # shrink each driver's DNF rate to the field's,
 # of the actual winner/pole + mean log chance of a podium/top 3 for the actual top three). Oct 2026,
 # 102 sessions (2025 Baku qualifying gap-filled from F1 live timing):
 #   race before the weekend -2.57, after qualifying -1.74; sprint -3.18 / -1.56; qualifying -2.82.
+# With FORM_CLIP (re-run Oct 2026, same sessions; without the cap in brackets): race -2.558 (-2.574),
+# after qualifying -1.799 (-1.807); sprint -3.141 (-3.159) / -1.511 (-1.543); qualifying -2.754
+# (-2.818); sprint qualifying -3.318 (-3.403). The re-run also found RACE_QUALI_BLEND 0.6 and 0.75 tied
+# (-2.627 each), SPRINT_FORM_WEIGHT flat, CIRCUIT_WEIGHT[R] 0 vs 0.25 within 0.006, DRIFT_PER_ROUND
+# 0.15 vs 0.1 within 0.005: all kept.
 SESSION_SD = {"R": 0.35, "S": 0.6, "Q": 0.35, "SQ": 0.35}   # % of lap time: spread on the day (pre-grid)
 SESSION_SD_GRID = {"R": 0.2, "S": 0.45}   # ... of a race once its grid (qualifying) is known
 SPRINT_FORM_WEIGHT = 0.75        # a sprint's race pace counts this much of a Grand Prix's (0-1 all within 0.01)
@@ -331,6 +342,12 @@ TEAM_LINEAGE = {
     "Haas": "Haas F1 Team",
 }
 CLASSIFIED_FRACTION = 0.9        # share of the winner's laps needed to be classified (FIA rule)
+# Grid penalties announced before a race's grid is out (power-unit or gearbox changes, carried-over
+# penalties): {season: {round: {driver: places back, or "back" (back of the grid) / "pit" (pit lane)}}}.
+# Kept by hand from the stewards' documents: no free feed has them before qualifying. Once
+# qualifying is done the forecast takes the grid from OpenF1's starting_grid (penalties applied) and
+# these only fill in until it's out; after the race the official grid is used.
+GRID_PENALTIES: dict[int, dict[int, dict[str, int | str]]] = {}
 
 # Strategy search for upcoming races: every 1- and 2-stop plan over the dry compounds.
 STRATEGY_MIN_STINT = 8           # shortest stint the search considers (laps)

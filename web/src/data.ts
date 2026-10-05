@@ -158,13 +158,31 @@ export interface ForecastDriver {
   form?: number;
   /** Last season's team offset at this circuit (%), and the grid once qualifying is in. */
   circuit?: number | null; grid?: number | null;
+  /** What makes `pace` (newer files): race form, the qualifying figure and its share of the blend,
+   * then the circuit, grid and grid-penalty terms (%), all summing to `pace`. */
+  race_form?: number | null; quali_form?: number | null; quali_share?: number;
+  circuit_term?: number; grid_term?: number; penalty_places?: number; penalty_term?: number;
+  /** An announced grid penalty: places back, or "back" / "pit". */
+  penalty?: number | string | null;
 }
 export interface QualiForecastDriver {
   driver: string; team: string; color: string; pace: number; circuit?: number | null;
   p_pole: number; p_front_row: number; p_top3: number; p_q3: number; p_q1_out: number; exp_pos: number;
+  quali_form?: number | null; quali_share?: number; circuit_term?: number;
+}
+/** One session that counts towards a driver's form: its pace, the pace used (outliers capped) and its share. */
+export interface FormInput { driver: string; session: string; pace: number; used: number; share: number }
+/** What's behind a forecast: the sessions in each driver's form, and where the qualifying figure and grid came from. */
+export interface ForecastWhy {
+  form: Columns;
+  quali_source: "form" | "weekend";
+  grid_source: "official" | "starting_grid" | "qualifying" | null;
 }
 /** One session's odds: before the weekend, and after its earlier sessions (and grid) once there are some. */
-export interface SessionForecast { pre: Columns; latest: Columns | null; latest_after: string[] }
+export interface SessionForecast {
+  pre: Columns; latest: Columns | null; latest_after: string[];
+  why?: { pre: ForecastWhy; latest?: ForecastWhy };
+}
 export interface QualiStrategy {
   reference: {
     event: string; pole: number; to_q2: number; Q1_Q2: number | null; Q1_Q2_pct: number | null;
@@ -211,6 +229,13 @@ export function sessionOdds(f: Forecast | null | undefined, code: SessionCode, w
   const s = f?.sessions?.[code];
   if (!s) return code === "R" ? f?.drivers ?? null : null;
   return which === "latest" ? s.latest ?? s.pre : s.pre;
+}
+
+/** What's behind a session's forecast (newer files only), matching sessionOdds. */
+export function sessionWhy(f: Forecast | null | undefined, code: SessionCode, which: "latest" | "pre" = "latest"): ForecastWhy | null {
+  const w = f?.sessions?.[code]?.why;
+  if (!w) return null;
+  return which === "latest" ? w.latest ?? w.pre : w.pre;
 }
 
 const cache = new Map<string, Promise<unknown>>();

@@ -40,6 +40,7 @@ import config
 from modules import analytics as an
 from modules import data_engine as de
 from modules import forecast as fc
+from modules import openf1
 from modules import simulator as sim
 from modules import site_telemetry
 from modules import weather as wx
@@ -592,10 +593,26 @@ def _order(rec: dict) -> tuple[int, int]:
     return rec["round"], config.WEEKEND_ORDER.index(rec["code"])
 
 
-def _form(recs: list[dict], codes: tuple[str, ...]) -> pd.Series:
+def _form_args(recs: list[dict], codes: tuple[str, ...]) -> tuple[list[dict], tuple]:
     picked = [r for r in recs if r["code"] in codes and not r["_pace"].empty]
-    return fc.driver_form([r["_pace"] for r in picked], [r["round"] for r in picked],
-                          [config.SPRINT_FORM_WEIGHT if r["code"] == "S" else 1.0 for r in picked])
+    return picked, ([r["_pace"] for r in picked], [r["round"] for r in picked],
+                    [config.SPRINT_FORM_WEIGHT if r["code"] == "S" else 1.0 for r in picked])
+
+
+def _form(recs: list[dict], codes: tuple[str, ...]) -> pd.Series:
+    return fc.driver_form(*_form_args(recs, codes)[1])
+
+
+def _form_inputs(recs: list[dict], codes: tuple[str, ...]) -> pd.DataFrame:
+    """The sessions behind each driver's form: driver, session id, pace, used (after the
+    outlier limit) and share (of the driver's form)."""
+    picked, args = _form_args(recs, codes)
+    inp = fc.form_inputs(*args)
+    if inp.empty:
+        return pd.DataFrame(columns=["driver", "session", "pace", "used", "share"])
+    inp["session"] = [picked[i]["id"] for i in inp["i"]]
+    inp["share"] = inp["weight"] / inp.groupby("driver")["weight"].transform("sum")
+    return inp[["driver", "session", "pace", "used", "share"]].round({"pace": 3, "used": 3, "share": 3})
 
 
 def _dnf(recs: list[dict]) -> pd.Series:
@@ -608,27 +625,55 @@ def _dnf(recs: list[dict]) -> pd.Series:
     return fc.dnf_rates(a["start"], a["dnf"])
 
 
-def _grid(code: str, rnd: int, recs: list[dict], exported: dict[tuple[int, str], dict]) -> pd.Series | None:
-    """The grid for a race: its official grid once the race is out, else the qualifying order."""
+def penalties_for(year: int, rnd: int, code: str = "R") -> dict[str, int | str]:
+    """Grid penalties announced for a round's Grand Prix (config.GRID_PENALTIES); none for
+    other sessions (a power-unit penalty is served in the Grand Prix)."""
+    return config.GRID_PENALTIES.get(year, {}).get(rnd, {}) if code == "R" else {}
+
+
+def _grid(year: int, ev: dict, code: str, recs: list[dict],
+          exported: dict[tuple[int, str], dict]) -> tuple[pd.Series | None, str | None]:
+    """
+    The grid for a race and where it came from: its official grid once the race is out
+    ("official"), else OpenF1's starting grid, penalties applied ("starting_grid"), else the
+    qualifying order with config.GRID_PENALTIES applied ("qualifying").
+    """
+    rnd = ev["round"]
     race = exported.get((rnd, code))
     if race is not None and race["_results"]["grid"].notna().any():
-        return race["_results"].set_index("driver")["grid"]
+        return race["_results"].set_index("driver")["grid"], "official"
     q = next((r for r in recs if r["round"] == rnd and r["code"] == config.QUALI_OF_RACE[code]), None)
-    return q["_results"].set_index("driver")["position"] if q is not None else None
+    if q is None:
+        return None, None
+    order = q["_results"].set_index("driver")["position"]
+    try:
+        start = ev[UTC_KEY[config.QUALI_OF_RACE[code]]]
+        grid = openf1.starting_grid(year, start, config.QUALI_OF_RACE[code])
+        if len(grid) >= len(order) - 2:     # a pit-lane starter or two may be missing
+            return grid, "starting_grid"
+    except Exception as exc:  # noqa: BLE001 — not out yet, or OpenF1 down: the qualifying order
+        print(f"  {session_id(rnd, code)}: no starting grid ({str(exc)[:120]})", flush=True)
+    return fc.penalised_grid(order, penalties_for(year, rnd, code)), "qualifying"
 
 
-def session_forecast(ev: dict, code: str, before: list[dict], last: dict, rounds_ahead: int,
-                     exported: dict[tuple[int, str], dict]) -> pd.DataFrame | None:
-    """The forecast for one session from the sessions in `before` (oldest first): expected
-    pace, last season's circuit term, this weekend's qualifying and grid when they're in."""
+def session_forecast(year: int, ev: dict, code: str, before: list[dict], last: dict, rounds_ahead: int,
+                     exported: dict[tuple[int, str], dict]) -> dict | None:
+    """
+    The forecast for one session from the sessions in `before` (oldest first): expected
+    pace, last season's circuit term, this weekend's qualifying and grid when they're in, or
+    announced grid penalties before then. Returns {"odds": the forecast with what makes each
+    driver's expected performance, "form": the sessions behind each driver's form,
+    "grid_source": where the grid came from (None before qualifying)}.
+    """
     if not any(r["code"] == "R" for r in before):
         return None
     race_form, quali_form = _form(before, config.RACE_CODES), _form(before, config.QUALI_CODES)
-    weekend = grid = None
+    weekend = grid = grid_source = None
     if code in config.RACE_CODES:
         q = next((r for r in before if r["round"] == ev["round"] and r["code"] == config.QUALI_OF_RACE[code]), None)
         if q is not None:
-            weekend, grid = q["_pace"], _grid(code, ev["round"], before, exported)
+            weekend = q["_pace"]
+            grid, grid_source = _grid(year, ev, code, before, exported)
     latest = before[-1]["_results"]
     line_up = latest["driver"]
     teams = latest.set_index("driver")["team"]
@@ -640,13 +685,32 @@ def session_forecast(ev: dict, code: str, before: list[dict], last: dict, rounds
     circuit = (last["race"] if code in config.RACE_CODES else last["quali"]).get(key)
     if not config.CIRCUIT_WEIGHT[code]:
         circuit = None                    # not used: don't show it either
-    mean = fc.session_mean(code, pace, circuit, teams, grid)
-    out = fc.forecast_session(code, mean, _dnf(before), rounds_ahead=rounds_ahead,
+    pen = penalties_for(year, ev["round"], code)
+    terms = fc.session_terms(code, pace, circuit, teams, grid, pen)
+    out = fc.forecast_session(code, terms["mean"], _dnf(before), rounds_ahead=rounds_ahead,
                               seed=ev["round"] * 10 + config.WEEKEND_ORDER.index(code), grid_known=grid is not None)
     out["team"] = out["driver"].map(teams)
     out["circuit"] = out["team"].map(lambda t: circuit.get(fc.team_now(t)) if circuit is not None and isinstance(t, str) else None)
     out["grid"] = out["driver"].map(grid) if grid is not None else None
-    return out
+
+    # What makes each driver's expected performance (the site's "why" panel).
+    drivers = out["driver"]
+    use_weekend = code in config.RACE_CODES and weekend is not None and not weekend.empty
+    quali = weekend if use_weekend else quali_form
+    out["race_form"] = drivers.map(race_form) if code in config.RACE_CODES else None
+    out["quali_form"] = drivers.map(quali)
+    out["quali_share"] = (0.0 if code not in config.RACE_CODES else
+                          config.RACE_QUALI_BLEND_WEEKEND if use_weekend else config.RACE_QUALI_BLEND)
+    for c in ("circuit_term", "grid_term", "penalty_places", "penalty_term"):
+        out[c] = drivers.map(terms[c]).round(4)
+    out["penalty"] = drivers.map(lambda d: pen.get(d))
+    inputs = [_form_inputs(before, config.QUALI_CODES)] if not use_weekend else []
+    if code in config.RACE_CODES:
+        inputs.insert(0, _form_inputs(before, config.RACE_CODES))
+    form = pd.concat(inputs, ignore_index=True)
+    form = form[form["driver"].isin(set(drivers))]
+    return {"odds": out, "form": form, "grid_source": grid_source,
+            "quali_source": "weekend" if use_weekend else "form"}
 
 
 def weekend_codes(ev: dict) -> list[str]:
@@ -762,6 +826,10 @@ def export_season(year: int, out_dir: Path, now: dt.datetime | None = None, tele
         df = df.assign(color=df["driver"].map(color_of))
         return columns(df)
 
+    def why(f: dict) -> dict:
+        """The sessions behind each driver's form, and where the qualifying figure and grid came from."""
+        return {"form": columns(f["form"]), "grid_source": f["grid_source"], "quali_source": f["quali_source"]}
+
     for ev in events:
         prior = [r for r in exported if r["round"] < ev["round"]]
         if not any(r["code"] == "R" for r in prior):
@@ -769,16 +837,18 @@ def export_season(year: int, out_dir: Path, now: dt.datetime | None = None, tele
         ahead = max(1, ev["round"] - latest_round)
         sessions = {}
         for code in weekend_codes(ev):
-            pre = session_forecast(ev, code, prior, last, ahead, by_key)
+            pre = session_forecast(year, ev, code, prior, last, ahead, by_key)
             if pre is None:
                 continue
-            entry = {"pre": decorate(pre), "latest": None, "latest_after": []}
+            entry = {"pre": decorate(pre["odds"]), "latest": None, "latest_after": [],
+                     "why": {"pre": why(pre)}}
             this_weekend = [r for r in exported if r["round"] == ev["round"] and _order(r) < (ev["round"], config.WEEKEND_ORDER.index(code))]
             if this_weekend:
-                latest = session_forecast(ev, code, prior + this_weekend, last, 1, by_key)
+                latest = session_forecast(year, ev, code, prior + this_weekend, last, 1, by_key)
                 if latest is not None:
-                    entry["latest"] = decorate(latest)
+                    entry["latest"] = decorate(latest["odds"])
                     entry["latest_after"] = [r["id"] for r in this_weekend]
+                    entry["why"]["latest"] = why(latest)
             sessions[code] = entry
         if "R" not in sessions:
             continue
@@ -812,7 +882,8 @@ def export_season(year: int, out_dir: Path, now: dt.datetime | None = None, tele
             for e, c in left:
                 pace = fc.expected_pace(c, race_form, quali_form)
                 pace = pace[pace.index.isin(line_up["driver"])]
-                plan.append((c, fc.session_mean(c, pace, last["race"].get(circuit_key(e["location"])), cur_teams)))
+                plan.append((c, fc.session_mean(c, pace, last["race"].get(circuit_key(e["location"])), cur_teams,
+                                                penalties=penalties_for(year, e["round"], c))))
             td, tc = fc.title_odds(standing, team_of.reindex(standing.index).fillna(cur_teams).fillna("?"), plan,
                                    _dnf(prior), seed=ev["round"])
             title_hist += [{"after": max(r["round"] for r in prior), "driver": d, "p_title": p}

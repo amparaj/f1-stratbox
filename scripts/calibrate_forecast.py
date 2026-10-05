@@ -219,6 +219,8 @@ def main() -> None:
     wk = ("weekend",)
     for p in range(args.passes):
         print(f"--- pass {p + 1}")
+        # 9.0 = no limit in practice (no driver's pace is 9% off their median).
+        search(data, "FORM_CLIP", "FORM_CLIP", None, [0.15, 0.2, 0.25, 0.35, 0.5, 9.0], races + quali, horizons=(1, 2))
         search(data, "SESSION_SD[Q]", "SESSION_SD", "Q", [0.2, 0.25, 0.3, 0.35, 0.45, 0.55], quali)
         config.SESSION_SD["SQ"] = config.SESSION_SD["Q"]
         search(data, "SESSION_SD[R]", "SESSION_SD", "R", [0.2, 0.25, 0.3, 0.35, 0.45, 0.55], races)
@@ -246,7 +248,7 @@ def main() -> None:
         if codes[0] in config.RACE_CODES:
             line += f" · after qualifying {evaluate(data, codes, horizons=wk):.3f}"
         print(line + f" · 3 rounds ahead {evaluate(data, codes, horizons=(3,)):.3f}")
-    print("\nFitted:", {k: getattr(config, k) for k in ("SESSION_SD", "SESSION_SD_GRID", "SPRINT_FORM_WEIGHT",
+    print("\nFitted:", {k: getattr(config, k) for k in ("FORM_CLIP", "SESSION_SD", "SESSION_SD_GRID", "SPRINT_FORM_WEIGHT",
                                                         "RACE_QUALI_BLEND", "RACE_QUALI_BLEND_WEEKEND", "GRID_WEIGHT",
                                                         "CIRCUIT_WEIGHT", "DRIFT_PER_ROUND")})
 
