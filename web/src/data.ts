@@ -225,3 +225,20 @@ export function load<T>(path: string): Promise<T | null> {
 
 export const raceFile = (round: number, code: SessionCode) => `races/r${String(round).padStart(2, "0")}-${code}.json`;
 export const forecastFile = (round: number) => `forecasts/r${String(round).padStart(2, "0")}.json`;
+
+/** One driver's fastest lap on the session's shared distance axis (every `step` metres). */
+export interface TelLap {
+  lap: number; time: number; compound: string | null; sectors: (number | null)[];
+  t: number[]; speed: number[]; throttle: number[]; brake: number[]; gear: number[]; rpm: number[]; drs?: number[];
+  /** [start, end] m where the car data has a hole (frozen or dropped samples): no reading there. */
+  gaps?: number[][];
+}
+/** A session's lap telemetry (modules/site_telemetry.py): track outline, corners and every driver's fastest lap. */
+export interface Telemetry {
+  step: number; length: number; reference: string;
+  x: number[]; y: number[];
+  corners: { label: string; d: number; x: number; y: number }[];
+  sector_d: number[] | null; drs: boolean;
+  drivers: Record<string, TelLap>;
+}
+export const telemetryFile = (round: number, code: SessionCode) => `telemetry/r${String(round).padStart(2, "0")}-${code}.json`;

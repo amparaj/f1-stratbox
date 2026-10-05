@@ -37,6 +37,10 @@ def main() -> None:
     ap.add_argument("--source", choices=["openf1", "fastf1"], default="openf1",
                     help="session data source (default openf1: works on GitHub's runners)")
     ap.add_argument("--no-history", action="store_true", help="skip the History pages' files")
+    ap.add_argument("--no-telemetry-download", action="store_true",
+                    help="write lap telemetry only for sessions already archived")
+    ap.add_argument("--telemetry-budget", type=int, default=None,
+                    help=f"sessions whose telemetry may be downloaded (default {config.SITE_TEL_MAX_FETCH})")
     ap.add_argument("--history-only", action="store_true", help="only write history/ (keeps the rest)")
     args = ap.parse_args()
     config.DATA_SOURCE = args.source
@@ -52,7 +56,9 @@ def main() -> None:
     shutil.rmtree(args.out, ignore_errors=True)        # no stale race files from a calendar change
     started = time.time()
     print(f"Exporting {args.year} to {args.out}", flush=True)
-    meta = site_export.export_season(args.year, args.out)
+    if args.telemetry_budget is not None:
+        config.SITE_TEL_MAX_FETCH = args.telemetry_budget
+    meta = site_export.export_season(args.year, args.out, telemetry=not args.no_telemetry_download)
     print(f"Done in {time.time() - started:.0f} s: {len(meta['sessions'])} sessions, "
           f"{len(meta['forecasts'])} forecasts, pending {meta['pending'] or 'none'}.")
     if not args.no_history:

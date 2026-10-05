@@ -40,6 +40,7 @@ modules/replay_player.html the track replay (canvas + JS), payload swapped in by
 modules/weather.py         Open-Meteo forecast/ensemble/climate/nowcast, rain scenarios, track temp
 modules/forecast.py        website forecasts: driver form, race/title Monte Carlo, strategy search
 modules/site_export.py     website data files (web/public/data/*.json)
+modules/site_telemetry.py  website lap telemetry (telemetry/rNN-<code>.json) from OpenF1 car data
 modules/history.py         website History files (every season since 1950, from Jolpica's dump)
 scripts/export_site.py     runs site_export; scripts/needs_update.py: the Action's "anything new?"
 scripts/calibrate_forecast.py  fits config's "Session forecasts" constants by replaying 2025-26
@@ -296,6 +297,27 @@ and emoji). This is a Windows PowerShell 5.1 / Git Bash environment.
     only where no grid. From 2022 the dump's Q1/Q2/Q3 positions are per session, not overall.
   - Driver codes: official abbreviation, else surname letters, de-duplicated within a season only, so
     all-time tables show names. Old teams' colours: `config.HISTORY_TEAM_COLORS`.
+- **Lap telemetry** (`modules/site_telemetry.py`, `web/src/components/Telemetry.tsx`, a "Lap Telemetry"
+  section on every session page): each driver's fastest valid lap from OpenF1 `car_data` + `location`,
+  two requests a driver limited to the lap's time window (cached for good: the URL is the window).
+  Corners and map rotation from MultiViewer (`fastf1.mvapi`, FastF1's circuit-info source; same
+  coordinates as OpenF1's location). Laps are put on the fastest lap's distance axis (speed integrated,
+  pinned to the line at 0 s and the lap time, scaled to the reference length), every
+  `SITE_TEL_STEP_M`; the browser compares any two (delta = time difference at the same index), so
+  one file serves every pairing (~170 KB). **Stale samples** (checked on all 862 2026 laps): F1's car
+  feed sometimes holds one reading for seconds (Monza Q GAS: 308 km/h held into Turn 4), flagged by
+  throttle/brake 104 or every channel unchanged >= 1 s; and a sample that would need > 220 km/h/s
+  braking or > 80 km/h/s acceleration is stale. Those are dropped; a hole > 1.5 s is bridged (distance
+  from projecting the car's position at each end of it onto the outline) and listed in the lap's
+  `gaps`, which the site shades "no data" and never claims time in. ~16% of laps have a hole; a lap
+  with over a third missing is left out (~3%). Don't loosen these without re-checking those laps. Archive `archive/openf1/<year>/rNN-<code>.tel.json.gz`
+  (raw samples, columns, ms from lap start) once the session is archived. One export run downloads at
+  most `SITE_TEL_MAX_FETCH` sessions (`--telemetry-budget`, `--no-telemetry-download`): the first
+  backfill of a season (~1.5 min a session) is run locally. A telemetry failure never fails a session.
+  Site: lap cards (sectors, full throttle / heavy braking / cornering shares), track dominance map
+  (25 mini-sectors or corner zones, tooltip per zone), speed trace with corner zones by speed class and
+  the time won in each, delta, throttle, brake, gear, RPM, DRS (pre-2026), synced hover (crosshair on
+  every trace, marker on the map), corner table. Same zone rules as the dashboard's Telemetry page.
 - Circuits are matched across seasons by `circuit_key(location)` (via the pit-loss table),
   never by event name: the 2026 "Bahrain Grand Prix" was in Kuala Lumpur.
 - Pages must render at phone width (`usePhone`, cards via `Table`). Screenshot both widths.

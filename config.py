@@ -175,6 +175,9 @@ FULL_THROTTLE_PCT = 98          # throttle at or above this counts as flat out
 CORNER_GROUP_GAP_M = 150        # corners closer than this form one zone (Baku's 8-12)
 CORNER_ZONE_PAD_M = 100         # a corner zone runs this far either side of its corners
 CORNER_SPEED_CLASSES = ((120, "Low speed"), (200, "Medium speed"), (1e9, "High speed"))  # min km/h <
+# The website's lap telemetry (modules/site_telemetry.py, from OpenF1): every driver's fastest lap.
+SITE_TEL_STEP_M = 10            # distance between samples on the shared lap axis (m)
+SITE_TEL_MAX_FETCH = 6          # sessions whose telemetry one export run may download (2 requests a driver)
 
 # Minimum laps needed to fit a degradation line for one driver/compound.
 MIN_LAPS_FOR_FIT = 5

@@ -2,6 +2,8 @@
 modules/site_export.py — The website's data files (web/public/data/).
 
     meta.json                 season, calendar, standings, title odds, the next race
+    telemetry/r16-Q.json      every driver's fastest lap of a session, on one distance axis
+                              (modules/site_telemetry.py)
     races/r16-R.json          one finished session: R Grand Prix, S Sprint (results, laps,
                               stints, deg, insights), Q Qualifying, SQ Sprint Qualifying
                               (Q1/Q2/Q3, sectors, ideal laps, track evolution, cut-offs)
@@ -39,6 +41,7 @@ from modules import analytics as an
 from modules import data_engine as de
 from modules import forecast as fc
 from modules import simulator as sim
+from modules import site_telemetry
 from modules import weather as wx
 
 log = logging.getLogger(__name__)
@@ -654,12 +657,14 @@ def weekend_codes(ev: dict) -> list[str]:
 # ---------------------------------------------------------------------------
 # The whole season
 # ---------------------------------------------------------------------------
-def export_season(year: int, out_dir: Path, now: dt.datetime | None = None) -> dict:
-    """Write every data file for `year` into out_dir and return meta.json's content."""
+def export_season(year: int, out_dir: Path, now: dt.datetime | None = None, telemetry: bool = True) -> dict:
+    """Write every data file for `year` into out_dir and return meta.json's content. `telemetry`
+    False: no new lap-telemetry downloads (archived sessions' files are still written)."""
     now = now or dt.datetime.now(dt.timezone.utc)
     events = calendar(year)
     exported: list[dict] = []
     pending: list[str] = []
+    tel_budget = [config.SITE_TEL_MAX_FETCH if telemetry else 0]
     for ev, code in due_sessions(events, now):
         sid = session_id(ev["round"], code)
         try:
@@ -673,7 +678,11 @@ def export_season(year: int, out_dir: Path, now: dt.datetime | None = None) -> d
             continue
         _write(out_dir / "races" / f"{sid}.json", {k: v for k, v in rec.items() if not k.startswith("_")})
         exported.append(rec)
-        print(f"  {sid} {ev['event']}: {'complete' if rec['complete'] else 'provisional'}", flush=True)
+        try:
+            tel = site_telemetry.export(year, ev, code, out_dir, tel_budget)
+        except Exception as exc:  # noqa: BLE001 — telemetry is extra: never fail the session for it
+            tel = f"telemetry failed ({str(exc)[:120]})"
+        print(f"  {sid} {ev['event']}: {'complete' if rec['complete'] else 'provisional'}, {tel}", flush=True)
 
     if not any(r["code"] in config.RACE_CODES for r in exported):
         # Nothing loaded (data not out yet, or a source's rate limit): publish the

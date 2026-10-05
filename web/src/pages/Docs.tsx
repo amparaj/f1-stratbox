@@ -51,6 +51,7 @@ const SECTIONS = [
   { id: "cliffs", title: "Tyre cliffs" },
   { id: "pace", title: "Race pace" },
   { id: "qualifying", title: "Qualifying analysis" },
+  { id: "telemetry", title: "Lap telemetry" },
   { id: "form", title: "Form" },
   { id: "race", title: "Session forecasts" },
   { id: "title", title: "Title odds" },
@@ -136,6 +137,7 @@ export default function Docs() {
       <Cliffs />
       <Pace />
       <Qualifying />
+      <LapTelemetry />
       <Form />
       <RaceForecast />
       <TitleOdds />
@@ -493,6 +495,47 @@ ight) \times 100 \;-\; \text{field median}`} />
         Q1 1:37.041 against a Q3-runners' Q1 median of 1:36.95 is +0.09%; Q2 1:35.959 against 1:36.03 is −0.07%;
         Q3 1:35.631 against 1:35.67 is −0.04%. The best, −0.07%, is the driver's pace before the field median comes off.
       </Example>
+    </Section>
+  );
+}
+
+// ---------------------------------------------------------------- 9. lap telemetry
+
+function LapTelemetry() {
+  return (
+    <Section id="telemetry">
+      <p>
+        Every session page compares any two drivers' fastest valid laps from F1's car data, through OpenF1: speed,
+        RPM, gear, throttle, brake and DRS about four times a second, and the car's position on the track. Only the
+        fastest lap of each driver is fetched (two requests a driver, limited to that lap's time window).
+      </p>
+      <ul>
+        <li><b>One distance axis.</b> A lap's distance is its speed added up over time, <M t={String.raw`s(t) = \int_0^t v\,dt`} />,
+          pinned to the line at 0 s and at the lap time. Different lines cover slightly different distances, so every
+          lap is scaled to the length of the session's fastest lap and sampled every 10 m. At the same sample both cars
+          are at the same point, and the gap there is simply <M t={String.raw`\Delta(s) = t_B(s) - t_A(s)`} />, which ends at the
+          lap-time difference.</li>
+        <li><b>Track dominance.</b> The lap is cut into 25 equal mini-sectors, or into corner zones and the straights
+          between. Each piece is drawn in the colour of the driver who lost less time through it:
+          <M t={String.raw`\Delta(s_{	ext{end}}) - \Delta(s_{	ext{start}})`} />.</li>
+        <li><b>Corner zones.</b> Corners (positions from the circuit map F1's timing apps use) less than 150 m apart make one
+          zone, which runs 100 m either side. A zone is low speed below 120 km/h at its slowest point (the two drivers'
+          average), medium below 200, high above.</li>
+        <li><b>Lap shares.</b> Full throttle is the share of the lap's time at 98% throttle or more; heavy braking the
+          share with the brake on; cornering the rest.</li>
+      </ul>
+      <p>
+        <b>Bad readings.</b> F1's car feed sometimes holds one reading for seconds (a car "doing 308 km/h" well into
+        a braking zone): those samples are marked by a throttle and brake of 104, by every channel standing still for a
+        second, or by a change of speed no car can make (losing over 220 km/h in a second, about 6 g, or gaining over 80).
+        They are dropped. A hole longer than 1.5 s is shaded "no data": the traces are bridged across it, the distance
+        covered comes from where the car's position puts it on the track at each end, and no time is claimed there. A
+        lap with more than a third missing is left out.
+      </p>
+      <p>
+        Positions come in about four times a second, so a gap of a few hundredths inside one corner is within the
+        noise; over a sector or a lap it adds up correctly.
+      </p>
     </Section>
   );
 }

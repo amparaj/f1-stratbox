@@ -2,6 +2,7 @@ import * as Plot from "@observablehq/plot";
 import { useCallback, useMemo, useState } from "react";
 import { color } from "../colors";
 import { COMPOUND, compoundKey, DriverChip, DriverPicker, GapChart, Plan, PositionChart, SessionBadge, StrategyChart, Tyre } from "../components/f1";
+import LapTelemetry from "../components/Telemetry";
 import { Chart, Legend, Loading, Note, plotDefaults, Segmented, Table, Tiles } from "../components/ui";
 import {
   forecastFile, isQuali, raceFile, rows, SESSION_LABEL, sessionDone, sessionHash, sessionOdds, weekendSessions,
@@ -217,6 +218,7 @@ function RaceView({ round, code }: { round: number; code: "R" | "S" }) {
                   drivers={gapScope === "top" ? topDrivers : results.map((r) => r.driver)} />
       </section>
 
+      <LapTelemetry round={round} code={code} drivers={results} />
       {race.weather_laps && <Weather race={race} />}
       <Degradation race={race} />
       <PostMortem results={results} stints={stints} />
@@ -470,6 +472,7 @@ function QualiView({ round, code }: { round: number; code: "Q" | "SQ" }) {
         />
       </section>
 
+      <LapTelemetry round={round} code={code} drivers={results} />
       <Margins q={q} results={results} />
       <EvolutionChart q={q} results={results} />
 

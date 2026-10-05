@@ -290,6 +290,8 @@ class Session:
             raise OpenF1Error(f"OpenF1 has no laps for {year} {event_name} {col} yet (if they never come: "
                               f"scripts/backfill_fastf1.py {year} --round {rnd} --code {code})")
         self._grid_raw = raw.get("grid")
+        self.info = raw.get("session", {})          # OpenF1's session row: session_key, circuit_key...
+        self.archived = path.exists() or fallback_path(year, rnd, code).exists()
         # What didn't come from OpenF1, endpoint -> source (empty: all of it did).
         self.sources: dict[str, str] = raw.get("sources", {})
 
