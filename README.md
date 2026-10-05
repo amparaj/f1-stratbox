@@ -43,16 +43,21 @@ from the timing data.
 `modules/history.py` builds the History pages from [Jolpica](https://github.com/jolpica/jolpica-f1)'s
 database dump (the successor to Ergast): every season up to last year, as CSV tables in one ~14 MB
 zip. It's free for non-commercial use under CC BY-NC-SA 4.0; the free dump runs 14 days behind,
-which doesn't matter for finished seasons. The zip is cached in `.jolpica/` (and in the Action's
-cache) and downloaded again only when Jolpica posts a new one; the files are rebuilt on every run
-(about 30 s). If Jolpica can't be reached and there's no cached copy, the site publishes without
-the History files rather than failing.
+which doesn't matter for finished seasons. Every finished season is archived in the repo (see
+below), so the dump is only downloaded when a season isn't archived yet: once a year, for the
+season just finished. The site's files are rebuilt from the archive on every run (about 30 s).
+If a season is missing and Jolpica can't be reached, the site publishes without the History
+files rather than failing.
 
 ### Archive
 
 Every finished session's raw data (OpenF1's laps, stints, pit stops, race control, weather and
 result, and Jolpica's grid) is kept in `archive/openf1/<year>/rNN-R.json.gz` (`-S` for a sprint),
-committed to the repo: about 50 kB a race. A session goes in once it's final, 4 days after it
+committed to the repo: about 50 kB a race. The History pages' data is archived the same way:
+`archive/jolpica/<year>.json.gz` holds that season's rows from every table of Jolpica's dump
+(about 14 MB for 1950–2025, most of it lap times). A season goes in once a dump taken after
+15 January of the next year has it, and from then on it's read from the archive and never
+downloaded again. A session goes in once it's final, 4 days after it
 ran with its result and grid in, and from then on it's read from the archive and never fetched
 again. The Action commits new archive files to `main` itself. Newer sessions are re-fetched now
 and then, so penalties and late grids come through.
@@ -61,7 +66,7 @@ and then, so penalties and late grids come through.
 
 | Branch | What it is |
 | --- | --- |
-| `main` | The code and the archive (the Action commits new archive files) |
+| `main` | The code and the archives (`archive/openf1/`, `archive/jolpica/`; the Action commits new files) |
 | `gh-pages` | The built website that GitHub Pages serves. The Action replaces it with one fresh commit each time: never edit or merge it |
 
 ### Locally

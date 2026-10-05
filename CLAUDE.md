@@ -199,8 +199,13 @@ and emoji). This is a Windows PowerShell 5.1 / Git Bash environment.
 - **History** (`modules/history.py`, `web/src/pages/History.tsx`, `#history[/1988[/16[/S]]]`,
   `#history/driver/<ref>`, `#history/circuit/<ref>`): every season up to last year from Jolpica's free
   CSV dump (delayed 14 days, CC BY-NC-SA 4.0, non-commercial: keep the credit in the footer and About).
-  Cached in `.jolpica/`, re-downloaded only when the dump's hash changes; written to
-  `web/public/data/history/` by `export_site.py` (`--history-only`, `--no-history`); a failure skips it.
+  **Archive:** each season is `archive/jolpica/<year>.json.gz` (that season's rows of every dump table
+  as CSV text, every column, deterministic gzip), written once a dump from after 15 Jan of the next
+  year has it, then read from there for good; the Action commits new files with the OpenF1 ones. The
+  dump (cached in `.jolpica/`) is fetched only when a season up to last year isn't archived. Driver,
+  team and circuit rows repeat in every season's file; loading checks their ids agree across files.
+  Don't hand-edit archive files; delete one to re-fetch it. Written to `web/public/data/history/`
+  by `export_site.py` (`--history-only`, `--no-history`); a failure skips it.
   Coverage: results/grids/standings from 1950, lap times 1996+, fastest laps 2004+, pit stops 2011+.
   - Standings come from the dump's championship tables, which already apply dropped-score rules.
   - Pole = started from grid 1 (matches the record books: 104 HAM, 68 MSC, 65 SEN); qualifying P1

@@ -4,7 +4,13 @@ modules/history.py — Every championship season since 1950, for the website's H
 The data is Jolpica's database dump (the successor to Ergast): one zip of CSV tables, free for
 non-commercial use under CC BY-NC-SA 4.0. The free dump runs 14 days behind; that's fine here,
 because the history ends with the last finished season (the current one is on the Season page).
-The zip is cached in .jolpica/ and downloaded again only when Jolpica posts a new one.
+
+Archive: each finished season's rows, from every table of the dump, are kept in the repo as
+archive/jolpica/<year>.json.gz (CSV text per table, deterministic gzip) and read from there for
+good. A season goes in once a dump from after ARCHIVE_AFTER of the next year has it (late
+corrections in). Jolpica is only asked for the dump when a season to show isn't archived yet:
+in practice once a year, for the season just finished. The zip is cached in .jolpica/ meanwhile.
+Don't hand-edit archive files; delete one to have it fetched again.
 
     history/index.json         every season: champions, rounds; all-time totals
     history/drivers.json       every driver's career, and each of their seasons
@@ -19,7 +25,9 @@ that started first), lap times from 1996, fastest laps from 2004, pit stops from
 from __future__ import annotations
 
 import datetime as dt
+import gzip
 import hashlib
+import io
 import json
 import logging
 import unicodedata
@@ -39,12 +47,35 @@ DUMPS = "https://api.jolpi.ca/data/dumps/download/"
 CACHE_DIR = config.PROJECT_ROOT / ".jolpica"
 ZIP = CACHE_DIR / "jolpica-csv.zip"
 INFO = CACHE_DIR / "jolpica-csv.json"           # the dump's listing entry: hash and upload time
+ARCHIVE_DIR = config.PROJECT_ROOT / "archive" / "jolpica"
+ARCHIVE_AFTER = (1, 15)                         # (month, day) of the next year a season counts as final
+FIRST_YEAR = 1950
 LICENCE = "CC BY-NC-SA 4.0"
 
 RACE, SPRINT = "R", "SR"
 QUALI = ("Q1", "Q2", "Q3", "QB", "QA")          # QO (2003-05 running order) isn't a result
 FINISHED, LAPPED, DNS = 0, 1, 30               # Jolpica SessionStatus; 40/41 didn't (pre)qualify
 NOT_STARTED = (30, 40, 41)
+
+# The columns the pages use, per table. The archive keeps every column.
+COLUMNS = {
+    "season": ["id", "year"],
+    "round": ["id", "season_id", "number", "name", "date", "circuit_id", "is_cancelled", "wikipedia"],
+    "circuit": ["id", "reference", "name", "locality", "country", "latitude", "longitude"],
+    "session": ["id", "round_id", "type", "number", "scheduled_laps"],
+    "sessionentry": ["id", "session_id", "round_entry_id", "position", "grid", "is_classified", "status",
+                     "detail", "laps_completed", "points", "time", "fastest_lap_rank"],
+    "roundentry": ["id", "round_id", "team_driver_id", "car_number"],
+    "teamdriver": ["id", "driver_id", "team_id", "season_id"],
+    "driver": ["id", "reference", "abbreviation", "forename", "surname", "country_code", "date_of_birth", "wikipedia"],
+    "team": ["id", "reference", "name", "country_code", "primary_color"],
+    "driverchampionship": ["driver_id", "year", "round_number", "session_number", "points", "position", "win_count"],
+    "teamchampionship": ["team_id", "year", "round_number", "session_number", "points", "position", "win_count"],
+    "lap": ["id", "session_entry_id", "number", "position", "time", "is_entry_fastest_lap"],
+    "pitstop": ["session_entry_id", "lap_id", "number", "duration"],
+}
+# Shared by many seasons: each season's file carries the rows it refers to, so they repeat across files.
+REFERENCE_TABLES = ("driver", "team", "circuit")
 
 
 # ---------------------------------------------------------------------------
@@ -81,28 +112,105 @@ def fetch_dump() -> Path:
     return ZIP
 
 
-def _tables(path: Path) -> dict[str, pd.DataFrame]:
-    want = {
-        "season": ["id", "year"],
-        "round": ["id", "season_id", "number", "name", "date", "circuit_id", "is_cancelled", "wikipedia"],
-        "circuit": ["id", "reference", "name", "locality", "country", "latitude", "longitude"],
-        "session": ["id", "round_id", "type", "number", "scheduled_laps"],
-        "sessionentry": ["id", "session_id", "round_entry_id", "position", "grid", "is_classified", "status",
-                         "detail", "laps_completed", "points", "time", "fastest_lap_rank"],
-        "roundentry": ["id", "round_id", "team_driver_id", "car_number"],
-        "teamdriver": ["id", "driver_id", "team_id", "season_id"],
-        "driver": ["id", "reference", "abbreviation", "forename", "surname", "country_code", "date_of_birth", "wikipedia"],
-        "team": ["id", "reference", "name", "country_code", "primary_color"],
-        "driverchampionship": ["driver_id", "year", "round_number", "session_number", "points", "position", "win_count"],
-        "teamchampionship": ["team_id", "year", "round_number", "session_number", "points", "position", "win_count"],
-        "lap": ["id", "session_entry_id", "number", "position", "time", "is_entry_fastest_lap"],
-        "pitstop": ["session_entry_id", "lap_id", "number", "duration"],
-    }
-    out = {}
+def split_dump(path: Path) -> dict[int, dict[str, str]]:
+    """The dump cut into seasons: {year: {table: CSV text of that season's rows}}. Every column,
+    values exactly as in the dump (read as text, nothing parsed)."""
     with zipfile.ZipFile(path) as z:
-        for name, cols in want.items():
-            with z.open(f"formula_one_{name}.csv") as f:
-                out[name] = pd.read_csv(f, usecols=cols, low_memory=False, keep_default_na=True)
+        t = {n[len("formula_one_"):-len(".csv")]: pd.read_csv(z.open(n), dtype=str, keep_default_na=False)
+             for n in z.namelist() if n.startswith("formula_one_") and n.endswith(".csv")}
+    out = {}
+    for s in t["season"].itertuples():
+        rounds = t["round"][t["round"].season_id == s.id]
+        sessions = t["session"][t["session"].round_id.isin(rounds.id)]
+        tds = t["teamdriver"][t["teamdriver"].season_id == s.id]
+        entries = t["sessionentry"][t["sessionentry"].session_id.isin(sessions.id)]
+        dch = t["driverchampionship"][t["driverchampionship"].year == s.year]
+        tch = t["teamchampionship"][t["teamchampionship"].year == s.year]
+        rows = {
+            "season": t["season"][t["season"].id == s.id],
+            "round": rounds,
+            "session": sessions,
+            "roundentry": t["roundentry"][t["roundentry"].round_id.isin(rounds.id)],
+            "sessionentry": entries,
+            "teamdriver": tds,
+            "lap": t["lap"][t["lap"].session_entry_id.isin(entries.id)],
+            "pitstop": t["pitstop"][t["pitstop"].session_entry_id.isin(entries.id)],
+            "penalty": t["penalty"][t["penalty"].earned_id.isin(entries.id)],
+            "driverchampionship": dch,
+            "teamchampionship": tch,
+            "championshipadjustment": t["championshipadjustment"][t["championshipadjustment"].season_id == s.id],
+            "driver": t["driver"][t["driver"].id.isin(set(tds.driver_id) | set(dch.driver_id))],
+            "team": t["team"][t["team"].id.isin(set(tds.team_id) | set(tch.team_id))],
+            "circuit": t["circuit"][t["circuit"].id.isin(rounds.circuit_id)],
+            "championshipsystem": t["championshipsystem"][t["championshipsystem"].id == s.championship_system_id],
+            "pointsystem": t["pointsystem"][t["pointsystem"].id.isin(sessions.point_system_id)],
+        }
+        out[int(s.year)] = {name: df.to_csv(index=False, lineterminator="\n") for name, df in rows.items()}
+    return out
+
+
+# ---------------------------------------------------------------------------
+# The archive
+# ---------------------------------------------------------------------------
+def archive_path(year: int) -> Path:
+    return ARCHIVE_DIR / f"{year}.json.gz"
+
+
+def _write_archive(path: Path, data: dict) -> None:
+    """Deterministic gzip (sorted keys, no timestamp), so a rewrite is never a git change."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    body = json.dumps(data, sort_keys=True, separators=(",", ":")).encode()
+    path.write_bytes(gzip.compress(body, compresslevel=9, mtime=0))
+
+
+def _read_archive(year: int) -> dict:
+    return json.loads(gzip.decompress(archive_path(year).read_bytes()))
+
+
+def is_final(year: int, uploaded_at: str) -> bool:
+    """Whether a dump taken at `uploaded_at` has `year` in its final form."""
+    month, day = ARCHIVE_AFTER
+    return dt.datetime.fromisoformat(uploaded_at.replace("Z", "+00:00")).date() >= dt.date(year + 1, month, day)
+
+
+def season_tables(last_year: int) -> tuple[dict[int, dict[str, str]], dict]:
+    """Every season from 1950 to `last_year` as CSV text per table: archived seasons from the repo,
+    the rest from the dump (fetched only if one is missing), archiving any that are now final."""
+    have = {y: _read_archive(y) for y in range(FIRST_YEAR, last_year + 1) if archive_path(y).exists()}
+    missing = [y for y in range(FIRST_YEAR, last_year + 1) if y not in have]
+    seasons = {y: a["tables"] for y, a in have.items()}
+    snapshots = [a["source"]["uploaded_at"] for a in have.values()]
+    if missing:
+        path = fetch_dump()
+        listing = json.loads(INFO.read_text())
+        split = split_dump(path)
+        for y in missing:
+            if y not in split:
+                continue                                    # not in the dump yet
+            seasons[y] = split[y]
+            if is_final(y, listing["uploaded_at"]):
+                source = {k: listing[k] for k in ("uploaded_at", "file_hash", "dump_type")}
+                _write_archive(archive_path(y), {"year": y, "source": source, "licence": LICENCE, "tables": split[y]})
+                print(f"Archived the {y} season to {archive_path(y).relative_to(config.PROJECT_ROOT)}")
+        snapshots.append(listing["uploaded_at"])
+    return dict(sorted(seasons.items())), {"uploaded_at": max(snapshots) if snapshots else None}
+
+
+def _tables(seasons: dict[int, dict[str, str]]) -> dict[str, pd.DataFrame]:
+    """The seasons' CSV text joined back into one table each (the columns the pages use)."""
+    out = {}
+    for name, cols in COLUMNS.items():
+        parts = [pd.read_csv(io.StringIO(s[name]), dtype=str, keep_default_na=False) for s in seasons.values()]
+        text = pd.concat(parts, ignore_index=True)[cols].to_csv(index=False)
+        df = pd.read_csv(io.StringIO(text), low_memory=False)       # typed as if read from the dump itself
+        if name in REFERENCE_TABLES:
+            # The same driver, team or circuit in files archived from different dumps must agree on its id.
+            clash = df.drop_duplicates(["id", "reference"]).id.duplicated()
+            if clash.any():
+                raise RuntimeError(f"history archive: {name} ids {sorted(df.id[clash].unique())[:5]} mean different "
+                                   "things in different seasons' files; delete the newer files to fetch them again")
+            df = df.drop_duplicates("id").reset_index(drop=True)
+        out[name] = df
     return out
 
 
@@ -476,7 +584,7 @@ def team_rows(d: Data) -> pd.DataFrame:
     })
 
 
-def index_file(d: Data, listing: dict | None) -> dict:
+def index_file(d: Data, source: dict) -> dict:
     dfinal = d.final_standings(d.dstand)
     tfinal = d.final_standings(d.tstand)
     race = d.entries[d.entries.type == RACE]
@@ -505,7 +613,7 @@ def index_file(d: Data, listing: dict | None) -> dict:
     return {
         "generated": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
         "source": {"name": "Jolpica F1 (Ergast) database dump", "licence": LICENCE,
-                   "uploaded_at": listing.get("uploaded_at") if listing else None},
+                   "uploaded_at": source["uploaded_at"]},
         "first_year": int(d.rounds.year.min()), "last_year": int(d.rounds.year.max()),
         "races": int(len(d.rounds)), "drivers": int(race[~race.status.isin(NOT_STARTED)].driver_id.nunique()),
         "seasons": seasons,
@@ -547,11 +655,10 @@ def _int(v):
 def export_history(out: Path, last_year: int | None = None) -> dict:
     """Write history/ under `out` for every season up to `last_year` (default: last year)."""
     last_year = last_year or dt.date.today().year - 1
-    path = fetch_dump()
-    listing = json.loads(INFO.read_text()) if INFO.exists() else None
-    d = Data(_tables(path), last_year)
+    seasons, source = season_tables(last_year)
+    d = Data(_tables(seasons), last_year)
     base = out / "history"
-    index = index_file(d, listing)
+    index = index_file(d, source)
     _write(base / "index.json", index)
     _write(base / "drivers.json", driver_file(d))
     _write(base / "circuits.json", circuit_file(d))

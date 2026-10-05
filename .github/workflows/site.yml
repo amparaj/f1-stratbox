@@ -11,7 +11,8 @@
 # that's final (4 days on, result and grid in) is written to archive/ and committed to main by
 # this workflow, and read from there for good. Newer sessions go through download caches
 # (.openf1/, .fastf1/) kept between runs with actions/cache. The History pages (every season since
-# 1950) are rebuilt each run from Jolpica's database dump, cached in .jolpica/ the same way.
+# 1950) are rebuilt each run from archive/jolpica/, one file per finished season; Jolpica's dump
+# (cached in .jolpica/) is downloaded only for a season not archived yet, which is then committed.
 #
 # Scheduled workflows only run from the default branch.
 name: Update site
@@ -78,7 +79,8 @@ jobs:
         if: github.event_name != 'schedule' || steps.check.outputs.update == 'true'
         run: python scripts/export_site.py
 
-      # Finished sessions go into archive/ (modules/openf1.py) and are never fetched again.
+      # Finished sessions (modules/openf1.py) and seasons (modules/history.py) go into archive/
+      # and are never fetched again.
       # Pushes made with the workflow's token don't start another run.
       - name: Commit new archive files
         if: github.event_name != 'schedule' || steps.check.outputs.update == 'true'
