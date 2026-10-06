@@ -2,10 +2,14 @@ import * as Plot from "@observablehq/plot";
 import { useCallback, useMemo, useState } from "react";
 import { color } from "../colors";
 import { COMPOUND, compoundKey, DriverChip, DriverPicker, GapChart, Plan, PositionChart, SessionBadge, StrategyChart, Tyre } from "../components/f1";
+import { dropText, WeekendPenaltiesSection } from "../components/Penalties";
+import { PracticeBody } from "../components/Practice";
+import { WeekendUpgrades } from "../components/Upgrades";
 import LapTelemetry from "../components/Telemetry";
 import { Chart, Legend, Loading, Note, plotDefaults, Segmented, Table, Tiles } from "../components/ui";
 import {
-  forecastFile, isQuali, raceFile, rows, SESSION_LABEL, sessionDone, sessionHash, sessionOdds, weekendSessions,
+  forecastFile, isPractice, isQuali, raceFile, rows, SESSION_LABEL, sessionDone, sessionHash, sessionOdds, weekendAll,
+  type AnySession, type Practice, type PracticeCode,
   type CalendarEvent, type DegRow, type Forecast, type ForecastDriver, type LapRow, type Quali, type QualiForecastDriver,
   type QualiLap, type QualiRow, type Race, type ResultRow, type SectorRow, type SessionCode, type StintRow, type WeatherLap,
 } from "../data";
@@ -19,15 +23,16 @@ export default function Races() {
   const round = Number(roundPart);
   if (!round) return <RaceList />;
   const ev = site.event.get(round);
-  let code: SessionCode = (["S", "Q", "SQ"] as const).find((c) => c === codePart) ?? "R";
+  let code: AnySession = (["S", "Q", "SQ", "FP1", "FP2", "FP3"] as const).find((c) => c === codePart) ?? "R";
   // #races/16 before the Grand Prix is out: the weekend's latest finished session.
-  if (ev && !codePart && !ev.done_R) code = weekendSessions(ev).filter((c) => sessionDone(ev, c)).at(-1) ?? "R";
+  if (ev && !codePart && !ev.done_R) code = weekendAll(ev).filter((c) => sessionDone(ev, c)).at(-1) ?? "R";
+  if (isPractice(code)) return <PracticeView round={round} code={code} />;
   return isQuali(code) ? <QualiView round={round} code={code as "Q" | "SQ"} /> : <RaceView round={round} code={code as "R" | "S"} />;
 }
 
 // ---------------------------------------------------------------- the list
 
-const anyDone = (e: CalendarEvent) => weekendSessions(e).some((c) => sessionDone(e, c));
+const anyDone = (e: CalendarEvent) => weekendAll(e).some((c) => sessionDone(e, c));
 
 function RaceList() {
   const site = useSite();
@@ -37,8 +42,8 @@ function RaceList() {
     <>
       <h2>Race Results & Analysis</h2>
       <p className="lede">
-        Every finished round, latest first, with each of its sessions: Qualifying and the Grand Prix, and on
-        a sprint weekend Sprint Qualifying and the Sprint too. A race has the result, the running order and
+        Every finished round, latest first, with each of its sessions: practice, Qualifying and the Grand Prix,
+        and on a sprint weekend Sprint Qualifying and the Sprint too. A race has the result, the running order and
         gaps lap by lap, every driver's tyre strategy and degradation, tyre cliffs and Safety Cars; a
         qualifying session has Q1, Q2 and Q3, the cut-offs, sectors and ideal laps, and how much quicker the
         track got. Each comes with the forecast made before it next to what happened.
@@ -56,10 +61,10 @@ function RaceList() {
           { key: "round", label: "Round", value: (e) => e.round, numeric: true, rank: true },
           { key: "event", label: "Grand Prix", value: (e) => e.event, render: (e) => <a href={`#races/${e.round}`}>{e.event}</a> },
           { key: "date", label: "Date", value: (e) => dayYear(e.race_utc) },
-          { key: "sessions", label: "Sessions", sortable: false, value: (e) => weekendSessions(e).length, wrap: true,
+          { key: "sessions", label: "Sessions", sortable: false, value: (e) => weekendAll(e).length, wrap: true,
             render: (e) => (
               <span className="session-links">
-                {weekendSessions(e).filter((c) => sessionDone(e, c)).map((c) => (
+                {weekendAll(e).filter((c) => sessionDone(e, c)).map((c) => (
                   <a key={c} href={`#${sessionHash(e.round, c)}`} onClick={(ev) => ev.stopPropagation()}><SessionBadge code={c} short /></a>
                 ))}
               </span>
@@ -92,13 +97,13 @@ function SourcesNote({ sources }: { sources?: Record<string, string> }) {
 }
 
 /** Breadcrumb, the round's title with the session's badge, and a switch between its finished sessions. */
-function WeekendHeader({ round, code, ev, subtitle }: { round: number; code: SessionCode; ev: CalendarEvent; subtitle: string }) {
+function WeekendHeader({ round, code, ev, subtitle }: { round: number; code: AnySession; ev: CalendarEvent; subtitle: string }) {
   const site = useSite();
   const rounds = site.meta.calendar.filter(anyDone).map((e) => e.round);
   const i = rounds.indexOf(round);
   const prev = i > 0 ? rounds[i - 1] : null;
   const next = i >= 0 && i < rounds.length - 1 ? rounds[i + 1] : null;
-  const done = weekendSessions(ev).filter((c) => sessionDone(ev, c));
+  const done = weekendAll(ev).filter((c) => sessionDone(ev, c));
   return (
     <>
       <p className="crumb">
@@ -111,7 +116,7 @@ function WeekendHeader({ round, code, ev, subtitle }: { round: number; code: Ses
       {done.length > 1 && (
         <div className="toolbar">
           <Segmented label="Session" value={code} onChange={(c) => { window.location.hash = sessionHash(round, c); }}
-                     options={done.map((c) => ({ value: c, label: SESSION_LABEL[c] }))} />
+                     options={done.map((c) => ({ value: c, label: isPractice(c) ? c : SESSION_LABEL[c] }))} />
         </div>
       )}
     </>
@@ -141,6 +146,15 @@ function RaceView({ round, code }: { round: number; code: "R" | "S" }) {
   for (const s of stints) planBy.set(s.driver, [...(planBy.get(s.driver) ?? []), { compound: compoundKey(s.compound), laps: s.laps }]);
   const neutralCount = race.neutralised.SC.length + race.neutralised.VSC.length + race.neutralised.RED.length;
   const topDrivers = results.filter((r) => r.classified).slice(0, 10).map((r) => r.driver);
+  // A grid penalty: a power-unit drop from the FIA's documents, else starting well behind where they qualified.
+  const puDrop = new Map((race.penalties?.pu_fitted ?? []).filter((f) => f.drop != null).map((f) => [f.driver, f]));
+  const gridPenalty = (r: ResultRow): string | null => {
+    const f = code === "R" ? puDrop.get(r.driver) : undefined;
+    if (f) return `Power-unit penalty: ${dropText(f.drop).toLowerCase()} (${f.elements.join(", ")})`;
+    if (r.quali != null && (r.pit_lane_start || (r.grid != null && r.grid - r.quali >= 3)))
+      return `Qualified P${r.quali}, started ${r.pit_lane_start ? "from the pit lane" : `P${r.grid}`}`;
+    return null;
+  };
 
   return (
     <>
@@ -181,7 +195,8 @@ function RaceView({ round, code }: { round: number; code: "R" | "S" }) {
             { key: "position", label: "Pos", value: (r) => r.position, render: (r) => (r.classified ? r.position : r.dns ? "DNS" : "DNF"), numeric: true, rank: true },
             { key: "driver", label: "Driver", value: (r) => r.name ?? r.driver, render: (r) => <><DriverChip code={r.driver} color={r.color} /> {r.name}</> },
             { key: "team", label: "Team", value: (r) => r.team },
-            { key: "grid", label: "Grid", value: (r) => r.grid, render: (r) => (r.pit_lane_start ? "Pit lane" : r.grid ?? "–"), numeric: true, rank: true },
+            ...(results.some((r) => r.quali != null) ? [{ key: "quali", label: "Qualified", title: `Position in ${code === "S" ? "Sprint Qualifying" : "Qualifying"}`, value: (r: ResultRow) => r.quali ?? null, render: (r: ResultRow) => r.quali ?? "–", numeric: true, rank: true }] : []),
+            { key: "grid", label: "Grid", value: (r) => r.grid, render: (r) => <>{r.pit_lane_start ? "Pit lane" : r.grid ?? "–"}{gridPenalty(r) && <span className="tag warn" title={gridPenalty(r)!} style={{ marginLeft: 4 }}>pen</span>}</>, numeric: true, rank: true },
             { key: "gained", label: "+/−", title: "Places gained from the grid", value: (r) => (r.grid && r.classified && r.position ? r.grid - r.position : null), render: (r) => (r.grid && r.classified && r.position ? signed(r.grid - r.position, 0) : "–"), numeric: true },
             { key: "gap", label: "Gap", value: (r) => r.gap ?? (r.classified ? 1e4 - r.laps : null), render: (r) => (r.position === 1 ? "Winner" : r.gap !== null ? gap(r.gap) : r.status || "–") },
             { key: "plan", label: "Tyres", value: (r) => stopsBy.get(r.driver) ?? null, render: (r) => <Plan stints={planBy.get(r.driver) ?? []} /> },
@@ -218,6 +233,8 @@ function RaceView({ round, code }: { round: number; code: "R" | "S" }) {
                   drivers={gapScope === "top" ? topDrivers : results.map((r) => r.driver)} />
       </section>
 
+      <WeekendPenaltiesSection code={code} data={race.penalties} round={round} />
+      <WeekendUpgrades items={race.upgrades} round={round} />
       <LapTelemetry round={round} code={code} drivers={results} />
       {race.weather_laps && <Weather race={race} />}
       <Degradation race={race} />
@@ -505,6 +522,28 @@ function QualiView({ round, code }: { round: number; code: "Q" | "SQ" }) {
       </section>
 
       {forecast && sessionOdds(forecast, code, "pre") && <QualiForecastCheck forecast={forecast} code={code} results={results} />}
+      <WeekendPenaltiesSection code={code} data={q.penalties} round={round} />
+      <WeekendUpgrades items={q.upgrades} round={round} />
+    </>
+  );
+}
+
+// ---------------------------------------------------------------- one practice session
+
+function PracticeView({ round, code }: { round: number; code: PracticeCode }) {
+  const site = useSite();
+  const ev = site.event.get(round);
+  const p = useData<Practice>(raceFile(round, code));
+  if (p === undefined) return <Loading />;
+  if (p === null || !ev) return <p>No data for this session yet. <a href="#races">All races</a></p>;
+  return (
+    <>
+      <WeekendHeader round={round} code={code} ev={ev}
+                     subtitle={`${p.location}, ${p.country} · ${dayYear(p.start_utc)} · free practice`} />
+      <SourcesNote sources={p.sources} />
+      <PracticeBody p={p} />
+      <WeekendPenaltiesSection code={code} data={p.penalties} round={round} />
+      <WeekendUpgrades items={p.upgrades} round={round} />
     </>
   );
 }

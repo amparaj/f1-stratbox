@@ -8,6 +8,8 @@ Tabs
 📝 Post-Mortem      tyre-strategy chart + rule-based report naming each cliff lap
 📉 Degradation      fuel-corrected lap time vs tyre age with fitted deg lines
 🌦️ Weather          track sensors lap by lap, and what the forecast said (Open-Meteo)
+🚩 Penalties        the weekend's stewards' decisions (f1penalties.com) and power-unit elements
+                   fitted, with each driver's count against the allocation (FIA documents)
 ⬇️ Export           Excel workbook (openpyxl) + an LLM-ready debrief prompt
 """
 
@@ -27,11 +29,33 @@ import streamlit as st
 import config
 from modules import analytics as an
 from modules import data_engine as de
+from modules import penalties as pn
 from modules import telemetry as tm
 from modules import weather as wx
 
 REPLAY_KEY = "replay_session"      # the session whose track replay was asked for (survives reruns)
 REPLAY_HEIGHT = 760
+
+
+@st.cache_data(show_spinner=False, ttl=6 * 3600)
+def weekend_penalties(year: int, rnd: int) -> tuple[pd.DataFrame, pd.DataFrame, dict, int | None]:
+    """(the round's stewards' decisions, every car's power units before and after it, the season's
+    allocation, the last round f1penalties.com has). Empty frames if a source is down."""
+    try:
+        dec = pn.stewards_decisions([year])
+    except Exception:  # noqa: BLE001 — f1penalties.com down and nothing cached
+        dec = pn.stewards_decisions([])
+    last = int(dec["round"].max()) if not dec.empty else None
+    dec = dec[dec["round"] == rnd]
+    try:
+        recs = pn.pu_season(year)
+    except Exception:  # noqa: BLE001 — FIA site down: what's archived
+        recs = {}
+    limits = pn.season_limits(year, recs)
+    table = pn.usage_table(year, recs, max(recs) if recs else 0) if recs else pd.DataFrame()
+    if not table.empty:
+        table = table[table["round"] == rnd]
+    return dec, table, limits, last
 
 
 # ---------------------------------------------------------------------------
@@ -301,8 +325,8 @@ m[2].metric("SC / VSC laps", f"{len(info['neutralised']['SC'])} / {len(info['neu
 m[3].metric("Tyre cliffs found", len(tyre_cliffs))
 m[4].metric("Retirements", int(drivers["DNF"].sum()))
 
-tab_replay, tab_pm, tab_deg, tab_wx, tab_export = st.tabs(
-    ["🎬 Race Replay", "📝 Post-Mortem", "📉 Degradation", "🌦️ Weather", "⬇️ Export"])
+tab_replay, tab_pm, tab_deg, tab_wx, tab_pen, tab_export = st.tabs(
+    ["🎬 Race Replay", "📝 Post-Mortem", "📉 Degradation", "🌦️ Weather", "🚩 Penalties", "⬇️ Export"])
 
 # --- Replay -----------------------------------------------------------------
 with tab_replay:
@@ -417,6 +441,52 @@ with tab_wx:
         st.caption("Lines and blue bands: the circuit's own sensors at the moment the leader finished "
                    "each lap. Bars: Open-Meteo's archived hourly forecast for the hour each lap was run "
                    f"in. {wx.CREDIT}." + (f" (Forecast unavailable: {fc_error}.)" if fc_error else ""))
+
+# --- Penalties ----------------------------------------------------------------
+with tab_pen:
+    dec, pu_rows, limits, last_round = weekend_penalties(info["year"], info["round"])
+    st.markdown("Every stewards' decision of the weekend, all sessions "
+                "([f1penalties.com](https://www.f1penalties.com/data)), and the power-unit elements each car "
+                "fitted (the FIA Technical Delegate's documents). A new element past the season's allocation "
+                "costs grid places in the Grand Prix: 10 for the first of a kind, 5 for each one after, the back "
+                "of the grid past 15.")
+    if dec.empty:
+        st.info("f1penalties.com hasn't added this round yet" + (f" (it has up to round {last_round})" if last_round else "")
+                + ": it runs a few days to a few weeks behind the FIA.")
+    else:
+        only = st.toggle("Penalties only (hide no further action and warnings)", value=True)
+        show = dec[~dec["outcome"].astype(str).str.match(r"(No Further Action|Warning|Not Investigated|Noted)")] if only else dec
+        order = {s: i for i, s in enumerate(["FP1", "FP2", "FP3", "SQ", "S", "Q", "R"])}
+        show = show.assign(_o=show["session"].map(order)).sort_values("_o")
+        st.dataframe(show[["session", "driver", "team", "allegation", "involving", "outcome", "time_s", "grid",
+                           "points", "fine", "notes"]]
+                     .rename(columns={"session": "Session", "driver": "Driver", "team": "Team", "allegation": "Offence",
+                                      "involving": "With", "outcome": "Outcome", "time_s": "Time (s)", "grid": "Grid",
+                                      "points": "Points", "fine": "Fine (€)", "notes": "Notes"})
+                     .astype({"Grid": str}).replace({"Grid": {"None": "", "back": "Back of grid", "pit": "Pit lane"}}),
+                     hide_index=True, width="stretch")
+    if pu_rows.empty:
+        st.info("No FIA power-unit documents for this round (yet).")
+    else:
+        els = [e for e in ("ICE", "TC", "MGU-H", "MGU-K", "ES", "CE", "EX", "ANC") if e in limits]
+        fitted = pu_rows[pu_rows["fitted"].map(lambda f: any(f.values()))]
+        if fitted.empty:
+            st.caption("No new power-unit elements this weekend.")
+        else:
+            st.markdown("**New power-unit elements**")
+            st.dataframe(pd.DataFrame({
+                "Car": fitted["car"], "Driver": fitted["who"],
+                "Fitted": fitted["fitted"].map(lambda f: ", ".join(f"{e}×{n}" if n > 1 else e for e, n in f.items() if n)),
+                "Grid penalty": fitted["drop"].map(lambda d: "" if d is None else "Back of grid" if d == "back" else f"{d} places"),
+            }), hide_index=True, width="stretch")
+        st.markdown(f"**Elements used after this round** (allocation: {', '.join(f'{e} {limits[e]}' for e in els)})")
+        after = pd.DataFrame([{"Driver": w, **{e: a.get(e, 0) for e in els}} for w, a in zip(pu_rows["who"], pu_rows["after"])])
+        st.dataframe(after.style.apply(lambda col: ["color: #e66767; font-weight: 600" if col.name in limits and v > limits[col.name]
+                                                    else "font-weight: 600" if col.name in limits and v == limits[col.name] else ""
+                                                    for v in col], axis=0),
+                     hide_index=True, width="stretch")
+        st.caption("Red: past the allocation; bold: at it. The website's Next Race page has each driver's chance "
+                   "of a power-unit penalty at every Grand Prix left.")
 
 # --- Export -------------------------------------------------------------------
 with tab_export:

@@ -42,8 +42,15 @@ modules/forecast.py        website forecasts: driver form, race/title Monte Carl
 modules/site_export.py     website data files (web/public/data/*.json)
 modules/site_telemetry.py  website lap telemetry (telemetry/rNN-<code>.json) from OpenF1 car data
 modules/history.py         website History files (every season since 1950, from Jolpica's dump)
+modules/penalties.py       stewards' decisions (f1penalties.com), PU usage (FIA PDFs), likely-penalty model
+modules/practice.py        free practice: one-lap pace, long runs (fuel corrected, driver + compound effects)
+modules/upgrades.py        car upgrades from the FIA's Car Presentation Submissions (PDF per event)
+modules/news.py            F1 news RSS (The Race, Crash.net, Autosport, ...): topics, reported PU penalty plans
+pages/6_Practice.py        FP1-3: timesheet, one-lap vs long-run pace map, long runs, the weekend combined
 scripts/export_site.py     runs site_export; scripts/needs_update.py: the Action's "anything new?"
 scripts/calibrate_forecast.py  fits config's "Session forecasts" constants by replaying 2025-26
+scripts/calibrate_penalties.py fits config's "Power-unit penalties" constants on every round since 2022
+scripts/prefetch_practice.py   downloads a season's practice sessions through OpenF1 (archived like the rest)
 web/                       the website (React + TypeScript + Vite, theme copied from xpfpl)
 .github/workflows/site.yml scheduled export + build + push to gh-pages
 ```
@@ -58,6 +65,10 @@ web/                       the website (React + TypeScript + Vite, theme copied 
   the non-widget key `st.session_state["active_session"]`, so the choice survives page
   switches (Streamlit deletes widget-keyed state on navigation). It lists only the event's
   finished sessions, in weekend order.
+- **Practice** codes `FP1`/`FP2`/`FP3` are in `config.PRACTICE_CODES` and `ALL_SESSIONS`, **not** `WEEKEND_ORDER`
+  (the sessions with forecasts): loaded, analysed and shown, never forecast. A sprint weekend has FP1 only. The
+  picker lists them in the order they ran; race/quali pages redirect a practice pick, the Practice page a
+  competitive one (`page_session(..., "practice")`). The export keeps them in `practice_recs`, apart from `exported`.
 - **Session codes** (config.SESSION_NAMES / SESSION_LABELS): `R` Grand Prix, `S` Sprint, `Q`
   Qualifying, `SQ` Sprint Qualifying ("Sprint Shootout" in 2023: `config.session_names`). A sprint
   weekend runs SQ, S, Q, R. Race pages call `de.page_session(active, "race")` (Q→R, SQ→S) and the
@@ -327,6 +338,49 @@ and emoji). This is a Windows PowerShell 5.1 / Git Bash environment.
   (25 mini-sectors or corner zones, tooltip per zone), speed trace with corner zones by speed class and
   the time won in each, delta, throttle, brake, gear, RPM, DRS (pre-2026), synced hover (crosshair on
   every trace, marker on the map), corner table. Same zone rules as the dashboard's Telemetry page.
+- **Penalties and power units** (`modules/penalties.py`, config "Power-unit penalties", `components/Penalties.tsx`):
+  - Sources: **f1penalties.com** (every stewards' decision since 2020, the CSV export of its Dash app via
+    `_dash-update-component`; lags the FIA by days to weeks, so fetched every `PENALTY_FRESH_HOURS`; a season is archived
+    to `archive/f1penalties/<year>.csv.gz` from 15 Jan next year) and the **FIA's documents** ("PU elements used per
+    driver up to now" + "New PU elements for this Competition" PDFs, read with pypdf, matched by car number; an event is
+    archived to `archive/fia/<year>/rNN-pu.json.gz` 4 days after its race, never with an unparsed usage table). The PDFs'
+    text breaks words ("Ca r Drive r", "Geor ge Russell"): parse loosely, match names with `name_key`. FIA pages are slow
+    (6-25 s each); a cold backfill of five seasons took about 10 min. 2023's "PU elements used" title is right but the
+    page also lists RNC (gearbox) tables: match the title, not "used per driver".
+  - `usage_table`: per round and car, elements before/fitted/after (fitted = next round's table minus this one, else the
+    "New PU elements" list), `grid_drop` (10 first of a kind past the allocation, 5 after, back past 15). A driver new
+    mid-season inherits the car's counts: no change for that jump. The FIA tables catch more PU penalties than
+    f1penalties (93% of its are in them; it misses some, e.g. 2025 Colapinto Silverstone).
+  - Model (`penalty_risk`): logistic hazard per Grand Prix on deficit (elements short at the allocation's rate),
+    already over this season, season left and log circuit factor (`circuit_factors`: PU penalties per race at a circuit,
+    2020 to last season, shrunk by `PU_CIRCUIT_PRIOR`). Leave one season out log loss 0.1635 vs 0.1726 circuit-only,
+    0.1792 constant. `PU_PLANS` (hand-kept, from team statements, with the source) puts at least `PU_PLAN_HAZARD` on each
+    named round until the penalty is taken. Once a round's "New PU elements" is out, an over-allocation element there is
+    an announced penalty (`PowerUnits.announced`, merged into `penalties_for`) and everyone else keeps `PU_LATE_SHARE`.
+  - A place lost to a penalty costs `PENALTY_GRID_WEIGHT` (0.05%), not `GRID_WEIGHT` (0.02%, fitted on ordinary grids):
+    94 PU penalty starts 2020-25 finished 0.237 places worse per grid place dropped. Applied to announced penalties and
+    the risk before the grid, and to a slot behind the qualifying position after it (`session_terms(quali_order=)`).
+  - Session forecasts draw the PU penalty all-or-nothing per simulated race (`forecast_session(terms=)`); title odds
+    draw it race by race with the after-one hazard once taken. Past rounds' forecasts use the state before that round.
+  - Export: `site_export.PowerUnits` (module global `_PU` during an export) writes `power-units.json` and each session
+    file's `penalties` (the weekend's decisions + PU elements fitted); race results get `quali`. meta.json `penalties`
+    holds a hash of the season's f1penalties rows and the last FIA PU documents read: `needs_update.py` (its own copies of
+    the constants) rebuilds when either changes, checked once the export is an hour old.
+  - Dashboard: Race Recap's Penalties tab. Site: "Stewards & Power Units" on every session page, "Power-Unit Penalties"
+    and a "PU risk" column on Next Race, terms in "Why these odds?", Docs section "Power-unit penalties".
+- **News** (`modules/news.py`, config "NEWS_*"): RSS from eight sites (PlanetF1 404s, RaceFans 403s), read at most
+  hourly, kept in `.news/items.json` 45 days (never the repo: headline, link, date, the feed's summary). Items are
+  tagged with topics (pu / penalty / upgrade), drivers (surname), teams (`upgrades.TEAM_KEYS`) and rounds (event,
+  city, country, nicknames). A sentence with a driver, a round still to run and a PU penalty (no negation) is a
+  claim; `NEWS_PLAN_MIN_SOURCES` (2) different sites within 10 days make a reported plan, handled like `PU_PLANS`.
+  Each plan is an independent one-off penalty (`penalty_risk`'s `plan_p`; title odds draw each plan's round once
+  per season), so a Singapore change after a failure and a later upgrade change can both happen. Plans retire
+  once the FIA tables show the change. News plans count only for forecasts made now (not replays).
+- **Upgrades** (`modules/upgrades.py`): the FIA's "Car Presentation Submissions" PDF each Thursday (2024 partial,
+  2025-26 full; 2023's weren't found), one row per part with the team's stated reason (performance / circuit /
+  reliability / cooling). `site_export.upgrade_effect`: a team's race pace at an upgraded round against its
+  previous `UPGRADE_BEFORE` races (2026: quicker only ~half the time). The forecast's `UPGRADE_EFFECT` term is
+  fitted by calibrate_forecast.py. `news.json` has the items, upgrades and effects; Next Race shows them.
 - Circuits are matched across seasons by `circuit_key(location)` (via the pit-loss table),
   never by event name: the 2026 "Bahrain Grand Prix" was in Kuala Lumpur.
 - Pages must render at phone width (`usePhone`, cards via `Table`). Screenshot both widths.

@@ -37,6 +37,12 @@ is known the spread is SESSION_SD_GRID[code]: the grid and that qualifying expla
     config.TEAM_LINEAGE; a new team has none.
   * horizon drift: one Normal(0, DRIFT_PER_ROUND * sqrt(rounds ahead - 1)) per driver per
     simulated session: form drifts, so a race further away is less certain.
+  * power-unit penalty risk (Grand Prix, before the grid is known): each simulated race draws
+    whether a driver takes an over-allocation element there (their chance from
+    penalties.penalty_risk); if so they lose the places such penalties cost
+    (penalties.expected_drop) × PENALTY_GRID_WEIGHT. An announced grid penalty is certain: its
+    places count in full. Once the grid is known, a slot behind the qualifying position counts
+    PENALTY_GRID_WEIGHT a place, not GRID_WEIGHT: a penalised car is faster than its slot.
 
 10 000 sessions give win / podium / points (or pole / front row / Q3 / knocked out in Q1)
 chances. Title odds play every remaining sprint and Grand Prix the same way (each with its own
@@ -68,6 +74,7 @@ import pandas as pd
 
 import config
 from modules import analytics as an
+from modules import penalties as pn
 from modules import simulator as sim
 
 
@@ -152,14 +159,30 @@ def circuit_offset(at_circuit: pd.Series, season: list[pd.Series], teams: pd.Ser
     return by_team.clip(-config.CIRCUIT_CLIP, config.CIRCUIT_CLIP)
 
 
+def _blend(base: pd.Series, extra: pd.Series | None, share: float) -> pd.Series:
+    """base × (1 - share) + extra × share where a driver has both, else base."""
+    if extra is None or extra.empty or not share:
+        return base
+    both = pd.concat([base.rename("b"), extra.rename("e")], axis=1)
+    # Practice is noisy (fuel, programmes, a crash): it moves a driver at most PRACTICE_CLIP from form.
+    e = both["b"] + (both["e"] - both["b"]).clip(-config.PRACTICE_CLIP, config.PRACTICE_CLIP)
+    return (both["b"] * (1 - share) + e * share).fillna(both["b"]).reindex(base.index)
+
+
 def expected_pace(code: str, race_form: pd.Series, quali_form: pd.Series,
-                  weekend_quali: pd.Series | None = None) -> pd.Series:
+                  weekend_quali: pd.Series | None = None,
+                  practice: dict[str, pd.Series] | None = None) -> pd.Series:
     """
     A driver's expected pace (%, negative = faster) in a session, before the circuit term.
     Qualifying: qualifying form. A race: race form blended with qualifying form, or with the
     pace in this race's own qualifying once that's done. A driver with only one of the two
-    gets that one; one with neither is left out.
+    gets that one; one with neither is left out. `practice` (practice.weekend_practice: this
+    weekend's one-lap and long-run pace) moves qualifying form towards the one-lap pace by
+    PRACTICE_QUALI_BLEND and race form towards the long-run pace by PRACTICE_RACE_BLEND.
     """
+    if practice:
+        quali_form = _blend(quali_form, practice.get("one_lap"), config.PRACTICE_QUALI_BLEND)
+        race_form = _blend(race_form, practice.get("long_run"), config.PRACTICE_RACE_BLEND)
     if code in config.QUALI_CODES:
         return quali_form.dropna()
     q = weekend_quali if weekend_quali is not None and not weekend_quali.empty else quali_form
@@ -231,17 +254,34 @@ def penalty_places(pace: pd.Series, penalties: dict[str, int | str] | None) -> p
 
 def session_terms(code: str, pace: pd.Series, circuit: pd.Series | None = None,
                   teams: pd.Series | None = None, grid: pd.Series | None = None,
-                  penalties: dict[str, int | str] | None = None) -> pd.DataFrame:
+                  penalties: dict[str, int | str] | None = None,
+                  pu_risk: pd.Series | None = None, quali_order: pd.Series | None = None,
+                  upgrade_items: pd.Series | None = None) -> pd.DataFrame:
     """
     Expected performance (%) for the simulation and what makes it: columns pace, circuit_term,
-    grid_term, penalty_places, penalty_term and mean (their sum). `penalties` (config.GRID_PENALTIES
-    for this round) count only while the grid isn't known: once it is, they're in it.
+    grid_term, penalty_places, penalty_term, pu_risk, pu_places, pu_term and mean (their sum).
+    `penalties` (announced grid penalties for this round: config.GRID_PENALTIES and the FIA's
+    power-unit documents) and `pu_risk` (driver -> chance of a power-unit penalty here that isn't
+    announced yet; Grand Prix only) count only while the grid isn't known: once it is, they're in
+    it. pu_term is the expected cost, pu_risk × PENALTY_GRID_WEIGHT × pu_places (places lost if it
+    happens). Places lost to a penalty count PENALTY_GRID_WEIGHT each: with the grid known, a slot
+    behind `quali_order` (driver -> qualifying position) adds the difference over GRID_WEIGHT.
+    `upgrade_items` (driver -> performance items their team brings to the round, the FIA's list)
+    adds UPGRADE_EFFECT each, up to UPGRADE_MAX_ITEMS (upgrade_term).
     """
     out = pd.DataFrame({"pace": pace.astype(float)})
     out["circuit_term"] = 0.0
     out["grid_term"] = 0.0
     out["penalty_places"] = 0.0
     out["penalty_term"] = 0.0
+    out["pu_risk"] = 0.0
+    out["pu_places"] = 0.0
+    out["pu_term"] = 0.0
+    out["upgrade_items"] = 0.0
+    out["upgrade_term"] = 0.0
+    if upgrade_items is not None and config.UPGRADE_EFFECT:
+        out["upgrade_items"] = upgrade_items.reindex(out.index).fillna(0.0).clip(upper=config.UPGRADE_MAX_ITEMS)
+        out["upgrade_term"] = config.UPGRADE_EFFECT * out["upgrade_items"]
     if circuit is not None and not circuit.empty and teams is not None:
         team = teams.reindex(out.index).map(lambda t: team_now(t) if isinstance(t, str) else t)
         out["circuit_term"] = config.CIRCUIT_WEIGHT[code] * team.map(circuit).fillna(0.0).to_numpy()
@@ -251,29 +291,44 @@ def session_terms(code: str, pace: pd.Series, circuit: pd.Series | None = None,
             g = grid.reindex(out.index)
             g = g.fillna(g.max() + 1 if g.notna().any() else len(out))
             out["grid_term"] = config.GRID_WEIGHT[code] * (g - g.mean()).to_numpy()
-        elif penalties:
-            out["penalty_places"] = penalty_places(pace, penalties)
-            out["penalty_term"] = config.GRID_WEIGHT[code] * out["penalty_places"]
-    out["mean"] = out[["pace", "circuit_term", "grid_term", "penalty_term"]].sum(axis=1)
+            if quali_order is not None and not quali_order.empty:
+                dropped = (g - quali_order.reindex(out.index)).clip(lower=0).fillna(0.0)
+                out["penalty_places"] = dropped.to_numpy()
+                out["penalty_term"] = (config.PENALTY_GRID_WEIGHT[code] - config.GRID_WEIGHT[code]) * out["penalty_places"]
+        else:
+            if penalties:
+                out["penalty_places"] = penalty_places(pace, penalties)
+                out["penalty_term"] = config.PENALTY_GRID_WEIGHT[code] * out["penalty_places"]
+            if pu_risk is not None and code == "R":
+                rank, n = pace.rank(method="first"), len(pace)
+                risk = pu_risk.reindex(out.index).fillna(0.0).clip(0.0, 1.0)
+                risk[out["penalty_places"] > 0] = 0.0       # announced: counted in full above
+                out["pu_risk"] = risk
+                out["pu_places"] = [pn.expected_drop(rank[d], n) for d in out.index]
+                out["pu_term"] = config.PENALTY_GRID_WEIGHT[code] * out["pu_risk"] * out["pu_places"]
+    out["mean"] = out[["pace", "circuit_term", "grid_term", "penalty_term", "pu_term", "upgrade_term"]].sum(axis=1)
     return out
 
 
 def session_mean(code: str, pace: pd.Series, circuit: pd.Series | None = None,
                  teams: pd.Series | None = None, grid: pd.Series | None = None,
                  penalties: dict[str, int | str] | None = None) -> pd.Series:
-    """Expected performance (%) for the simulation: pace + circuit + grid (or penalty) terms."""
+    """Expected performance (%) for the simulation: pace + circuit + grid (or announced penalty)
+    terms. Power-unit risk isn't in it: title_odds draws it race by race."""
     return session_terms(code, pace, circuit, teams, grid, penalties)["mean"]
 
 
 def forecast_session(code: str, mean: pd.Series, dnf: pd.Series | None = None,
                      rounds_ahead: int = 1, seed: int = 0, n_sims: int | None = None,
-                     grid_known: bool = False) -> pd.DataFrame:
+                     grid_known: bool = False, terms: pd.DataFrame | None = None) -> pd.DataFrame:
     """
     Chances for every driver in `mean` (expected performance, session_mean). Races: win,
     podium, points, retirement, expected position and points (a retirement counts as last).
     Qualifying: pole, front row, top three, Q3, knocked out in Q1, expected position.
     `rounds_ahead` = 1 for the next round: anything further adds horizon drift. With
-    `grid_known` (the race's qualifying is in) the spread is SESSION_SD_GRID.
+    `grid_known` (the race's qualifying is in) the spread is SESSION_SD_GRID. `terms`
+    (session_terms, whose mean `mean` is) with a power-unit risk: each simulated race draws
+    whether the penalty happens.
     """
     drivers = mean.sort_values().index.tolist()
     n = len(drivers)
@@ -281,6 +336,12 @@ def forecast_session(code: str, mean: pd.Series, dnf: pd.Series | None = None,
     n_sims = n_sims or config.FORECAST_SIMS
     drift = config.DRIFT_PER_ROUND * np.sqrt(max(rounds_ahead - 1, 0))
     form = mean[drivers].to_numpy()[None, :] + rng.normal(0.0, drift, (n_sims, n))
+    if terms is not None and "pu_risk" in terms and terms["pu_risk"].gt(0).any():
+        t = terms.reindex(drivers)
+        risk = t["pu_risk"].fillna(0.0).to_numpy()
+        hit = config.PENALTY_GRID_WEIGHT[code] * t["pu_places"].fillna(0.0).to_numpy()
+        # The mean has the expected cost in: swap it for a drawn penalty (all or nothing).
+        form = form + hit[None, :] * ((rng.random((n_sims, n)) < risk[None, :]) - risk[None, :])
     if code in config.QUALI_CODES:
         p_dnf = np.full(n, config.QUALI_NO_TIME)
     else:
@@ -322,13 +383,18 @@ def forecast_race(form: pd.Series, dnf: pd.Series, seed: int = 0) -> pd.DataFram
     return forecast_session("R", form, dnf, seed=seed).rename(columns={"pace": "form"})
 
 
-def title_odds(points: pd.Series, teams: pd.Series, sessions: list[tuple[str, pd.Series]],
-               dnf: pd.Series, seed: int = 0) -> tuple[pd.DataFrame, pd.DataFrame]:
+def title_odds(points: pd.Series, teams: pd.Series, sessions: list[tuple],
+               dnf: pd.Series, seed: int = 0,
+               pu_groups: list[tuple[str, dict[int, float]]] | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Simulate the rest of the season. `points` is every driver's current total, `teams` maps
-    driver -> team, `sessions` lists every race and sprint still to run as (code, expected
-    performance: session_mean). Drivers missing from a session score nothing in it.
-    Returns (drivers, constructors) with the title chance and expected final points.
+    driver -> team, `sessions` lists every race and sprint still to run, in order, as (code,
+    expected performance: session_mean) or (code, mean, pu, round) with `pu` that Grand Prix's
+    power-unit risk: index driver, columns h_before / h_after (penalties.penalty_risk: the usage
+    model's chance there before and after the driver's first penalty of the simulated season) and
+    places (lost if it happens). `pu_groups` (penalty_risk's attrs["groups"]): reported plans, each
+    drawn once per simulated season (which round, if any). Drivers missing from a session score
+    nothing in it. Returns (drivers, constructors) with the title chance and expected final points.
     """
     drivers = points.index.tolist()
     rng = np.random.default_rng(seed)
@@ -336,13 +402,35 @@ def title_odds(points: pd.Series, teams: pd.Series, sessions: list[tuple[str, pd
     total = np.tile(points.to_numpy(float), (n, 1))
     # One shift of form per driver per simulated season, shared by all its sessions.
     drift = pd.DataFrame(rng.normal(0.0, config.FORM_DRIFT_SD, (n, len(drivers))), columns=drivers)
-    for code, mean in sessions:
+    taken = np.zeros((n, len(drivers)), dtype=bool)       # has taken a power-unit penalty already
+    # Each reported plan's round in each simulated season (0: it doesn't happen).
+    planned = []
+    for d, q in pu_groups or []:
+        if d not in drivers or not q:
+            continue
+        rounds = list(q)
+        probs = np.array([q[r] for r in rounds], float)
+        pick = rng.choice(len(rounds) + 1, size=n, p=np.append(probs, max(0.0, 1.0 - probs.sum())) / max(1.0, probs.sum()))
+        planned.append((drivers.index(d), np.append(np.array(rounds), 0)[pick]))
+    for code, mean, *rest in sessions:
         racing = [d for d in drivers if d in mean.index]
         if not racing:
             continue
         idx = [drivers.index(d) for d in racing]
         p_dnf = dnf.reindex(racing).fillna(dnf.mean()).to_numpy() * (config.SPRINT_DNF_FACTOR if code == "S" else 1.0)
         f = mean[racing].to_numpy()[None, :] + drift[racing].to_numpy()
+        pu = rest[0] if rest else None
+        rnd = rest[1] if len(rest) > 1 else None
+        if pu is not None and not pu.empty:
+            r = pu.reindex(racing)
+            h = np.where(taken[:, idx], r["h_after"].fillna(0.0).to_numpy()[None, :],
+                         r["h_before"].fillna(0.0).to_numpy()[None, :])
+            hit = rng.random(h.shape) < h
+            for i, chosen in planned:
+                if i in idx:
+                    hit[:, idx.index(i)] |= chosen == rnd
+            f = f + hit * (config.PENALTY_GRID_WEIGHT[code] * r["places"].fillna(0.0).to_numpy())[None, :]
+            taken[:, idx] |= hit
         table = config.SPRINT_POINTS if code == "S" else config.RACE_POINTS
         total[:, idx] += _points(_finishing_positions(f, p_dnf, n, rng, sd=config.SESSION_SD[code]), table)
 

@@ -205,6 +205,7 @@ button.link { background: none; border: 0; padding: 0; color: var(--s1); text-de
 .session-S { background: color-mix(in srgb, var(--s2) 18%, transparent); color: var(--ink); }
 .session-Q { background: var(--chip); color: var(--ink-2); box-shadow: inset 0 0 0 1px var(--baseline); }
 .session-SQ { background: color-mix(in srgb, var(--s3) 16%, transparent); color: var(--ink); }
+.session-FP1, .session-FP2, .session-FP3 { background: transparent; color: var(--ink-2); box-shadow: inset 0 0 0 1px var(--grid); }
 h2.session-title .session-badge { font-size: 14px; margin-left: 6px; position: relative; top: -2px; }
 .session-links { display: inline-flex; flex-wrap: wrap; gap: 4px; }
 .session-links a { text-decoration: none; }
@@ -778,3 +779,17 @@ nav.report-toc { overflow: visible; margin-top: 0; padding-bottom: 0; }
   font-variant-numeric: tabular-nums; padding: 2px 0 6px; }
 .tel-note { font-size: 12.5px; margin-bottom: 0; }
 .tel-h4 { margin: 18px 0 4px; }
+/* Power units: the chance of a penalty at each Grand Prix left, and an element at its allocation. */
+p.small, .small { font-size: 12px; }
+.at-limit { font-weight: 600; color: var(--ink); }
+table.pu-grid { width: auto; font-size: 13px; }
+table.pu-grid th, table.pu-grid td { text-align: center; padding: 4px 6px; min-width: 3.2em; }
+table.pu-grid th:first-child, table.pu-grid td:first-child { text-align: left; }
+table.pu-grid td.pu-plan { box-shadow: inset 0 0 0 2px var(--ink-2); }
+/* News: headlines with source, date and what they name. */
+.news-list { list-style: none; padding: 0; margin: 8px 0; }
+.news-list li { padding: 8px 0; border-bottom: 1px solid var(--grid); }
+.news-list li > a { font-weight: 600; }
+.news-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12px; color: var(--muted); margin-top: 4px; }
+.news-list p { margin: 4px 0 0; }
+.link-button { background: none; border: 0; padding: 4px 0; cursor: pointer; color: inherit; text-decoration: underline; font: inherit; }

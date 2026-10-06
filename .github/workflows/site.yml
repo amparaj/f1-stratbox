@@ -13,7 +13,11 @@
 # that's final (4 days on, result and grid in) is written to archive/ and committed to main by
 # this workflow, and read from there for good. Newer sessions go through download caches
 # (.openf1/, .fastf1/, .openmeteo/) kept between runs with actions/cache. Weather comes from
-# Open-Meteo (free, no key): forecasts, and climate downloads that never change once fetched. The History pages (every season since
+# Open-Meteo (free, no key): forecasts, and climate downloads that never change once fetched. Penalties come from
+# f1penalties.com (every stewards' decision, fetched again every run; a season archived once it's over) and the
+# FIA's power-unit documents (PDFs, an event archived 4 days after its race): needs_update.py also rebuilds when
+# either has something new. F1 news (RSS: The Race, Crash.net, Autosport, Motorsport.com, Formula1.com, BBC, Sky,
+# GPFans) is read on every export and kept in .news/ (cached here); needs_update.py rebuilds every 12 h for it. The History pages (every season since
 # 1950) are rebuilt each run from archive/jolpica/, one file per finished season; Jolpica's dump
 # (cached in .jolpica/) is downloaded only for a season not archived yet, which is then committed.
 #
@@ -72,6 +76,9 @@ jobs:
             .jolpica
             .fastf1
             .openmeteo
+            .fia
+            .f1penalties
+            .news
           key: data-${{ github.run_id }}
           restore-keys: data-
 
@@ -109,6 +116,9 @@ jobs:
             .jolpica
             .fastf1
             .openmeteo
+            .fia
+            .f1penalties
+            .news
           key: data-${{ github.run_id }}
 
       - uses: actions/setup-node@v5

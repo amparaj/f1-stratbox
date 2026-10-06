@@ -121,6 +121,10 @@ function Overview() {
         shows a live rain radar from <a href="https://www.rainviewer.com/">RainViewer</a> on an{" "}
         <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> map; RainViewer keeps only the last
         two hours, so finished races have none.
+        Stewards' decisions (penalties, reprimands, power-unit and parc fermé grid drops) come from{" "}
+        <a href="https://www.f1penalties.com/data">f1penalties.com</a>, and each driver's power-unit elements from the
+        FIA Technical Delegate's documents at every event; together they drive the{" "}
+        <a href="#about/docs/penalties">power-unit penalty model</a>.
         The <a href="#history">History</a> pages (every season since 1950) come from{" "}
         <a href="https://github.com/jolpica/jolpica-f1">Jolpica</a>'s database, licensed{" "}
         <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a>: results, grids and

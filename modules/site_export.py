@@ -41,6 +41,10 @@ from modules import analytics as an
 from modules import data_engine as de
 from modules import forecast as fc
 from modules import openf1
+from modules import penalties as pn
+from modules import news
+from modules import practice as pr
+from modules import upgrades
 from modules import simulator as sim
 from modules import site_telemetry
 from modules import weather as wx
@@ -98,7 +102,8 @@ def _utc(ts) -> str | None:
 # Calendar
 # ---------------------------------------------------------------------------
 # The calendar's start-time field for each session code.
-UTC_KEY = {"R": "race_utc", "S": "sprint_utc", "Q": "quali_utc", "SQ": "sprint_quali_utc"}
+UTC_KEY = {"R": "race_utc", "S": "sprint_utc", "Q": "quali_utc", "SQ": "sprint_quali_utc",
+           "FP1": "fp1_utc", "FP2": "fp2_utc", "FP3": "fp3_utc"}
 
 
 def calendar(year: int) -> list[dict]:
@@ -122,6 +127,7 @@ def calendar(year: int) -> list[dict]:
             "sprint_utc": start("S") if sprint else None,
             "quali_utc": start("Q"),
             "sprint_quali_utc": start("SQ") if sprint else None,
+            **{UTC_KEY[c]: start(c) for c in config.PRACTICE_CODES},
             "lat": coords[0] if coords else None, "lon": coords[1] if coords else None,
         })
     return events
@@ -132,10 +138,9 @@ def due_sessions(events: list[dict], now: dt.datetime) -> list[tuple[dict, str]]
     (loading one that hasn't raises SessionRunningError)."""
     out = []
     for ev in events:
-        for code in config.WEEKEND_ORDER:
-            start = ev.get(UTC_KEY[code])
-            if start and pd.Timestamp(start) + dt.timedelta(minutes=config.EARLIEST_FINISH_MIN[code]) < now:
-                out.append((ev, code))
+        due = [(pd.Timestamp(ev[UTC_KEY[c]]), c) for c in config.ALL_SESSIONS if ev.get(UTC_KEY[c])
+               and pd.Timestamp(ev[UTC_KEY[c]]) + dt.timedelta(minutes=config.EARLIEST_FINISH_MIN[c]) < now]
+        out += [(ev, c) for _, c in sorted(due)]
     return out
 
 
@@ -442,6 +447,73 @@ def export_quali(year: int, ev: dict, code: str) -> dict:
     }
 
 
+def export_practice(year: int, ev: dict, code: str) -> dict:
+    """Everything the practice page needs for one finished FP1, FP2 or FP3 (modules/practice.py):
+    the classification (best laps), one-lap pace, every long run, and what they say. Complete once
+    loaded: practice has no classification or points to wait for."""
+    event = ev["event"]
+    info = de.get_session_info(year, event, code)
+    laps = de.get_all_laps(year, event, code)
+    drv = info["drivers"].set_index("Driver")
+    ol = pr.one_lap(laps)
+    runs, run_laps = pr.long_runs(laps)
+    sp = pr.session_pace(laps)
+    count = laps.groupby("Driver")["LapNumber"].max()
+    res = pd.DataFrame({"driver": ol["driver"], "best": ol["best"],
+                        "compound": ol["compound"].map(lambda c: config.COMPOUND_SHORT.get(c, "?"))})
+    # Drivers with no clean lap still ran: list them last.
+    res = pd.concat([res, pd.DataFrame({"driver": [d for d in drv.index if d not in set(res["driver"])]})], ignore_index=True)
+    res["position"] = range(1, len(res) + 1)
+    res["gap"] = res["best"] - res["best"].min()
+    res["laps"] = res["driver"].map(count).fillna(0).astype(int)
+    res["name"] = res["driver"].map(drv["FullName"]) if "FullName" in drv else None
+    res["team"] = res["driver"].map(drv["Team"])
+    res["color"] = res["driver"].map(drv["Color"])
+    res["second_driver"] = res["driver"].map(drv["IsSecondDriver"]).astype("boolean").fillna(False).astype(bool)
+    res["one_lap"] = res["driver"].map(sp["one_lap"])
+    res["long_run"] = res["driver"].map(sp["long_run"])
+    res["long_laps"] = res["driver"].map(run_laps.groupby("Driver").size() if not run_laps.empty else pd.Series(dtype=int)).fillna(0).astype(int)
+    runs = runs.assign(compound=runs["compound"].map(lambda c: config.COMPOUND_SHORT.get(c, "?")))
+    trace = (run_laps.assign(compound=run_laps["Compound"].map(lambda c: config.COMPOUND_SHORT.get(c, "?")))
+             [["Driver", "run_id", "run_lap", "LapNumber", "LapTime", "fc", "compound", "TyreLife"]]
+             .set_axis(["driver", "run", "run_lap", "lap", "lap_time", "fuel_corrected", "compound", "tyre_life"], axis=1)
+             if not run_laps.empty else pd.DataFrame())
+
+    lines = []
+    if not ol.empty:
+        top = ol.iloc[0]
+        second = ol.iloc[1] if len(ol) > 1 else None
+        lines.append(f"Fastest: {top['driver']}, {de_lap(top['best'])} on {str(top['compound']).title()}s"
+                     + (f", {second['best'] - top['best']:.3f} s clear of {second['driver']}." if second is not None else "."))
+    lr = sp["long_run"].sort_values()
+    if len(lr) >= 3:
+        lines.append("Best long-run pace (fuel corrected, tyres allowed for): "
+                     + ", ".join(f"{d} {v:+.2f}%" for d, v in lr.head(3).items()) + ".")
+    if not runs.empty:
+        lines.append(f"{len(runs)} long runs of {config.PRACTICE_LONG_RUN_LAPS}+ laps by {runs['driver'].nunique()} drivers; "
+                     f"the longest {int(runs['laps'].max())} laps ({runs.loc[runs['laps'].idxmax(), 'driver']}).")
+    else:
+        lines.append("No long runs: a session of short runs (or interrupted).")
+    if info["neutralised"]["RED"]:
+        lines.append("Red-flagged: programmes were cut short.")
+    return {
+        "id": session_id(ev["round"], code), "round": ev["round"], "code": code,
+        "label": config.SESSION_LABELS[code], "event": event, "location": ev["location"], "country": ev["country"],
+        "start_utc": ev[UTC_KEY[code]], "session_name": info["session_name"], "complete": True,
+        "sources": info["sources"],
+        "results": columns(res[["position", "driver", "name", "team", "color", "second_driver", "best", "gap", "compound",
+                                "laps", "one_lap", "long_run", "long_laps"]]),
+        "runs": columns(runs), "trace": columns(trace) if not trace.empty else {},
+        "insights": lines,
+        "_practice": sp,
+    }
+
+
+def de_lap(s: float) -> str:
+    m, sec = divmod(float(s), 60)
+    return f"{int(m)}:{sec:06.3f}"
+
+
 # ---------------------------------------------------------------------------
 # Last season: strategy calibration and each team's form circuit by circuit
 # ---------------------------------------------------------------------------
@@ -626,9 +698,244 @@ def _dnf(recs: list[dict]) -> pd.Series:
 
 
 def penalties_for(year: int, rnd: int, code: str = "R") -> dict[str, int | str]:
-    """Grid penalties announced for a round's Grand Prix (config.GRID_PENALTIES); none for
-    other sessions (a power-unit penalty is served in the Grand Prix)."""
-    return config.GRID_PENALTIES.get(year, {}).get(rnd, {}) if code == "R" else {}
+    """Grid penalties announced for a round's Grand Prix: config.GRID_PENALTIES and, once the FIA's
+    "New PU elements" document is out, power-unit penalties (PowerUnits.announced). None for other
+    sessions (a power-unit penalty is served in the Grand Prix)."""
+    if code != "R":
+        return {}
+    out = dict(_PU.announced(rnd) or {}) if _PU is not None and _PU.year == year else {}
+    out.update(config.GRID_PENALTIES.get(year, {}).get(rnd, {}))
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Power units and stewards' decisions (modules/penalties.py)
+# ---------------------------------------------------------------------------
+def _match_code(key: str, names: dict[str, str]) -> str | None:
+    """The driver code whose name (name_key) matches `key`: the same, one ending the other
+    ("andreakimiantonelli" / "kimiantonelli"), else the same last eight letters."""
+    if not key:
+        return None
+    for code, k in names.items():
+        if k == key:
+            return code
+    for code, k in names.items():
+        if k and (k.endswith(key) or key.endswith(k)):
+            return code
+    hits = [c for c, k in names.items() if k and len(key) >= 8 and k[-8:] == key[-8:]]
+    return hits[0] if len(hits) == 1 else None
+
+
+class PowerUnits:
+    """
+    The season's power units for the export: each driver's elements round by round (the FIA's
+    documents), the stewards' decisions (f1penalties.com) and the likely-penalty model. Nothing
+    here fails the export: a source that's down leaves its part empty.
+    """
+
+    def __init__(self, year: int, events: list[dict], exported: list[dict], now: dt.datetime,
+                 news_plans: dict[str, list[dict]] | None = None):
+        self.year, self.now = year, now
+        self.events = events
+        self.total = len(events)
+        # The round reports are current from: news only counts for forecasts made now, not replays.
+        self.next_round = next((e["round"] for e in events if e["race_utc"] and pd.Timestamp(e["race_utc"]) > now), None)
+        hand = pn.plan_groups(config.PU_PLANS.get(year))
+        for gs in hand.values():
+            for g in gs:
+                g.setdefault("kind", "team")
+        self.hand_plans = hand
+        self.news_plans = {d: [{**g, "kind": "news"} for g in gs] for d, gs in (news_plans or {}).items()}
+        res = pd.concat([r["_results"] for r in sorted(exported, key=_order)], ignore_index=True) \
+            if exported else pd.DataFrame(columns=["driver", "name", "number"])
+        last = res.drop_duplicates("driver", keep="last")
+        self.names = {d: pn.name_key(n) for d, n in zip(last["driver"], last["name"]) if isinstance(n, str)}
+        self.by_number = {int(n): d for d, n in zip(res["driver"], res["number"]) if pd.notna(n) and str(n).isdigit()}
+        self._risk: dict[int, pd.DataFrame] = {}
+        try:
+            self.records = pn.pu_season(year, now)
+        except Exception as exc:  # noqa: BLE001 — no FIA documents: no usage, no model
+            print(f"  power units: {str(exc)[:160]}", flush=True)
+            self.records = {}
+        self.limits = pn.season_limits(year, self.records)
+        self.table = pn.usage_table(year, self.records, self.total) if self.records else pd.DataFrame()
+        if not self.table.empty:
+            self.table["driver"] = [self.by_number.get(int(c)) or _match_code(pn.name_key(w), self.names)
+                                    for c, w in zip(self.table["car"], self.table["who"])]
+            self.table = self.table[self.table["driver"].notna()]
+        try:
+            self.decisions = pn.stewards_decisions()
+        except Exception as exc:  # noqa: BLE001
+            print(f"  stewards' decisions: {str(exc)[:160]}", flush=True)
+            self.decisions = pn.stewards_decisions([])
+        self.factors = self._circuit_factors()
+
+    def _circuit_factors(self) -> dict[str, float]:
+        """Where teams took power-unit penalties in the seasons before this one (no peeking)."""
+        events = pn.pu_penalty_events(self.decisions[self.decisions["year"] < self.year])
+        if events.empty:
+            return {}
+        hosted = []
+        for y in sorted(events["year"].unique()):
+            try:
+                s = fastf1.get_event_schedule(int(y), include_testing=False)
+            except Exception:  # noqa: BLE001 — that season's calendar unavailable: leave it out
+                continue
+            s = s[(s["RoundNumber"] > 0) & (pd.to_datetime(s["Session5DateUtc"]) < pd.Timestamp(self.now).tz_localize(None))]
+            hosted.append(pd.DataFrame({"year": int(y), "round": s["RoundNumber"].astype(int),
+                                        "circuit": s["Location"].map(circuit_key)}))
+        if not hosted:
+            return {}
+        hosted = pd.concat(hosted, ignore_index=True)
+        events = events.merge(hosted, on=["year", "round"], how="inner")
+        return pn.circuit_factors(events, hosted)
+
+    # ---- state ----
+    def _rows(self, rnd: int) -> pd.DataFrame:
+        return self.table[self.table["round"] == rnd] if not self.table.empty else self.table
+
+    def state(self, rnd: int) -> tuple[dict[str, dict], set[str]]:
+        """(driver -> elements used before round `rnd`, drivers already over the allocation)."""
+        if self.table.empty:
+            return {}, set()
+        rows = self._rows(rnd)
+        if not rows.empty:
+            state = dict(zip(rows["driver"], rows["before"]))
+        else:
+            done = self.table[self.table["round"] < rnd]
+            latest = done.sort_values("round").drop_duplicates("driver", keep="last")
+            state = dict(zip(latest["driver"], latest["after"]))
+        over = set(self.table.loc[(self.table["round"] < rnd) & self.table["changed"], "driver"])
+        return state, over
+
+    def new_doc_out(self, rnd: int) -> bool:
+        rec = self.records.get(rnd)
+        return bool(rec) and any("new_pu_elements" in s.lower().replace(" ", "_") for s in rec.get("sources", []))
+
+    def announced(self, rnd: int) -> dict[str, int | str] | None:
+        """Power-unit grid penalties at round `rnd` from the FIA's "New PU elements" (driver ->
+        places / "back"); None until that document is out."""
+        if not self.new_doc_out(rnd):
+            return None
+        rows = self._rows(rnd)
+        return {d: drop for d, drop in zip(rows["driver"], rows["drop"]) if drop is not None}
+
+    def plans(self, start: int) -> dict[str, list[dict]]:
+        """Reported plans live before round `start`: the hand-kept ones (config.PU_PLANS) and, for a
+        forecast made now, the news's; less any already served (the driver went past the
+        allocation at one of its rounds before `start`)."""
+        out: dict[str, list[dict]] = {}
+        sources = [self.hand_plans] + ([self.news_plans] if self.next_round and start >= self.next_round else [])
+        for plans in sources:
+            for d, groups in plans.items():
+                for g in groups:
+                    served = not self.table.empty and bool(
+                        ((self.table["driver"] == d) & self.table["changed"] & self.table["round"].isin(g["rounds"])
+                         & (self.table["round"] < start)).any())
+                    if not served and any(r >= start for r in g["rounds"]):
+                        out.setdefault(d, []).append(g)
+        return out
+
+    def risk(self, start: int) -> pd.DataFrame:
+        """penalties.penalty_risk from the state before round `start`, for every Grand Prix from it."""
+        if start in self._risk:
+            return self._risk[start]
+        state, over = self.state(start)
+        schedule = [{"round": e["round"], "circuit": circuit_key(e["location"])} for e in self.events
+                    if e["round"] >= start and e["race_utc"]]
+        out = pn.penalty_risk(state, self.limits, schedule, self.total, self.factors, over,
+                              plans=self.plans(start), announced=self.announced(start)) \
+            if state and schedule else pd.DataFrame(columns=["driver", "round", "h_before", "h_after", "plan_p", "p", "p_by",
+                                                             "plan", "announced"])
+        self._risk[start] = out
+        return out
+
+    def at(self, start: int, rnd: int) -> pd.DataFrame:
+        """The risk at round `rnd` as seen before round `start`: index driver."""
+        r = self.risk(start)
+        return r[r["round"] == rnd].set_index("driver")
+
+    # ---- what the site shows ----
+    def weekend(self, rnd: int) -> dict:
+        """A round's stewards' decisions and new power-unit elements, for its session pages."""
+        d = self.decisions[(self.decisions["year"] == self.year) & (self.decisions["round"] == rnd)].copy()
+        d["code"] = d["name_key"].map(lambda k: _match_code(k, self.names))
+        d["kind"] = [pn.kind_of(a, x) for a, x in zip(d["allegation"], d["detail"])]
+        d["grid"] = d["grid"].map(lambda g: g if g is None or isinstance(g, str) else int(g))
+        rows = self._rows(rnd)
+        fitted = [{"driver": dr, "elements": [el for el, n in f.items() for _ in range(n)],
+                   "drop": drop, "after": {el: a for el, a in after.items()}}
+                  for dr, f, drop, after in zip(rows["driver"], rows["fitted"], rows["drop"], rows["after"])
+                  if any(f.values())] if not rows.empty else []
+        return {
+            "decisions": columns(d[["session", "driver", "code", "team", "kind", "allegation", "detail", "involving",
+                                    "outcome", "time_s", "grid", "points", "fine", "notes"]]),
+            "pu_fitted": fitted, "limits": self.limits,
+            "pu_doc": self.new_doc_out(rnd) or (rnd + 1) in self.records,
+            "stewards_round": self.stewards_round,
+        }
+
+    @property
+    def stewards_round(self) -> int | None:
+        """The last round of this season f1penalties.com has (it runs days to weeks behind)."""
+        mine = self.decisions["year"] == self.year
+        return int(self.decisions.loc[mine, "round"].max()) if mine.any() else None
+
+    def sources_seen(self) -> dict:
+        """The f1penalties.com rows of this season (a hash) and the FIA power-unit documents of the
+        last two rounds the export read: scripts/needs_update.py rebuilds when either changes."""
+        last = sorted(self.records)[-2:]
+        docs = sorted({u for r in last for u in self.records[r].get("sources", []) if pn.PU_DOC.search(u)})
+        return {"stewards": pn.stewards_fingerprint(self.year), "stewards_round": self.stewards_round, "fia_docs": docs}
+
+    def export(self, next_round: int | None, color_of: pd.Series, team_of: pd.Series) -> dict:
+        """power-units.json: every driver's elements against the allocation and their chance of a
+        power-unit penalty at each Grand Prix left."""
+        elements = [el for el in ("ICE", "TC", "MGU-H", "MGU-K", "ES", "CE", "EX", "ANC") if el in self.limits]
+        start = next_round or self.total + 1
+        state, over = self.state(start)
+        risk = self.risk(start) if next_round else pd.DataFrame(columns=["driver", "round", "p", "p_by", "plan", "announced"])
+        taken = self.table[self.table["changed"]] if not self.table.empty else self.table
+        rows = []
+        plans = self.plans(start)
+        for d, used in state.items():
+            r = risk[risk["driver"] == d]
+            best = r.loc[r["p"].idxmax()] if not r.empty else None
+            mine = taken[taken["driver"] == d] if not taken.empty else taken
+            rows.append({
+                "driver": d, "team": team_of.get(d), "color": color_of.get(d),
+                **{el: used.get(el) for el in elements},
+                "short": sum(max(0, used.get(el, 0) - lim) for el, lim in self.limits.items()),
+                "at_limit": [el for el in elements if used.get(el, 0) >= self.limits[el]],
+                "penalties": len(mine), "penalty_rounds": mine["round"].astype(int).tolist() if len(mine) else [],
+                "p_next": float(r["p"].iloc[0]) if not r.empty else None,
+                "p_season": float(r["p_by"].iloc[-1]) if not r.empty else None,
+                "likely_round": int(best["round"]) if best is not None else None,
+                "likely_p": float(best["p"]) if best is not None else None,
+                "announced": r["announced"].iloc[0] if not r.empty else None,
+                # Reported plans: each with its rounds, why, and where it was reported.
+                "plans": [{"rounds": list(g["rounds"]), "kind": g.get("kind"), "note": g.get("note"),
+                           "links": g.get("links") or ([{"source": "Team statement", "link": g["source"], "title": g.get("note")}]
+                                                       if g.get("source") else [])} for g in plans.get(d, [])],
+            })
+        drivers = pd.DataFrame(rows)
+        if not drivers.empty:
+            drivers = drivers.sort_values(["p_season", "short"], ascending=False, na_position="last")
+        latest = max(self.records) if self.records else None
+        return {
+            "season": self.year, "generated": self.now.isoformat(), "next_round": next_round,
+            "elements": elements, "names": {el: pn.ELEMENT_NAMES[el] for el in elements}, "limits": self.limits,
+            "fia_round": latest, "fia_sources": self.records[latest]["sources"] if latest else [],
+            "stewards_round": self.stewards_round,
+            "drivers": columns(drivers) if not drivers.empty else {},
+            "risk": columns(risk[["driver", "round", "p", "p_by", "plan"]]) if not risk.empty else {},
+            "circuits": {str(e["round"]): round(self.factors.get(circuit_key(e["location"]), 1.0), 3)
+                         for e in self.events if next_round and e["round"] >= next_round},
+        }
+
+
+_PU: PowerUnits | None = None
+_UPGRADES: pd.DataFrame | None = None     # performance parts per round and team (upgrades.performance_counts)
 
 
 def _grid(year: int, ev: dict, code: str, recs: list[dict],
@@ -657,7 +964,7 @@ def _grid(year: int, ev: dict, code: str, recs: list[dict],
 
 
 def session_forecast(year: int, ev: dict, code: str, before: list[dict], last: dict, rounds_ahead: int,
-                     exported: dict[tuple[int, str], dict]) -> dict | None:
+                     exported: dict[tuple[int, str], dict], practice: dict | None = None) -> dict | None:
     """
     The forecast for one session from the sessions in `before` (oldest first): expected
     pace, last season's circuit term, this weekend's qualifying and grid when they're in, or
@@ -668,15 +975,20 @@ def session_forecast(year: int, ev: dict, code: str, before: list[dict], last: d
     if not any(r["code"] == "R" for r in before):
         return None
     race_form, quali_form = _form(before, config.RACE_CODES), _form(before, config.QUALI_CODES)
-    weekend = grid = grid_source = None
+    weekend = grid = grid_source = quali_order = None
     if code in config.RACE_CODES:
         q = next((r for r in before if r["round"] == ev["round"] and r["code"] == config.QUALI_OF_RACE[code]), None)
         if q is not None:
             weekend = q["_pace"]
             grid, grid_source = _grid(year, ev, code, before, exported)
+            quali_order = q["_results"].set_index("driver")["position"]
     latest = before[-1]["_results"]
     line_up = latest["driver"]
     teams = latest.set_index("driver")["team"]
+    if practice:
+        # This weekend's practice moves the forms (shown that way in the "why" panel too).
+        quali_form = fc._blend(quali_form, practice.get("one_lap"), config.PRACTICE_QUALI_BLEND)
+        race_form = fc._blend(race_form, practice.get("long_run"), config.PRACTICE_RACE_BLEND)
     pace = fc.expected_pace(code, race_form, quali_form, weekend)
     pace = pace[pace.index.isin(line_up)]
     if pace.empty:
@@ -686,9 +998,20 @@ def session_forecast(year: int, ev: dict, code: str, before: list[dict], last: d
     if not config.CIRCUIT_WEIGHT[code]:
         circuit = None                    # not used: don't show it either
     pen = penalties_for(year, ev["round"], code)
-    terms = fc.session_terms(code, pace, circuit, teams, grid, pen)
+    risk = None
+    if code == "R" and _PU is not None and _PU.year == year:
+        # As seen after the last Grand Prix in `before`: this round's own state for a past round.
+        start = min(ev["round"], max(r["round"] for r in before if r["code"] == "R") + 1)
+        at = _PU.at(start, ev["round"])
+        risk = at["p"] if not at.empty else None
+    items = None
+    if _UPGRADES is not None and not _UPGRADES.empty and ev["round"] in _UPGRADES.index:
+        items = teams.map(lambda t: fc.team_now(t) if isinstance(t, str) else t).map(_UPGRADES.loc[ev["round"]]).fillna(0.0)
+    terms = fc.session_terms(code, pace, circuit, teams, grid, pen, pu_risk=risk, quali_order=quali_order,
+                             upgrade_items=items)
     out = fc.forecast_session(code, terms["mean"], _dnf(before), rounds_ahead=rounds_ahead,
-                              seed=ev["round"] * 10 + config.WEEKEND_ORDER.index(code), grid_known=grid is not None)
+                              seed=ev["round"] * 10 + config.WEEKEND_ORDER.index(code), grid_known=grid is not None,
+                              terms=terms)
     out["team"] = out["driver"].map(teams)
     out["circuit"] = out["team"].map(lambda t: circuit.get(fc.team_now(t)) if circuit is not None and isinstance(t, str) else None)
     out["grid"] = out["driver"].map(grid) if grid is not None else None
@@ -701,7 +1024,9 @@ def session_forecast(year: int, ev: dict, code: str, before: list[dict], last: d
     out["quali_form"] = drivers.map(quali)
     out["quali_share"] = (0.0 if code not in config.RACE_CODES else
                           config.RACE_QUALI_BLEND_WEEKEND if use_weekend else config.RACE_QUALI_BLEND)
-    for c in ("circuit_term", "grid_term", "penalty_places", "penalty_term"):
+    out["practice"] = bool(practice)
+    for c in ("circuit_term", "grid_term", "penalty_places", "penalty_term", "pu_risk", "pu_places", "pu_term",
+              "upgrade_items", "upgrade_term"):
         out[c] = drivers.map(terms[c]).round(4)
     out["penalty"] = drivers.map(lambda d: pen.get(d))
     inputs = [_form_inputs(before, config.QUALI_CODES)] if not use_weekend else []
@@ -727,10 +1052,23 @@ def export_season(year: int, out_dir: Path, now: dt.datetime | None = None, tele
     now = now or dt.datetime.now(dt.timezone.utc)
     events = calendar(year)
     exported: list[dict] = []
+    practice_recs: list[dict] = []        # FP1-3: their own pages, and this weekend's forecasts
     pending: list[str] = []
     tel_budget = [config.SITE_TEL_MAX_FETCH if telemetry else 0]
     for ev, code in due_sessions(events, now):
         sid = session_id(ev["round"], code)
+        if code in config.PRACTICE_CODES:
+            try:
+                rec = export_practice(year, ev, code)
+            except de.SessionRunningError:
+                print(f"  {sid} {ev['event']}: still running", flush=True)
+                continue
+            except Exception as exc:  # noqa: BLE001 — practice is extra: never fail the export for it
+                print(f"  {sid} {ev['event']}: no practice data ({str(exc)[:160]})", flush=True)
+                continue
+            practice_recs.append(rec)
+            print(f"  {sid} {ev['event']}: practice", flush=True)
+            continue
         try:
             rec = (export_quali if code in config.QUALI_CODES else export_session)(year, ev, code)
         except de.SessionRunningError:
@@ -764,6 +1102,48 @@ def export_season(year: int, out_dir: Path, now: dt.datetime | None = None, tele
     races = [r for r in exported if r["code"] == "R"]
     by_round = {r["round"]: r for r in races}
     scoring = [r for r in exported if r["code"] in config.RACE_CODES]
+
+    # ---- the news: power-unit penalties, stewards, upgrades (modules/news.py) ----
+    print("  F1 news (RSS) and the FIA's upgrade lists…", flush=True)
+    names = pd.concat([r["_results"].set_index("driver")["name"] for r in exported]).groupby(level=0).last()
+    team_names = sorted(set(pd.concat([r["_results"]["team"] for r in exported]).dropna()))
+    next_round = next((e["round"] for e in events if e["race_utc"] and pd.Timestamp(e["race_utc"]) > now), None)
+    try:
+        tagged = news.tag(news.fetch(now), names.to_dict(), team_names, events)
+    except Exception as exc:  # noqa: BLE001 — no news: the model runs on the FIA's documents alone
+        print(f"  news: {str(exc)[:160]}", flush=True)
+        tagged = []
+    reported = news.news_plans(tagged, next_round, now)
+    try:
+        ups = upgrades.season_upgrades(year, now)
+    except Exception as exc:  # noqa: BLE001
+        print(f"  upgrades: {str(exc)[:160]}", flush=True)
+        ups = pd.DataFrame(columns=["round", "team", "team_name", "item", "component", "reason", "text"])
+    global _UPGRADES
+    _UPGRADES = upgrades.performance_counts(ups)
+
+    # ---- power units and the stewards' decisions, onto every session's file ----
+    global _PU
+    print("  power units (FIA documents) and stewards' decisions (f1penalties.com)…", flush=True)
+    _PU = PowerUnits(year, events, exported, now, news_plans=reported)
+    weekends = {}
+    for rec in practice_recs:
+        if rec["round"] not in weekends:
+            weekends[rec["round"]] = _PU.weekend(rec["round"])
+        _write(out_dir / "races" / f"{rec['id']}.json",
+               {**{k: v for k, v in rec.items() if not k.startswith("_")}, "penalties": weekends[rec["round"]],
+                "upgrades": columns(ups[ups["round"] == rec["round"]].drop(columns="round"))})
+    for rec in exported:
+        if rec["round"] not in weekends:
+            weekends[rec["round"]] = _PU.weekend(rec["round"])
+        extra = {"penalties": weekends[rec["round"]],
+                 "upgrades": columns(ups[ups["round"] == rec["round"]].drop(columns="round"))}
+        if rec["code"] in config.RACE_CODES:
+            q = by_key.get((rec["round"], config.QUALI_OF_RACE[rec["code"]]))
+            qpos = q["_results"].set_index("driver")["position"] if q is not None else pd.Series(dtype=float)
+            extra["results"] = {**rec["results"], "quali": [_clean(qpos.get(d)) for d in rec["results"]["driver"]]}
+        _write(out_dir / "races" / f"{rec['id']}.json",
+               {**{k: v for k, v in rec.items() if not k.startswith("_")}, **extra})
 
     # ---- standings and their progression ----
     pts_rows = []
@@ -843,11 +1223,15 @@ def export_season(year: int, out_dir: Path, now: dt.datetime | None = None, tele
             entry = {"pre": decorate(pre["odds"]), "latest": None, "latest_after": [],
                      "why": {"pre": why(pre)}}
             this_weekend = [r for r in exported if r["round"] == ev["round"] and _order(r) < (ev["round"], config.WEEKEND_ORDER.index(code))]
-            if this_weekend:
-                latest = session_forecast(year, ev, code, prior + this_weekend, last, 1, by_key)
+            # This weekend's practice that ran before the session.
+            fp_recs = [r for r in practice_recs if r["round"] == ev["round"] and code in config.WEEKEND_ORDER
+                       and (r["start_utc"] or "") < (ev.get(UTC_KEY[code]) or "9")]
+            fp = pr.weekend_practice({r["code"]: r["_practice"] for r in fp_recs}) if fp_recs else None
+            if this_weekend or fp:
+                latest = session_forecast(year, ev, code, prior + this_weekend, last, 1, by_key, practice=fp)
                 if latest is not None:
                     entry["latest"] = decorate(latest["odds"])
-                    entry["latest_after"] = [r["id"] for r in this_weekend]
+                    entry["latest_after"] = [r["id"] for r in fp_recs + this_weekend]
                     entry["why"]["latest"] = why(latest)
             sessions[code] = entry
         if "R" not in sessions:
@@ -882,10 +1266,22 @@ def export_season(year: int, out_dir: Path, now: dt.datetime | None = None, tele
             for e, c in left:
                 pace = fc.expected_pace(c, race_form, quali_form)
                 pace = pace[pace.index.isin(line_up["driver"])]
-                plan.append((c, fc.session_mean(c, pace, last["race"].get(circuit_key(e["location"])), cur_teams,
-                                                penalties=penalties_for(year, e["round"], c))))
+                pen = penalties_for(year, e["round"], c)
+                mean = fc.session_mean(c, pace, last["race"].get(circuit_key(e["location"])), cur_teams, penalties=pen)
+                at = _PU.at(ev["round"], e["round"]) if c == "R" else pd.DataFrame()
+                if at.empty:
+                    plan.append((c, mean))
+                    continue
+                rank, n = mean.rank(method="first"), len(mean)
+                pu = at[["h_before", "h_after"]].reindex(mean.index).fillna(0.0)
+                pu.loc[pu.index.isin(list(pen)), ["h_before", "h_after"]] = 0.0     # announced: in the mean
+                pu["places"] = [pn.expected_drop(rank[d], n) for d in mean.index]
+                plan.append((c, mean, pu, e["round"]))
+            # Reported plans, less any driver whose penalty there is already announced (in the mean).
+            groups = [(d, q) for d, q in _PU.risk(ev["round"]).attrs.get("groups", [])
+                      if d not in penalties_for(year, ev["round"], "R") or ev["round"] not in q]
             td, tc = fc.title_odds(standing, team_of.reindex(standing.index).fillna(cur_teams).fillna("?"), plan,
-                                   _dnf(prior), seed=ev["round"])
+                                   _dnf(prior), seed=ev["round"], pu_groups=groups)
             title_hist += [{"after": max(r["round"] for r in prior), "driver": d, "p_title": p}
                            for d, p in zip(td["driver"], td["p_title"])]
             if ev is next_ev:
@@ -900,13 +1296,15 @@ def export_season(year: int, out_dir: Path, now: dt.datetime | None = None, tele
         "generated": now.isoformat(),
         "calendar": [{**ev,
                       **{f"done_{c}": (ev["round"], c) in by_key for c in config.WEEKEND_ORDER},
+                      **{f"done_{c}": any(r["round"] == ev["round"] and r["code"] == c for r in practice_recs)
+                         for c in config.PRACTICE_CODES},
                       "winner": first(ev["round"], "R", "driver"), "winner_color": first(ev["round"], "R", "color"),
                       "sprint_winner": first(ev["round"], "S", "driver"), "sprint_winner_color": first(ev["round"], "S", "color"),
                       "pole": first(ev["round"], "Q", "driver"), "pole_color": first(ev["round"], "Q", "color"),
                       "sprint_pole": first(ev["round"], "SQ", "driver"), "sprint_pole_color": first(ev["round"], "SQ", "color")}
                      for ev in events],
         "sessions": [{"id": r["id"], "round": r["round"], "code": r["code"], "complete": r["complete"]}
-                     for r in exported],
+                     for r in sorted(exported + practice_recs, key=lambda r: (r["round"], r["start_utc"] or ""))],
         "pending": pending,
         "next_round": next_ev["round"] if next_ev else None,
         "forecasts": forecasts_index,
@@ -915,6 +1313,8 @@ def export_season(year: int, out_dir: Path, now: dt.datetime | None = None, tele
         "teams": columns(teams[["position", "team", "color", "points", "sprint_points", "wins"]]),
         "progression": columns(progression),
         "title_history": columns(pd.DataFrame(title_hist, columns=["after", "driver", "p_title"])),
+        # What the penalty sources looked like, so scripts/needs_update.py can tell when they change.
+        "penalties": _PU.sources_seen(),
     }
     if next_ev and title_now:
         td, tc = title_now
@@ -922,7 +1322,56 @@ def export_season(year: int, out_dir: Path, now: dt.datetime | None = None, tele
         tc["color"] = tc["team"].map(team_color)
         meta["title_odds"] = {"drivers": columns(td), "teams": columns(tc)}
     _write(out_dir / "meta.json", meta)
+    _write(out_dir / "news.json", news_export(tagged, ups, exported, events, now))
+    try:
+        _write(out_dir / "power-units.json", _PU.export(meta["next_round"], color_of, team_of))
+    except Exception as exc:  # noqa: BLE001 — the power-unit page is extra: never fail the export
+        print(f"  power-units.json failed: {type(exc).__name__}: {str(exc)[:160]}", flush=True)
     return meta
+
+
+def news_export(tagged: list[dict], ups: pd.DataFrame, exported: list[dict], events: list[dict],
+                now: dt.datetime) -> dict:
+    """news.json: the scanned news (headline, link, source, date, the feed's summary, what it names),
+    reported power-unit plans, and the FIA's upgrade lists with how each team's pace moved after."""
+    items = news.table(tagged)
+    return {
+        "generated": now.isoformat(), "feeds": list(config.NEWS_FEEDS),
+        "items": columns(items) if not items.empty else {},
+        "upgrades": columns(ups) if not ups.empty else {},
+        "upgrade_effect": columns(upgrade_effect(ups, exported)),
+    }
+
+
+def upgrade_effect(ups: pd.DataFrame, exported: list[dict]) -> pd.DataFrame:
+    """Each team's race pace at a round where it brought performance parts, against its average over
+    the UPGRADE_BEFORE rounds before (negative = quicker; the field's average moves are taken out,
+    as every team improves): did the upgrade work, at least at first? One row per team and round."""
+    races = [r for r in exported if r["code"] == "R" and not r["_pace"].empty]
+    if ups.empty or not races:
+        return pd.DataFrame(columns=["round", "team", "items", "before", "after", "change"])
+    rows = []
+    for r in races:
+        team = r["_results"].set_index("driver")["team"].map(fc.team_now)
+        rows.append(r["_pace"].groupby(team.reindex(r["_pace"].index)).mean().rename(r["round"]))
+    pace = pd.concat(rows, axis=1)           # team x round, % against the field (centred each race)
+    counts = upgrades.performance_counts(ups)
+    out = []
+    for rnd in counts.index:
+        if rnd not in pace.columns:
+            continue
+        prior = [c for c in pace.columns if c < rnd][-config.UPGRADE_BEFORE:]
+        if not prior:
+            continue
+        for t, n in counts.loc[rnd].items():
+            if n <= 0 or t not in pace.index:
+                continue
+            before = pace.loc[t, prior].mean()
+            after = pace.loc[t, rnd]
+            if pd.notna(before) and pd.notna(after):
+                out.append({"round": int(rnd), "team": t, "items": int(n), "before": round(float(before), 3),
+                            "after": round(float(after), 3), "change": round(float(after - before), 3)})
+    return pd.DataFrame(out, columns=["round", "team", "items", "before", "after", "change"])
 
 
 def rows_of(cols: dict[str, list]) -> pd.DataFrame:

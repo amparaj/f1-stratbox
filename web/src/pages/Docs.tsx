@@ -21,19 +21,29 @@ const PRESETS = {
   M: { offset: 0.45, deg: 0.065, cliffAge: 30, cliffRate: 0.2 },
   H: { offset: 0.9, deg: 0.04, cliffAge: 42, cliffRate: 0.15 },
 } as const;
-const FORM_DECAY = 0.75;
-const FORM_RACES = 6;
+const FORM_DECAY = 0.65;
+const FORM_RACES = 12;
 const FORM_CLIP = 0.25;
+// Practice and upgrades (config.py, fitted by calibrate_forecast.py).
+const PRACTICE = { blend: 0.2, clip: 1.0, runLaps: 6, tol: 3.5 };
+const UPGRADE = { effect: -0.05, max: 4 };
 // Session forecasts (config.py "Session forecasts", fitted by scripts/calibrate_forecast.py).
 const SD = { R: 0.35, S: 0.6, Q: 0.35 };
 const SD_GRID = { R: 0.2, S: 0.45 };
 const BLEND = 0.75;
 const BLEND_WEEKEND = 0.85;
 const GRID = { R: 0.02, S: 0.2 };
-const CIRCUIT = 0.25;
+const CIRCUIT = 0;
 const DRIFT_ROUND = 0.1;
 const RACE_SD = SD.R;
 const DRIFT_SD = 0.35;
+// Power-unit penalties (config.py "Power-unit penalties", fitted by scripts/calibrate_penalties.py).
+const PEN_GRID = 0.05;
+const PU = {
+  intercept: -4.033, deficit: 1.066, over: -0.91, left: -1.076, circuit: 0.951, prior: 3, plan: 0.6, late: 0.1,
+  drop: { back: 0.65, 15: 0.05, 10: 0.14, 5: 0.16 },
+  loss: { model: 0.1635, circuit: 0.1726, constant: 0.1792 }, rows: 2272, changes: 97,
+};
 const WET = { mm: 0.3, heavy: 3, raceMin: 95, drying: 4, sunGain: 0.02, offset: 5.3, years: 10, days: 3 };
 const RAIN = {
   light: { inter: 7, wet: 10, slick: 12 },
@@ -56,6 +66,7 @@ const SECTIONS = [
   { id: "form", title: "Form" },
   { id: "race", title: "Session forecasts" },
   { id: "title", title: "Title odds" },
+  { id: "penalties", title: "Power-unit penalties" },
   { id: "strategy", title: "Tyre strategy" },
   { id: "weather", title: "Weather" },
   { id: "checking", title: "Checking the forecasts" },
@@ -142,6 +153,7 @@ export default function Docs() {
       <Form />
       <RaceForecast />
       <TitleOdds />
+      <Penalties />
       <Strategy />
       <Weather />
       <Checking />
@@ -180,7 +192,7 @@ function Architecture() {
           { title: "Qualifying", text: "Q1/Q2/Q3, cut-offs, sectors, track evolution, one-lap pace", kind: "model", section: "qualifying" },
         ] },
         { label: "Form", join: "fed into three simulations", nodes: [
-          { title: "Driver form", text: "race form (Grands Prix and sprints) and qualifying form, last six rounds, plus each driver's DNF rate", kind: "key", section: "form" },
+          { title: "Driver form", text: `race form (Grands Prix and sprints) and qualifying form, this season's last ${FORM_RACES} rounds, the latest counting most, plus each driver's DNF rate`, kind: "key", section: "form" },
         ] },
         { label: "Forecast", join: "", nodes: [
           { title: "Session odds", text: "10,000 runs of each Qualifying, Sprint and Grand Prix", kind: "model", section: "race" },
@@ -564,16 +576,17 @@ function Form() {
   return (
     <Section id="form">
       <p>
-        Form is a weighted average of a driver's paces over the last six rounds. The most recent round counts
-        fully and each earlier one 0.75 times the one after it, so form follows a car that's improving without
-        being thrown by one bad afternoon. There are two: <b>race form</b> from Grand Prix and Sprint race pace (a
+        Form is a weighted average of a driver's paces over this season's last {FORM_RACES} rounds (never last season's:
+        another car, often other rules). The most recent round counts fully and each earlier one {FORM_DECAY} times the
+        one after it, so the last three rounds carry about three-quarters of the weight: form follows a car that's
+        improving without being thrown by one bad afternoon. There are two: <b>race form</b> from Grand Prix and Sprint race pace (a
         sprint counts 0.75 of a Grand Prix: the replays could barely tell weights from 0 to 1 apart), and
         <b>qualifying form</b> from Qualifying and Sprint Qualifying pace. Sessions a driver has no pace figure for
         (a DNF, too few clean laps) are left out and the weights re-normalised. Before averaging, each pace is held to
-        within {FORM_CLIP}% of the driver's median <M t="m_d" /> over those six rounds, so one crash, failure or scrappy
+        within {FORM_CLIP}% of the driver's median <M t="m_d" /> over those rounds, so one crash, failure or scrappy
         lap can't swing their form:
       </p>
-      <M block t={String.raw`f_d = \frac{\sum_{k=0}^{5} w_k\, \tilde p_{d,R-k}}{\sum_{k=0}^{5} w_k}, \qquad w_k = 0.75^{\,k}, \qquad \tilde p = \operatorname{clip}\!\left(p,\ m_d - ${FORM_CLIP},\ m_d + ${FORM_CLIP}\right)`} />
+      <M block t={String.raw`f_d = \frac{\sum_{k=0}^{${FORM_RACES - 1}} w_k\, \tilde p_{d,R-k}}{\sum_{k=0}^{${FORM_RACES - 1}} w_k}, \qquad w_k = ${FORM_DECAY}^{\,k}, \qquad \tilde p = \operatorname{clip}\!\left(p,\ m_d - ${FORM_CLIP},\ m_d + ${FORM_CLIP}\right)`} />
       <p>
         Without the cap a single session moved form a long way. At Baku in 2026 Antonelli set only a Q1 banker lap
         (+0.38%, against a median of −0.58%), and as the second most recent round it took his qualifying form from
@@ -582,12 +595,36 @@ function Form() {
         (see Checking the forecasts). Each forecast's "Why these odds?" panel lists the sessions behind two drivers'
         form and marks the capped ones.
       </p>
-      <Figure caption="How much each of the last six races counts towards form.">
-        <Chart make={make} height={220} ariaLabel="The weight of each of the last six races in the form figure" />
+      <p>
+        <b>How much recency?</b> Recent races should count most: teams bring parts every few weeks, so March says little
+        about September. But a short window is worse, not better: one session's pace is noisy, and replaying 2025 and
+        2026 scored forecasts from only the last 2 rounds at −3.07, the last 3 at −2.93, 4 at −2.84, 6 at −2.77 and 12
+        (with the latest counting most) at −2.75 (higher is better; see Checking the forecasts). How fast older rounds
+        fade barely mattered (a weight of 0.4 to 1.0 per round back all within 0.012). What separates a good forecast
+        from a poor one is qualifying more than recency: one-lap pace gets three-quarters of a race's expected pace, and
+        once the grid is set the score jumps from −2.53 to −1.72, by far the biggest step in the model.
+      </p>
+      <Figure caption={`How much each of the last ${FORM_RACES} rounds counts towards form.`}>
+        <Chart make={make} height={220} ariaLabel={`The weight of each of the last ${FORM_RACES} rounds in the form figure`} />
       </Figure>
+      <p>
+        <b>This weekend's practice.</b> Once a weekend's practice is in, each driver's best clean lap (against the
+        field) moves their qualifying form {PRACTICE.blend * 100}% of the way towards it, but by no more than{" "}
+        {PRACTICE.clip}% of pace: a crash or an aborted programme leaves a driver 5–10% off, and unclipped even a tenth
+        of that made the forecasts worse. Replayed, qualifying forecasts made after practice scored −2.71 against −2.80
+        without it, and races and sprints −2.59 against −2.65 (through qualifying form). Long runs (six or more laps in
+        a row, fuel corrected, tyres allowed for) added nothing to the race forecasts at any weight, so they're shown on
+        the practice pages but not used: fuel loads and programmes differ too much between teams.
+      </p>
+      <p>
+        <b>Upgrades.</b> On the Thursday the FIA publishes every team's updated parts with the reason (performance,
+        circuit specific, reliability). Each performance part makes the team {Math.abs(UPGRADE.effect)}% quicker at
+        that round, up to {UPGRADE.max} parts. That's an average: replayed, upgrades helped a little (−2.684 against
+        −2.706 with none), but a single team's pace after one moves either way. Next Race shows each team's record.
+      </p>
       <Example>
         Paces of −0.5%, −0.2% and −0.4% in the last three races (most recent first) give
-        <M t={String.raw`\;f = \frac{-0.5 - 0.75 \times 0.2 - 0.5625 \times 0.4}{1 + 0.75 + 0.5625} = -0.38\%`} />.
+        <M t={String.raw`\;f = \frac{-0.5 - 0.65 \times 0.2 - 0.4225 \times 0.4}{1 + 0.65 + 0.4225} = -0.39\%`} />.
       </Example>
     </Section>
   );
@@ -623,7 +660,7 @@ function RaceForecast() {
       </p>
       <Flow label="One simulated race" stages={[
         { label: "In", join: "for each driver", nodes: [
-          { title: "Form", text: "race and qualifying form, last six rounds", kind: "source", section: "form" },
+          { title: "Form", text: "race and qualifying form, this season, the latest rounds counting most", kind: "source", section: "form" },
           { title: "Weekend", text: "this race's qualifying pace and grid, once they're in", kind: "source", section: "qualifying" },
           { title: "DNF rate", text: "their retirements, shrunk to the field's", kind: "source" },
         ] },
@@ -654,15 +691,21 @@ function RaceForecast() {
         penalties; against every 2025–26 race it matched the official grid but for late pit-lane starts). Until that's
         out it's the qualifying order with any announced penalties applied. Before qualifying, an announced penalty costs
         the places it is expected to lose, <M t="n_d" />: its size, but no further than the back from where the driver's
-        pace puts them (all the way for a back-of-the-grid or pit-lane start). Announced penalties are kept by hand
-        (config.py <code>GRID_PENALTIES</code>, from the stewards' documents): no free feed has them before qualifying,
-        and a power unit that will need changing can't be seen in timing data. A sprint's grid has no such penalties.
+        pace puts them (all the way for a back-of-the-grid or pit-lane start). Power-unit penalties are announced by the
+        FIA's "New PU elements" document on the Friday, read automatically; others are kept by hand (config.py{" "}
+        <code>GRID_PENALTIES</code>). A place lost to a penalty counts {PEN_GRID}% rather than <M t="\gamma" />, before
+        the grid and after it (a slot behind where the driver qualified): <M t="\gamma" /> is fitted on ordinary grids,
+        where the slot and the pace go together, and undervalues a penalised car, which is faster than its slot. In 94
+        power-unit penalty starts (2020–25) drivers finished 0.237 places worse per grid place dropped; {PEN_GRID}% gives
+        that in the simulation, <M t="\gamma" /> about 0.1. A penalty that isn't announced yet comes in as a chance (see{" "}
+        <a href="#about/docs/penalties">Power-unit penalties</a>). A sprint's grid has no such penalties.
         Then, for simulation <M t="s" />:
       </p>
       <M block t={String.raw`x_{d,s} = \mu_d + w\,c_{\text{team}(d)} + \delta_{d,s} + \varepsilon_{d,s}, \quad \delta_{d,s} \sim \mathcal{N}\!\left(0,\ (${DRIFT_ROUND}\sqrt{h-1})^2\right), \quad \varepsilon_{d,s} \sim \mathcal{N}\!\left(0,\ \sigma_{\text{session}}^2\right)`} />
       <p>
         <M t="c" /> is the circuit term: how much faster or slower the team was at this circuit last season than its
-        own season median, weighted <M t={`w = ${CIRCUIT}`} /> for races (0 for qualifying). <M t="h" /> is how many
+        own season median, weighted <M t={`w = ${CIRCUIT}`} /> (switched off: the replays found nothing in it, and
+        last season's car isn't this one). <M t="h" /> is how many
         rounds ahead the session is: a round further away has its form drift too, so its odds are flatter. Once a race's
         grid is in, the spread on the day drops to {SD_GRID.R}% (Grand Prix) and {SD_GRID.S}% (Sprint).
       </p>
@@ -722,6 +765,11 @@ function TitleOdds() {
       <M block t={String.raw`\tilde f_{d,s} = f_d + \eta_{d,s}, \quad \eta_{d,s} \sim \mathcal{N}\!\left(0,\ ${DRIFT_SD}^2\right)`} />
       <M block t={String.raw`\text{Points}_{d,s} = \text{Points}^{\text{now}}_d + \sum_{\text{races left}} \text{pts}\big(\text{pos}_{d,s,r}\big), \qquad P(\text{title}_d) \approx \frac{1}{S}\sum_s \mathbf{1}\Big[d = \arg\max_{d'} \text{Points}_{d',s}\Big]`} />
       <p>
+        Power-unit penalties are drawn the same way, race by race: in each simulated season a driver takes one at a Grand
+        Prix with its chance there (<a href="#about/docs/penalties">Power-unit penalties</a>), lower at the rounds after once
+        they have (a fresh pool), and loses the places it costs from where their pace puts them.
+      </p>
+      <p>
         The drift's 0.35% comes from this season: the spread of (a driver's average pace over the next seven races
         minus their form now) is 0.41%, part of which is ordinary race-to-race noise. Without it the title odds were
         overconfident: a leader's chance went too high too early. The title chance chart on the Season page re-runs
@@ -731,7 +779,73 @@ function TitleOdds() {
   );
 }
 
-// ---------------------------------------------------------------- 11. strategy
+// ---------------------------------------------------------------- 11. power-unit penalties
+
+function Penalties() {
+  return (
+    <Section id="penalties">
+      <p>
+        Each season a driver may use a set number of each power-unit element (2026: four combustion engines,
+        turbochargers and exhausts, three MGU-Ks, energy stores and control electronics, six ancillary sets). Every
+        element past that costs grid places in the Grand Prix where it's fitted: 10 for the first of a kind, 5 for each
+        one after, and the back of the grid past 15. Teams choose when: usually a circuit where overtaking is easy, often
+        a whole new unit at once, sometimes with an upgrade. Two free sources say who is where:
+      </p>
+      <ul>
+        <li><b>The FIA's documents.</b> At every event the Technical Delegate publishes each driver's count of every
+          element so far, and which new ones are fitted there, with the allocation ("the fifth of the four ... allowed").
+          The site reads both PDFs (matched by car number), every round since 2022, and archives each event four days
+          after its race. An over-allocation element in the Friday document is an announced penalty for that race.</li>
+        <li><b><a href="https://www.f1penalties.com/data" target="_blank" rel="noreferrer">f1penalties.com</a></b>: every
+          stewards' decision since 2020 (time, grid and drive-through penalties, power-unit and parc fermé grid drops,
+          reprimands, points, fines), which the session pages list and the model's circuits and drop sizes come from. It
+          runs days to weeks behind the FIA, so every update fetches it again; a season is archived once it's over.</li>
+      </ul>
+      <p>
+        <b>The chance of one at each race left.</b> Logistic, fitted on {PU.rows.toLocaleString()} driver-rounds of 2022–26
+        with {PU.changes} over-allocation changes, from the state before the round:
+      </p>
+      <M block t={String.raw`\operatorname{logit}\, h_{d,r} = ${PU.intercept} + ${PU.deficit}\,D_{d,r} ${PU.over}\,O_{d,r} ${PU.left}\,L_r + ${PU.circuit}\,\ln c_r`} />
+      <M block t={String.raw`D_{d,r} = \max_e \Big( \tfrac{R-r+1}{R}\,A_e - (A_e - u_{d,e}) \Big)`} />
+      <p>
+        <M t="D" /> is how many elements short the driver is: the allocation <M t="A_e" /> they'd use on the rounds left at
+        the allocation's own rate, minus what's left of it after the <M t="u_{d,e}" /> used (the worst element). <M t="O" />{" "}
+        is 1 once they've already gone past it this season: the next round's chance drops, as a fresh pool needs nothing
+        for a while. <M t="L" /> is the share of the season left. <M t="c_r" /> is the circuit's factor: how many more
+        power-unit penalties were taken there (2020 to last season) than at the average race, mixed with {PU.prior} races of
+        "average" (Spa ×2.4, Austin ×2.1, Monza ×2.0, Mexico City ×1.7; Singapore ×0.6, Monaco ×0.4). Left one season out,
+        the model scores a log loss of {PU.loss.model} against {PU.loss.circuit} for the circuit alone and {PU.loss.constant}{" "}
+        for a constant.
+      </p>
+      <p>
+        Round by round, the chance of a penalty at <M t="r" /> is <M t="h" /> if they haven't taken one in the rounds before
+        it, and the after-one chance (one element fewer short, <M t="O = 1" />) if they have:
+      </p>
+      <M block t={String.raw`p_{d,r} = \prod_{k<r}(1-h_{d,k})\cdot h_{d,r} + \Big(1-\prod_{k<r}(1-h_{d,k})\Big)\cdot h'_{d,r}`} />
+      <p>
+        <b>Reported plans.</b> When a team says when it will take one (config.py <code>PU_PLANS</code>, with the source),
+        each round named gets at least {Math.round(PU.plan * 100)}% until it's taken: one penalty, at the first of those rounds it doesn't
+        slip past. Once a round's "New PU elements" document is out, a driver it lists past the allocation is certain to
+        take the penalty there, and anyone else keeps {Math.round(PU.late * 100)}% of their chance (a change after qualifying).
+      </p>
+      <p>
+        <b>What it costs.</b> The places come from how big such penalties turn out to be (f1penalties.com, 2022 on): the back
+        of the grid {Math.round(PU.drop.back * 100)}% of the time (pit-lane starts included), 15 places {Math.round(PU.drop[15] * 100)}%, 10{" "}
+        {Math.round(PU.drop[10] * 100)}%, 5 {Math.round(PU.drop[5] * 100)}%, each no further than the back from where the driver's pace puts them,
+        at {PEN_GRID}% of pace a place. The race forecast draws it (all or nothing) in each simulated race; the title odds
+        draw it race by race with the after-one chance once taken.
+      </p>
+      <Example>
+        After Malaysia (round 16) George Russell had used four combustion engines, turbochargers and exhausts and three of
+        everything else: the whole allocation, with seven rounds left, so <M t="D" /> = 7/23 × 4 = 1.2 elements short.
+        The model alone gives 3% at Singapore, 7% at Austin and 24% for the rest of the season; Mercedes said they'd take it with their upgraded
+        engine at Austin or Mexico City, so with the plan it's 58% at Austin, 24% at Mexico City and 86% for the season.
+      </Example>
+    </Section>
+  );
+}
+
+// ---------------------------------------------------------------- 12. strategy
 
 function Strategy() {
   const make = useCallback((width: number) => {
@@ -944,8 +1058,11 @@ function Checking() {
       <p>
         What came out: the weekend's own qualifying and grid are worth the most (the Grand Prix score goes from −2.57
         before the weekend to −1.74 after qualifying, the Sprint's from −3.18 to −1.56); qualifying form is worth more
-        than race form for the next race; the circuit term barely helps in a season of new rules (0 and 0.25 tie for
-        races), and the horizon drift is small. Capping outlier sessions in form ({FORM_CLIP}%) helped every kind: on the
+        than race form for the next race; the circuit term doesn't help (0 and 0.25 tie, so it's off), and the horizon
+        drift is small. The latest re-fit (with practice and upgrades) also tested recency: a longer form window with the
+        latest rounds counting most beat the last two or three rounds alone (Form), this weekend's practice one-lap pace
+        improved qualifying forecasts (−2.80 → −2.71) and through them races (−2.65 → −2.59), long runs didn't, and the
+        FIA's upgrade lists helped a little (−2.706 → −2.684). Capping outlier sessions in form ({FORM_CLIP}%) helped every kind: on the
         same sessions, the Grand Prix before the weekend −2.574 → −2.558, after qualifying −1.807 → −1.799, the Sprint
         −3.159 → −3.141, Qualifying −2.818 → −2.754 and Sprint Qualifying −3.403 → −3.318. The title-odds drift (0.35%) comes from how far form really moved over
         the following seven races.
@@ -960,10 +1077,14 @@ function Limits() {
   return (
     <Section id="limits">
       <ul>
-        <li><b>The forecasts are pace and grid.</b> They know recent race and qualifying pace, the grid once it's set and,
-          lightly, last season at the circuit, and grid penalties once announced; not upgrades, penalties nobody has
-          announced yet or weather (which only enters the strategy forecast). Before a weekend the rounds ahead look alike: last season's circuit form says little after a
-          rule change, and the replays didn't support more.</li>
+        <li><b>The forecasts are pace and grid.</b> They know this season's race and qualifying pace, this weekend's
+          practice one-lap pace, the grid once it's set, the teams' declared upgrades (on average), grid penalties once
+          announced and the chance of a power-unit penalty from each driver's elements and from the news; not last season,
+          other penalties nobody has announced yet or weather (which only enters the strategy forecast). The power-unit
+          model can't see an engine's mileage or damage (a failure that forces a change comes as a surprise until it's
+          reported). News is read from headlines and the feeds' summaries: a penalty counts only when two sites name the
+          driver and the race. Even with all of it, much of a race (Safety Cars, retirements, a slow stop, the weather on
+          the day) stays down to chance: the odds are wide for a reason.</li>
         <li><b>Weather.</b> The rain timeline comes from hourly forecasts at the circuit, so a passing shower can be
           missed, and only the first spell counts. Wet-tyre pace and the drying time are fixed assumptions, and
           teams are assumed to know when the rain stops.</li>

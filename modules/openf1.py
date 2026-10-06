@@ -444,6 +444,8 @@ class Session:
         })
         if self.code in config.QUALI_CODES:
             return self._quali_results(res, result)
+        if self.code in config.PRACTICE_CODES:
+            return self._practice_results(res, result)
         if not result.empty:
             r = result.drop_duplicates("driver_number").set_index(result["driver_number"].astype(str))
             res["Position"] = res["DriverNumber"].map(r["position"])
@@ -492,6 +494,25 @@ class Session:
             res["Status"] = np.where(flag("dsq"), "Disqualified", np.where(flag("dns"), "Did not start", ""))
             res["ClassifiedPosition"] = res["Position"].map(lambda p: str(int(p)) if pd.notna(p) else "")
         res["GridPosition"] = np.nan
+        res["Laps"] = res["DriverNumber"].map(self.laps.groupby("DriverNumber")["LapNumber"].max())
+        return res.sort_values("Position", na_position="last").reset_index(drop=True)
+
+    def _practice_results(self, res: pd.DataFrame, result: pd.DataFrame) -> pd.DataFrame:
+        """Practice classification: position and best lap (Timedelta; OpenF1's `duration`), else the
+        timing's own best laps."""
+        best = self.laps[self.laps["LapTime"].notna()].groupby("DriverNumber")["LapTime"].min()
+        res["Time"] = res["DriverNumber"].map(best).map(lambda t: pd.Timedelta(seconds=float(t)) if pd.notna(t) else pd.NaT)
+        res["Position"] = res["Time"].rank(method="first")
+        if not result.empty:
+            r = result.drop_duplicates("driver_number").set_index(result["driver_number"].astype(str))
+            if "position" in r and r["position"].notna().any():
+                res["Position"] = res["DriverNumber"].map(r["position"])
+            if "duration" in r:
+                t = res["DriverNumber"].map(r["duration"]).map(
+                    lambda d: pd.Timedelta(seconds=float(d)) if isinstance(d, (int, float)) and pd.notna(d) else pd.NaT)
+                res["Time"] = t.where(t.notna(), res["Time"])
+        res["Points"], res["Status"], res["GridPosition"] = np.nan, "", np.nan
+        res["ClassifiedPosition"] = res["Position"].map(lambda p: str(int(p)) if pd.notna(p) else "")
         res["Laps"] = res["DriverNumber"].map(self.laps.groupby("DriverNumber")["LapNumber"].max())
         return res.sort_values("Position", na_position="last").reset_index(drop=True)
 

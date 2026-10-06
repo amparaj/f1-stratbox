@@ -18,25 +18,36 @@ export function rows<T = Row>(cols: Columns | undefined | null): T[] {
   return out;
 }
 
-/** A weekend's sessions: Grand Prix, Sprint, Qualifying, Sprint Qualifying. */
+/** A weekend's competitive sessions (the ones with forecasts): Grand Prix, Sprint, Qualifying, Sprint Qualifying. */
 export type SessionCode = "R" | "S" | "Q" | "SQ";
-export const SESSION_LABEL: Record<SessionCode, string> = { R: "Grand Prix", S: "Sprint", Q: "Qualifying", SQ: "Sprint Qualifying" };
+/** Free practice: analysed, not forecast. */
+export type PracticeCode = "FP1" | "FP2" | "FP3";
+export type AnySession = SessionCode | PracticeCode;
+export const SESSION_LABEL: Record<AnySession, string> = { R: "Grand Prix", S: "Sprint", Q: "Qualifying", SQ: "Sprint Qualifying", FP1: "Practice 1", FP2: "Practice 2", FP3: "Practice 3" };
 /** Short labels for chips and phones. */
-export const SESSION_SHORT: Record<SessionCode, string> = { R: "GP", S: "Sprint", Q: "Quali", SQ: "Sprint Quali" };
+export const SESSION_SHORT: Record<AnySession, string> = { R: "GP", S: "Sprint", Q: "Quali", SQ: "Sprint Quali", FP1: "FP1", FP2: "FP2", FP3: "FP3" };
 /** Running order on a sprint weekend (a conventional one has Q and R only). */
 export const WEEKEND_ORDER: SessionCode[] = ["SQ", "S", "Q", "R"];
-export const isQuali = (c: SessionCode) => c === "Q" || c === "SQ";
-const UTC_KEY = { R: "race_utc", S: "sprint_utc", Q: "quali_utc", SQ: "sprint_quali_utc" } as const;
+export const PRACTICE: PracticeCode[] = ["FP1", "FP2", "FP3"];
+export const isQuali = (c: AnySession) => c === "Q" || c === "SQ";
+export const isPractice = (c: AnySession): c is PracticeCode => c === "FP1" || c === "FP2" || c === "FP3";
+const UTC_KEY = { R: "race_utc", S: "sprint_utc", Q: "quali_utc", SQ: "sprint_quali_utc", FP1: "fp1_utc", FP2: "fp2_utc", FP3: "fp3_utc" } as const;
 
 /** The weekend's sessions in running order (files from before qualifying was exported know only S and R). */
 export function weekendSessions(e: CalendarEvent): SessionCode[] {
   return WEEKEND_ORDER.filter((c) => (c === "R" ? true : !!e[UTC_KEY[c]]));
 }
-export const sessionStart = (e: CalendarEvent, c: SessionCode) => e[UTC_KEY[c]] ?? null;
-const DONE_KEY = { R: "done_R", S: "done_S", Q: "done_Q", SQ: "done_SQ" } as const;
-export const sessionDone = (e: CalendarEvent, c: SessionCode) => !!e[DONE_KEY[c]];
+export const sessionStart = (e: CalendarEvent, c: AnySession) => e[UTC_KEY[c]] ?? null;
+const DONE_KEY = { R: "done_R", S: "done_S", Q: "done_Q", SQ: "done_SQ", FP1: "done_FP1", FP2: "done_FP2", FP3: "done_FP3" } as const;
+export const sessionDone = (e: CalendarEvent, c: AnySession) => !!e[DONE_KEY[c]];
 /** The URL of a finished session: #races/16 is the Grand Prix, #races/16/S the sprint. */
-export const sessionHash = (round: number, c: SessionCode) => `races/${round}${c === "R" ? "" : `/${c}`}`;
+export const sessionHash = (round: number, c: AnySession) => `races/${round}${c === "R" ? "" : `/${c}`}`;
+/** Every session of a weekend, practice included, in the order they run. */
+export function weekendAll(e: CalendarEvent): AnySession[] {
+  const fp = PRACTICE.filter((c) => !!e[UTC_KEY[c]]);
+  const all: AnySession[] = [...fp, ...weekendSessions(e)];
+  return all.sort((a, b) => (sessionStart(e, a) ?? "").localeCompare(sessionStart(e, b) ?? ""));
+}
 
 export interface CalendarEvent {
   round: number;
@@ -48,6 +59,12 @@ export interface CalendarEvent {
   sprint_utc: string | null;
   quali_utc?: string | null;
   sprint_quali_utc?: string | null;
+  fp1_utc?: string | null;
+  fp2_utc?: string | null;
+  fp3_utc?: string | null;
+  done_FP1?: boolean;
+  done_FP2?: boolean;
+  done_FP3?: boolean;
   /** The circuit's position, for the live rain radar (absent in files from before it). */
   lat?: number | null;
   lon?: number | null;
@@ -65,7 +82,31 @@ export interface CalendarEvent {
   sprint_pole_color?: string | null;
 }
 
-export interface SessionRef { id: string; round: number; code: SessionCode; complete: boolean }
+export interface SessionRef { id: string; round: number; code: AnySession; complete: boolean }
+
+/** One finished practice session (site_export.export_practice). */
+export interface PracticeRow {
+  position: number; driver: string; name: string | null; team: string; color: string; second_driver: boolean;
+  best: number | null; gap: number | null; compound: string | null; laps: number;
+  one_lap: number | null; long_run: number | null; long_laps: number;
+}
+export interface RunRow { driver: string; stint: number; compound: string; first: number; last: number; laps: number; median: number; deg: number | null; pace: number }
+export interface Practice {
+  id: string; round: number; code: PracticeCode; label: string; event: string; location: string; country: string;
+  start_utc: string | null; session_name: string; complete: boolean; sources?: Record<string, string>;
+  results: Columns; runs: Columns; trace: Columns; insights: string[];
+  penalties?: WeekendPenalties; upgrades?: Columns;
+}
+/** One upgrade item from the FIA's Car Presentation Submissions. */
+export interface UpgradeRow { round?: number; team: string; team_name: string; item: number; component: string; reason: string; text: string }
+/** news.json: the scanned F1 news and the season's upgrades. */
+export interface NewsItem {
+  id: string; source: string; title: string; link: string; published: string; summary: string;
+  topics: string[]; drivers: string[]; teams: string[]; rounds: number[];
+}
+export interface News {
+  generated: string; feeds: string[]; items: Columns; upgrades: Columns; upgrade_effect: Columns;
+}
 
 export interface DriverStanding {
   position: number; driver: string; name: string; team: string; color: string;
@@ -95,6 +136,41 @@ export interface ResultRow {
   second_driver: boolean; grid: number | null; pit_lane_start: boolean; position: number | null;
   classified: boolean; status: string; points: number; laps: number; gap: number | null;
   best_lap: number | null; pace: number | null; dnf: boolean; dns: boolean;
+  /** Where they qualified for this race (its Qualifying, or Sprint Qualifying for a sprint). */
+  quali?: number | null;
+}
+
+/** One stewards' decision (f1penalties.com). */
+export interface PenaltyRow {
+  session: string; driver: string; code: string | null; team: string; kind: "pu" | "parc_ferme" | "other";
+  allegation: string; detail: string | null; involving: string | null; outcome: string | null;
+  time_s: number | null; grid: number | string | null; points: number | null; fine: number | null; notes: string | null;
+}
+/** A round's stewards' decisions and new power-unit elements, on every session file of the weekend. */
+export interface WeekendPenalties {
+  decisions: Columns;
+  /** Each car that fitted new elements: the elements (one entry each), its count of each after, and the grid drop. */
+  pu_fitted: { driver: string; elements: string[]; drop: number | string | null; after: Record<string, number> }[];
+  limits: Record<string, number>;
+  pu_doc: boolean;
+  /** The last round of the season f1penalties.com has. */
+  stewards_round: number | null;
+}
+/** power-units.json: elements used against the allocation, and the chance of a penalty at each Grand Prix left. */
+export interface PowerUnitDriver {
+  driver: string; team: string | null; color: string | null; short: number; at_limit: string[];
+  penalties: number; penalty_rounds: number[];
+  p_next: number | null; p_season: number | null; likely_round: number | null; likely_p: number | null;
+  announced: number | string | null;
+  /** Reported plans: a team's statement (kept by hand) or the news (2+ sites), each one penalty. */
+  plans: { rounds: number[]; kind: "team" | "news" | null; note: string | null; links: { source: string; title?: string | null; link: string; published?: string }[] }[];
+  [element: string]: unknown;
+}
+export interface PowerUnits {
+  season: number; generated: string; next_round: number | null;
+  elements: string[]; names: Record<string, string>; limits: Record<string, number>;
+  fia_round: number | null; fia_sources: string[]; stewards_round: number | null;
+  drivers: Columns; risk: Columns; circuits: Record<string, number>;
 }
 export interface LapRow {
   driver: string; lap: number; pos: number; gap: number | null; lap_time: number | null;
@@ -122,6 +198,10 @@ export interface Race {
   results: Columns; laps: Columns; stints: Columns; deg: Columns;
   compounds: CompoundModel[];
   insights: string[];
+  /** The weekend's stewards' decisions and new power-unit elements (newer files). */
+  penalties?: WeekendPenalties;
+  /** The weekend's upgrades (the FIA's Car Presentation Submissions). */
+  upgrades?: Columns;
 }
 
 /** A qualifying session: Q1/Q2/Q3, sectors, ideal laps, track evolution, cut-offs. */
@@ -147,6 +227,8 @@ export interface Quali {
   cutoff: { q1: number | null; q2: number | null }; to_q2: number;
   weather: { air?: [number, number]; track?: [number, number]; rain?: boolean };
   insights: string[];
+  penalties?: WeekendPenalties;
+  upgrades?: Columns;
 }
 
 export interface ForecastDriver {
@@ -164,6 +246,11 @@ export interface ForecastDriver {
   circuit_term?: number; grid_term?: number; penalty_places?: number; penalty_term?: number;
   /** An announced grid penalty: places back, or "back" / "pit". */
   penalty?: number | string | null;
+  /** Power-unit penalty risk (Grand Prix, before the grid): the chance of one here, the places it
+   * would cost, and the expected term (%, in `pace`). */
+  pu_risk?: number; pu_places?: number; pu_term?: number;
+  /** Performance parts the team brings (the FIA's list) and their term (%); whether this weekend's practice is in. */
+  upgrade_items?: number; upgrade_term?: number; practice?: boolean;
 }
 export interface QualiForecastDriver {
   driver: string; team: string; color: string; pace: number; circuit?: number | null;
@@ -248,7 +335,7 @@ export function load<T>(path: string): Promise<T | null> {
   return cache.get(path)! as Promise<T | null>;
 }
 
-export const raceFile = (round: number, code: SessionCode) => `races/r${String(round).padStart(2, "0")}-${code}.json`;
+export const raceFile = (round: number, code: AnySession) => `races/r${String(round).padStart(2, "0")}-${code}.json`;
 export const forecastFile = (round: number) => `forecasts/r${String(round).padStart(2, "0")}.json`;
 
 /** One driver's fastest lap on the session's shared distance axis (every `step` metres). */

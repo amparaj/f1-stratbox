@@ -7,7 +7,7 @@ GitHub Action can ask cheaply before installing anything.
 Prints "yes" or "no" (and writes `update=true|false` to $GITHUB_OUTPUT when set). Yes when:
   * the site has no meta.json yet;
   * a session (Grand Prix, Sprint, Qualifying, Sprint Qualifying: a qualifying result moves the
-    race forecasts onto the grid) isn't published but has finished: OpenF1 shows its last
+    race forecasts onto the grid; or a practice session, which moves them too) isn't published but has finished: OpenF1 shows its last
     chequered flag (qualifying shows three; config.session_finished: FINISH_SETTLE_MIN ago),
     or LATEST_FINISH_H have passed since the
     start without one. It's checked from EARLIEST_FINISH_MIN after the start, until RETRY_DAYS
@@ -17,29 +17,51 @@ Prints "yes" or "no" (and writes `update=true|false` to $GITHUB_OUTPUT when set)
     data not out yet), and the last export is REFRESH_MINUTES old;
   * the next race is within WEATHER_DAYS and its weather forecast (Open-Meteo, in the
     strategy forecast) is WEATHER_REFRESH_HOURS old;
+  * the penalty sources changed since the export, checked once it's PENALTY_CHECK_MINUTES old:
+    f1penalties.com's rows for the season (it catches up on the FIA days to weeks late) or the
+    FIA's power-unit documents of its latest event (a "New PU elements" document is an announced
+    grid penalty; modules/penalties.py);
+  * the export is NEWS_REFRESH_HOURS old (the F1 news: reported penalties and upgrades);
   * the site's data is more than MAX_AGE_DAYS old (calendar changes, code fixes).
 """
 import datetime as dt
+import hashlib
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.parse
 import urllib.request
 
 # Copies of config.py's finish rules (this script runs before anything is installed).
-EARLIEST_FINISH_MIN = {"R": 75, "S": 25, "Q": 55, "SQ": 40}
-CHEQUERED_FLAGS = {"R": 1, "S": 1, "Q": 3, "SQ": 3}
+EARLIEST_FINISH_MIN = {"R": 75, "S": 25, "Q": 55, "SQ": 40, "FP1": 55, "FP2": 55, "FP3": 55}
+CHEQUERED_FLAGS = {"R": 1, "S": 1, "Q": 3, "SQ": 3, "FP1": 1, "FP2": 1, "FP3": 1}
 FINISH_SETTLE_MIN = 5
-LATEST_FINISH_H = {"R": 6, "S": 6, "Q": 3, "SQ": 3}
-SESSION_NAMES = {"R": ("Race",), "S": ("Sprint",), "Q": ("Qualifying",), "SQ": ("Sprint Qualifying", "Sprint Shootout")}
-UTC_KEY = {"SQ": "sprint_quali_utc", "S": "sprint_utc", "Q": "quali_utc", "R": "race_utc"}
+LATEST_FINISH_H = {"R": 6, "S": 6, "Q": 3, "SQ": 3, "FP1": 3, "FP2": 3, "FP3": 3}
+SESSION_NAMES = {"R": ("Race",), "S": ("Sprint",), "Q": ("Qualifying",), "SQ": ("Sprint Qualifying", "Sprint Shootout"),
+                 "FP1": ("Practice 1",), "FP2": ("Practice 2",), "FP3": ("Practice 3",)}
+UTC_KEY = {"SQ": "sprint_quali_utc", "S": "sprint_utc", "Q": "quali_utc", "R": "race_utc",
+           "FP1": "fp1_utc", "FP2": "fp2_utc", "FP3": "fp3_utc"}
+# The news (modules/news.py: power-unit penalties, upgrades) moves between sessions too.
+NEWS_REFRESH_HOURS = 12
 RETRY_DAYS = 4
 REFRESH_MINUTES = 50
 MAX_AGE_DAYS = 7
 WEATHER_DAYS = 4
 WEATHER_REFRESH_HOURS = 6
 OPENF1 = "https://api.openf1.org/v1/"
+# Copies of modules/penalties.py's (keep them in step): f1penalties.com's CSV export, the FIA's
+# documents page (it lists the latest event's) and the power-unit documents' file names.
+PENALTY_CHECK_MINUTES = 60
+F1PEN_URL = "https://www.f1penalties.com/_dash-update-component"
+F1PEN_EXPORT = {"output": "download-csv.data", "outputs": {"id": "download-csv", "property": "data"},
+                "inputs": [{"id": "btn-export-csv", "property": "n_clicks", "value": 1}],
+                "changedPropIds": ["btn-export-csv.n_clicks"], "state": []}
+FIA_ROOT = "https://www.fia.com"
+FIA_F1 = FIA_ROOT + "/documents/championships/fia-formula-one-world-championship-14"
+PU_DOC = re.compile(r"(pu[ _]elements[ _]used|new[ _]pu[ _]elements)", re.I)
+HEADERS = {"User-Agent": "Mozilla/5.0 (f1-stratbox; +https://amparaj.github.io/f1-stratbox/)"}
 
 
 def _get_json(path: str, **params):
@@ -79,6 +101,47 @@ def finished(code: str, start: dt.datetime, now: dt.datetime) -> bool:
     return flag is not None and now >= flag + dt.timedelta(minutes=FINISH_SETTLE_MIN)
 
 
+def stewards_fingerprint(year: int) -> str | None:
+    """penalties.stewards_fingerprint, from a fresh export of f1penalties.com."""
+    req = urllib.request.Request(F1PEN_URL, data=json.dumps(F1PEN_EXPORT).encode(),
+                                 headers={**HEADERS, "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            text = json.load(r)["response"]["download-csv"]["data"]["content"]
+    except Exception as exc:  # noqa: BLE001 — site down: try again next run
+        print(f"  (f1penalties.com: {exc})")
+        return None
+    lines = sorted(line.strip() for line in text.splitlines() if line.startswith(f"{year},"))
+    return hashlib.sha1("\n".join(lines).encode()).hexdigest()[:16]
+
+
+def fia_pu_docs() -> set[str] | None:
+    """The power-unit documents on the FIA's page (its latest event's), as full URLs."""
+    try:
+        with urllib.request.urlopen(urllib.request.Request(FIA_F1, headers=HEADERS), timeout=60) as r:
+            html = r.read().decode("utf-8", "replace")
+    except Exception as exc:  # noqa: BLE001
+        print(f"  (fia.com: {exc})")
+        return None
+    hrefs = re.findall(r'href="([^"]+\.pdf)"', html)
+    return {FIA_ROOT + h if h.startswith("/") else h for h in hrefs if PU_DOC.search(h)}
+
+
+def penalty_reasons(meta: dict, now: dt.datetime) -> list[str]:
+    seen = meta.get("penalties")
+    if not seen:
+        return []
+    out = []
+    fp = stewards_fingerprint(meta["season"])
+    if fp and fp != seen.get("stewards"):
+        out.append("f1penalties.com has new or changed decisions this season")
+    docs = fia_pu_docs()
+    new = sorted(docs - set(seen.get("fia_docs", []))) if docs else []
+    if new:
+        out.append(f"{len(new)} new FIA power-unit document(s): {new[0].rsplit('/', 1)[-1]}")
+    return out
+
+
 def reasons(meta: dict | None, now: dt.datetime) -> list[str]:
     if meta is None:
         return ["nothing published yet"]
@@ -110,6 +173,10 @@ def reasons(meta: dict | None, now: dt.datetime) -> list[str]:
         out.append(f"the weather forecast for the race on {min(soon):%a %d %b} is {age.total_seconds() / 3600:.0f} h old")
     if age > dt.timedelta(days=MAX_AGE_DAYS):
         out.append(f"data is {age.days} days old")
+    elif age > dt.timedelta(hours=NEWS_REFRESH_HOURS):
+        out.append(f"the news is {age.total_seconds() / 3600:.0f} h old")
+    if not out and age > dt.timedelta(minutes=PENALTY_CHECK_MINUTES):
+        out += penalty_reasons(meta, now)
     return out
 
 

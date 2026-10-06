@@ -6,3 +6,6 @@ __pycache__/
 .jolpica/
 .openmeteo/
 .calibration/
+.f1penalties/
+.fia/
+.news/

@@ -2,6 +2,8 @@ import * as Plot from "@observablehq/plot";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { color } from "../colors";
 import { ChanceBars, DriverChip, Plan, SessionBadge } from "../components/f1";
+import { PowerUnitOutlook } from "../components/Penalties";
+import { NewsFeed, UpgradeTracker } from "../components/Upgrades";
 import { liveSession, Radar, useNow } from "../components/Radar";
 import { FORM_CLIP, WhyOdds } from "../components/WhyOdds";
 import { Chart, Legend, Loading, Note, plotDefaults, Segmented, Table, Tiles } from "../components/ui";
@@ -101,6 +103,9 @@ export default function NextRace() {
       )}
       {code === "R" && forecast.strategy?.weather && <Weather w={forecast.strategy.weather} start={ev.race_utc} minutes={95} />}
       {code === "R" && forecast.strategy && <Strategy s={forecast.strategy} />}
+      {code === "R" && <PowerUnitOutlook round={ev.round} />}
+      <UpgradeTracker round={ev.round} />
+      <NewsFeed round={ev.round} />
       {code === "S" && forecast.sprint_strategy?.weather && <Weather w={forecast.sprint_strategy.weather} start={ev.sprint_utc} minutes={32} />}
       {code === "S" && forecast.sprint_strategy && <Strategy s={forecast.sprint_strategy} />}
       <SeasonAhead upcoming={upcoming} />
@@ -132,6 +137,7 @@ function RaceOdds({ forecast, code, ahead }: { forecast: Forecast; code: "R" | "
   const grid = drivers.some((d) => d.grid != null);
   const circuit = drivers.some((d) => d.circuit != null);
   const penalty = drivers.some((d) => d.penalty != null);
+  const puRisk = !grid && drivers.some((d) => (d.pu_risk ?? 0) >= 0.01);
   const name = code === "S" ? "sprint" : "race";
   return (
     <section>
@@ -141,7 +147,8 @@ function RaceOdds({ forecast, code, ahead }: { forecast: Forecast; code: "R" | "
         pace (sprints count three-quarters) blended with qualifying pace, a session more than {FORM_CLIP}% off a
         driver's usual pace capped as an outlier{circuit ? ", plus how their team went at this circuit last season" : ""}
         {grid ? <>, and the grid from this weekend's {after.at(-1)}, grid penalties applied (track position is worth something)</> : ""}
-        {!grid && penalty ? ", and announced grid penalties (the places they're expected to lose)" : ""}.
+        {!grid && penalty ? ", and announced grid penalties (the places they're expected to lose)" : ""}
+        {puRisk ? ", and each driver's chance of a power-unit grid penalty here (drawn race by race: see Power-Unit Penalties below)" : ""}.
         Retirements come from their (shrunk) DNF rate{code === "S" ? ", lower over a sprint's shorter distance" : ""}.
         {code === "S" ? " Points go to the top eight (8 to 1)." : ""}{which === "pre" ? aheadText(ahead) : ""}
       </p>
@@ -170,6 +177,7 @@ function RaceOdds({ forecast, code, ahead }: { forecast: Forecast; code: "R" | "
           ...(circuit ? [{ key: "circuit", label: "Circuit", title: "The team's pace here last season against its season average (negative = better here)", value: (d: ForecastDriver) => -(d.circuit ?? 0), render: (d: ForecastDriver) => (d.circuit == null ? "–" : `${signed(d.circuit, 2)}%`), numeric: true }] : []),
           ...(grid ? [{ key: "grid", label: "Grid", value: (d: ForecastDriver) => d.grid ?? 99, render: (d: ForecastDriver) => d.grid ?? "–", numeric: true, rank: true }] : []),
           ...(penalty ? [{ key: "penalty", label: "Penalty", title: "Announced grid penalty: places back, back of the grid or a pit-lane start", value: (d: ForecastDriver) => d.penalty_places ?? 0, render: (d: ForecastDriver) => (d.penalty == null ? "–" : d.penalty === "back" ? "Back" : d.penalty === "pit" ? "Pit lane" : `+${d.penalty}`), numeric: true }] : []),
+          ...(puRisk ? [{ key: "pu_risk", label: "PU risk", title: "Chance of a power-unit grid penalty at this race (not announced yet)", value: (d: ForecastDriver) => d.pu_risk ?? 0, render: (d: ForecastDriver) => ((d.pu_risk ?? 0) >= 0.005 ? pct(d.pu_risk) : "–"), numeric: true }] : []),
           { key: "p_win", label: "Win", value: (d) => d.p_win, render: (d) => pct(d.p_win), numeric: true },
           { key: "p_podium", label: "Podium", value: (d) => d.p_podium, render: (d) => pct(d.p_podium), numeric: true },
           { key: "p_points", label: "Points", value: (d) => d.p_points, render: (d) => pct(d.p_points), numeric: true },

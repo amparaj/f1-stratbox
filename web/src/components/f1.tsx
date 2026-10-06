@@ -5,7 +5,7 @@
 import * as Plot from "@observablehq/plot";
 import { useCallback } from "react";
 import { color } from "../colors";
-import { SESSION_LABEL, SESSION_SHORT, type LapRow, type ResultRow, type SessionCode, type StintRow } from "../data";
+import { SESSION_LABEL, SESSION_SHORT, type AnySession, type LapRow, type ResultRow, type StintRow } from "../data";
 import { Chart, plotDefaults } from "./ui";
 
 export const COMPOUND: Record<string, { name: string; color: string; ink: string }> = {
@@ -34,7 +34,7 @@ export function DriverChip({ code, color: bg, title }: { code: string; color?: s
 }
 
 /** Which kind of session: Grand Prix, Sprint, Qualifying, Sprint Qualifying (text and a tint, never colour alone). */
-export function SessionBadge({ code, short }: { code: SessionCode; short?: boolean }) {
+export function SessionBadge({ code, short }: { code: AnySession; short?: boolean }) {
   return <span className={`session-badge session-${code}`} title={SESSION_LABEL[code]}>{short ? SESSION_SHORT[code] : SESSION_LABEL[code]}</span>;
 }
 

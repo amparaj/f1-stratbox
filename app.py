@@ -32,7 +32,7 @@ def home() -> None:
                "live second-screen tactics · future-race planning")
 
     c1, c2, c3 = st.columns(3)
-    c4, c5, _ = st.columns(3)
+    c4, c5, c6 = st.columns(3)
     with c1, st.container(border=True):
         st.markdown("#### 📝 Race Recap")
         st.markdown("Track replay of every car from its telemetry, fuel-corrected tyre degradation per "
@@ -63,6 +63,12 @@ def home() -> None:
                     "lap, the time delta, who was faster through each corner on a track map, and "
                     "how much of each lap was flat out, braking and cornering.")
         st.page_link("pages/5_Telemetry.py", label="Open Telemetry", icon="➡️")
+    with c6, st.container(border=True):
+        st.markdown("#### 🔧 Practice")
+        st.markdown("FP1, FP2 and FP3: the timesheet, one-lap pace from the qualifying simulations, "
+                    "and every long run fuel corrected with its tyre wear: who looks quick over a race "
+                    "stint before anyone has qualified.")
+        st.page_link("pages/6_Practice.py", label="Open Practice", icon="➡️")
 
     st.markdown("---")
     left, right = st.columns([3, 2])
@@ -70,8 +76,9 @@ def home() -> None:
         st.markdown("##### Getting started")
         st.markdown(
             "1. Pick a season, Grand Prix and session in the sidebar of any page and press "
-            "**Load session**. A sprint weekend has four sessions (Sprint Qualifying, Sprint, "
-            "Qualifying, Grand Prix), a conventional one two. The choice carries across all pages: "
+            "**Load session**. A sprint weekend has Practice 1 then four sessions (Sprint Qualifying, "
+            "Sprint, Qualifying, Grand Prix), a conventional one three practices, Qualifying and the "
+            "Grand Prix. The choice carries across all pages: "
             "the race pages show the race a qualifying pick set the grid for, and the Qualifying "
             "page the qualifying for a race.\n"
             "2. The first load of a session downloads from the F1 timing API (around 30–90 s); "
@@ -99,5 +106,6 @@ pages = [
     st.Page("pages/3_Future_Sandbox.py", title="Future Sandbox", icon="🧪"),
     st.Page("pages/4_Qualifying.py", title="Qualifying", icon="⏱️"),
     st.Page("pages/5_Telemetry.py", title="Telemetry", icon="📈"),
+    st.Page("pages/6_Practice.py", title="Practice", icon="🔧"),
 ]
 st.navigation(pages).run()

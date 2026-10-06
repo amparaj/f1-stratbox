@@ -18,6 +18,8 @@ export interface WhyDriver {
   race_form?: number | null; quali_form?: number | null; quali_share?: number;
   circuit?: number | null; circuit_term?: number; grid?: number | null; grid_term?: number;
   penalty?: number | string | null; penalty_places?: number; penalty_term?: number;
+  pu_risk?: number; pu_places?: number; pu_term?: number;
+  upgrade_items?: number; upgrade_term?: number; practice?: boolean;
 }
 
 interface Term { key: string; label: string; raw?: string; value: number }
@@ -41,11 +43,17 @@ export function terms(d: WhyDriver, race: boolean, why: ForecastWhy | null): Ter
   if (hasR) out.push({ key: "race", label: "Race form", raw: `${signed(d.race_form, 2)}% × ${pct(wR)}`, value: d.race_form! * wR });
   if (hasQ) {
     const weekend = race && why?.quali_source === "weekend";
-    out.push({ key: "quali", label: weekend ? "This weekend's qualifying" : "Qualifying form", raw: `${signed(d.quali_form, 2)}% × ${pct(wQ)}`, value: d.quali_form! * wQ });
+    out.push({ key: "quali", label: weekend ? "This weekend's qualifying" : d.practice ? "Qualifying form, with this weekend's practice" : "Qualifying form", raw: `${signed(d.quali_form, 2)}% × ${pct(wQ)}`, value: d.quali_form! * wQ });
   }
   if (d.circuit_term) out.push({ key: "circuit", label: "Team at this circuit last season", raw: d.circuit != null ? `${signed(d.circuit, 2)}%, part counted` : undefined, value: d.circuit_term });
   if (d.grid != null && d.grid_term != null) out.push({ key: "grid", label: "Grid slot", raw: `P${d.grid}`, value: d.grid_term });
-  if (d.penalty_term) out.push({ key: "penalty", label: "Announced grid penalty", raw: penaltyText(d.penalty), value: d.penalty_term });
+  if (d.penalty_term) {
+    out.push(d.grid != null
+      ? { key: "penalty", label: "Grid penalty", raw: `${d.penalty_places} place${d.penalty_places === 1 ? "" : "s"} behind qualifying`, value: d.penalty_term }
+      : { key: "penalty", label: "Announced grid penalty", raw: penaltyText(d.penalty), value: d.penalty_term });
+  }
+  if (d.upgrade_term) out.push({ key: "upgrade", label: "Upgrades this weekend", raw: `${d.upgrade_items} performance part${d.upgrade_items === 1 ? "" : "s"}`, value: d.upgrade_term });
+  if (d.pu_term) out.push({ key: "pu", label: "Power-unit penalty risk", raw: `${pct(d.pu_risk)} chance × ~${Math.round(d.pu_places ?? 0)} places`, value: d.pu_term });
   return out;
 }
 

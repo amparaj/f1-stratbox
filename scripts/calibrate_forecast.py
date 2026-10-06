@@ -32,7 +32,7 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
 import config  # noqa: E402
-from modules import data_engine as de, forecast as fc, site_export  # noqa: E402
+from modules import data_engine as de, forecast as fc, practice as pr, site_export, upgrades as up  # noqa: E402
 
 CACHE = ROOT / ".calibration" / "sessions.pkl"
 SIMS = 4000
@@ -45,6 +45,11 @@ FLOOR = 1.0 / (2 * SIMS)
 def summarise(year: int, ev: dict, code: str) -> dict:
     """What a replay needs from one session: pace, result order, grid, teams, retirements."""
     event = ev["event"]
+    if code in config.PRACTICE_CODES:
+        sp = pr.session_pace(de.get_all_laps(year, event, code))
+        return {"year": year, "round": ev["round"], "code": code, "circuit": site_export.circuit_key(ev["location"]),
+                "pace": pd.Series(dtype=float), "practice": sp, "order": [], "teams": pd.Series(dtype=object),
+                "grid": None, "dnf": None}
     if code in config.QUALI_CODES:
         res = de.get_quali_results(year, event, code)
         return {"year": year, "round": ev["round"], "code": code, "circuit": site_export.circuit_key(ev["location"]),
@@ -71,7 +76,7 @@ def load(years: list[int]) -> list[dict]:
     now = pd.Timestamp.now(tz="UTC")
     for year in years:
         for ev in site_export.calendar(year):
-            for code in config.WEEKEND_ORDER:
+            for code in ORDER:
                 start = ev.get(site_export.UTC_KEY[code])
                 if (year, ev["round"], code) in done or not start or pd.Timestamp(start) > now - dt.timedelta(days=1):
                     continue
@@ -88,8 +93,34 @@ def load(years: list[int]) -> list[dict]:
 # ---------------------------------------------------------------------------
 # Replay
 # ---------------------------------------------------------------------------
+ORDER = config.ALL_SESSIONS        # practice first, then the weekend's competitive sessions
+
+
 def key(s: dict) -> tuple[int, int]:
-    return s["round"], config.WEEKEND_ORDER.index(s["code"])
+    return s["round"], ORDER.index(s["code"])
+
+
+UPGRADES: dict[int, pd.DataFrame] = {}
+
+
+def upgrade_items(target: dict) -> pd.Series | None:
+    """Performance items each driver's team brought to the target's round (the FIA's lists)."""
+    y = target["year"]
+    if y not in UPGRADES:
+        try:
+            UPGRADES[y] = up.performance_counts(up.season_upgrades(y))
+        except Exception:  # noqa: BLE001 — no lists for that season
+            UPGRADES[y] = pd.DataFrame()
+    c = UPGRADES[y]
+    if c.empty or target["round"] not in c.index:
+        return None
+    team = target["teams"].map(lambda t: fc.team_now(t) if isinstance(t, str) else t)
+    return team.map(c.loc[target["round"]]).fillna(0.0)
+
+
+def weekend_practice(sessions: list[dict], rnd: int) -> dict | None:
+    fp = {s["code"]: s["practice"] for s in sessions if s["round"] == rnd and s["code"] in config.PRACTICE_CODES}
+    return pr.weekend_practice(fp) if fp else None
 
 
 def form_of(sessions: list[dict], codes: tuple[str, ...]) -> pd.Series:
@@ -111,9 +142,17 @@ def circuit_terms(prev: list[dict], circuit: str, code: str) -> pd.Series | None
 
 def forecast_for(target: dict, season: list[dict], prev: list[dict], horizon: int | str, seed: int) -> pd.DataFrame | None:
     """The forecast for `target` made `horizon` rounds ahead (1: before its weekend, from the
-    rounds before), or "weekend": just before it, this weekend's earlier sessions and grid in."""
-    if horizon == "weekend":
+    rounds before), "practice": after this weekend's practice (nothing competitive yet), or
+    "weekend": just before it, this weekend's earlier sessions (practice too) and grid in."""
+    practice = None
+    if horizon == "practice":
+        before = [s for s in season if s["round"] < target["round"]]
+        practice = weekend_practice(season, target["round"])
+        if practice is None:
+            return None
+    elif horizon == "weekend":
         before = [s for s in season if key(s) < key(target)]
+        practice = weekend_practice(season, target["round"])
     else:
         before = [s for s in season if s["round"] <= target["round"] - horizon]
     if not any(s["code"] == "R" for s in before):
@@ -126,19 +165,20 @@ def forecast_for(target: dict, season: list[dict], prev: list[dict], horizon: in
         q = next((s for s in before if s["round"] == target["round"] and s["code"] == config.QUALI_OF_RACE[code]), None)
         weekend = q["pace"] if q is not None else None
         grid = target["grid"]
-    pace = fc.expected_pace(code, race_form, quali_form, weekend)
+    pace = fc.expected_pace(code, race_form, quali_form, weekend, practice)
     entrants = set(target["teams"].index)
     pace = pace[pace.index.isin(entrants)]
     if len(pace) < 10:
         return None
     circuit = circuit_terms(prev, target["circuit"], code) if prev else None
-    mean = fc.session_mean(code, pace, circuit, target["teams"], grid)
+    mean = fc.session_terms(code, pace, circuit, target["teams"], grid,
+                            upgrade_items=upgrade_items(target) if horizon in (1, "practice", "weekend") else None)["mean"]
     races = [s for s in before if s["dnf"] is not None]
     dnf = None
     if races:
         a = pd.concat([s["dnf"] for s in races]).groupby(level=0).sum()
         dnf = fc.dnf_rates(a["start"], a["dnf"])
-    return fc.forecast_session(code, mean, dnf, rounds_ahead=1 if horizon == "weekend" else horizon,
+    return fc.forecast_session(code, mean, dnf, rounds_ahead=1 if horizon in ("weekend", "practice") else horizon,
                                seed=seed, n_sims=SIMS, grid_known=grid is not None)
 
 
@@ -164,7 +204,7 @@ def evaluate(data: list[dict], codes: tuple[str, ...], horizons=(1,), circuit_ye
         season = sorted(season, key=key)
         prev = by_year.get(year - 1) if circuit_years is None or year in circuit_years else None
         for t in season:
-            if t["code"] not in codes or t["round"] < 2:
+            if t["code"] not in codes or t["round"] < 2 or not t["order"]:
                 continue
             for i, h in enumerate(horizons):
                 f = forecast_for(t, season, prev or [], h, seed=t["round"] * 10 + i)
@@ -241,16 +281,31 @@ def main() -> None:
             config.CIRCUIT_WEIGHT["SQ"] = config.CIRCUIT_WEIGHT["Q"]
         search(data, "DRIFT_PER_ROUND", "DRIFT_PER_ROUND", None, [0.0, 0.05, 0.1, 0.15, 0.2, 0.3], races + quali,
                horizons=(2, 3, 4, 6))
+        # Recency: how many rounds count, and how fast older ones fade.
+        search(data, "FORM_MAX_RACES", "FORM_MAX_RACES", None, [2, 3, 4, 6, 8, 12], races + quali, horizons=(1, 2))
+        search(data, "FORM_DECAY", "FORM_DECAY", None, [0.4, 0.55, 0.65, 0.75, 0.85, 1.0], races + quali, horizons=(1, 2))
+        # Practice: how much this weekend's practice counts, scored on forecasts made after it.
+        pr_h = ("practice",)
+        search(data, "PRACTICE_QUALI_BLEND", "PRACTICE_QUALI_BLEND", None, [0.0, 0.1, 0.2, 0.3, 0.45, 0.6], quali, horizons=pr_h)
+        search(data, "PRACTICE_RACE_BLEND", "PRACTICE_RACE_BLEND", None, [0.0, 0.1, 0.2, 0.3, 0.45, 0.6], races, horizons=pr_h)
+        search(data, "PRACTICE_SESSION_WEIGHT[FP1]", "PRACTICE_SESSION_WEIGHT", "FP1", [0.0, 0.25, 0.5, 1.0],
+               races + quali, horizons=pr_h)
+        # Upgrades: does a team bringing performance parts (the FIA's list) go quicker that weekend?
+        search(data, "UPGRADE_EFFECT", "UPGRADE_EFFECT", None, [-0.1, -0.05, -0.025, 0.0, 0.025], races + quali,
+               horizons=(1,))
 
     print("\nScores (mean log-likelihood, higher is better) with the fitted constants:")
     for codes in (("R",), ("S",), ("Q",), ("SQ",)):
         line = f"  {codes[0]:<3} before the weekend {evaluate(data, codes):.3f}"
         if codes[0] in config.RACE_CODES:
             line += f" · after qualifying {evaluate(data, codes, horizons=wk):.3f}"
+        line += f" · after practice {evaluate(data, codes, horizons=('practice',)):.3f}"
         print(line + f" · 3 rounds ahead {evaluate(data, codes, horizons=(3,)):.3f}")
     print("\nFitted:", {k: getattr(config, k) for k in ("FORM_CLIP", "SESSION_SD", "SESSION_SD_GRID", "SPRINT_FORM_WEIGHT",
                                                         "RACE_QUALI_BLEND", "RACE_QUALI_BLEND_WEEKEND", "GRID_WEIGHT",
-                                                        "CIRCUIT_WEIGHT", "DRIFT_PER_ROUND")})
+                                                        "CIRCUIT_WEIGHT", "DRIFT_PER_ROUND", "FORM_MAX_RACES",
+                                                        "FORM_DECAY", "PRACTICE_QUALI_BLEND", "PRACTICE_RACE_BLEND",
+                                                        "PRACTICE_SESSION_WEIGHT", "UPGRADE_EFFECT")})
 
 
 if __name__ == "__main__":

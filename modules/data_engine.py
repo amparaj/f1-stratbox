@@ -414,6 +414,7 @@ def get_session_info(year: int, location: str, session_type: str) -> dict:
     return {
         "year": int(year),
         "event_name": str(event.get("EventName", location)),
+        "round": int(event.get("RoundNumber", 0) or 0),
         "location": str(event.get("Location", location)),
         "country": str(event.get("Country", "")),
         "session_name": str(getattr(session, "name", session_type)),
@@ -433,13 +434,14 @@ def get_session_info(year: int, location: str, session_type: str) -> dict:
 
 
 def get_event_sessions(year: int) -> dict[str, list[str]]:
-    """Event name -> the codes of its sessions that could have finished by now, in weekend
-    order (SQ, S, Q, R), for every event with at least one."""
+    """Event name -> the codes of its sessions that could have finished by now, in the order they
+    ran (practice first), for every event with at least one."""
     now = pd.Timestamp.now(tz="UTC").tz_localize(None)
     out = {}
     for name, starts in _session_starts(year):
-        done = [c for c in config.WEEKEND_ORDER if c in starts
-                and starts[c] + pd.Timedelta(minutes=config.EARLIEST_FINISH_MIN[c]) <= now]
+        done = sorted((c for c in config.ALL_SESSIONS if c in starts
+                       and starts[c] + pd.Timedelta(minutes=config.EARLIEST_FINISH_MIN[c]) <= now),
+                      key=lambda c: starts[c])
         if done:
             out[name] = done
     return out
@@ -733,10 +735,25 @@ def page_session(active: tuple[int, str, str], kind: str) -> tuple[int, str, str
     race, so switching pages never lands on a dead end. Says so when it swaps.
     """
     year, event, code = active
+    done = get_event_sessions(year).get(event, [])
     if kind == "race" and code in config.QUALI_CODES:
         swapped = config.RACE_OF_QUALI[code]
     elif kind == "quali" and code in config.RACE_CODES:
         swapped = config.QUALI_OF_RACE[code]
+    elif kind in ("race", "quali") and code in config.PRACTICE_CODES:
+        # Practice: the weekend's Grand Prix (or its Qualifying), if it has run.
+        swapped = "R" if kind == "race" else "Q"
+        if swapped not in done:
+            st.info(f"You picked {session_label(code)}: this page needs the weekend's {session_label(swapped)}, "
+                    "which hasn't run yet. The Practice page has the practice analysis.")
+            st.stop()
+    elif kind == "practice" and code not in config.PRACTICE_CODES:
+        # The weekend's last practice before the session picked.
+        fp = [c for c in done if c in config.PRACTICE_CODES]
+        if not fp:
+            st.info("This weekend has no practice session in the data.")
+            st.stop()
+        swapped = fp[-1]
     else:
         return active
     st.caption(f"You picked {session_label(code)}: this page shows the weekend's {session_label(swapped)}.")
@@ -745,7 +762,8 @@ def page_session(active: tuple[int, str, str], kind: str) -> tuple[int, str, str
 
 def session_badge(code: str) -> str:
     """A coloured Markdown badge naming the session type (Sprint and Grand Prix look different)."""
-    colour = {"R": "red", "S": "orange", "Q": "violet", "SQ": "blue"}.get(code, "gray")
+    colour = {"R": "red", "S": "orange", "Q": "violet", "SQ": "blue", "FP1": "green", "FP2": "green",
+              "FP3": "green"}.get(code, "gray")
     return f":{colour}-badge[{session_label(code)}]"
 
 

@@ -26,12 +26,18 @@ DATA_SOURCE = "fastf1"
 
 # The sessions of a weekend, by code. A sprint weekend runs SQ, S, Q, R; a conventional one Q, R.
 # Names are FastF1's schedule names (and OpenF1's session_name); 2023 called SQ "Sprint Shootout".
-SESSION_NAMES = {"R": "Race", "S": "Sprint", "Q": "Qualifying", "SQ": "Sprint Qualifying"}
+# Practice (FP1-3; a sprint weekend has FP1 only) is loaded and analysed but isn't forecast: it's
+# in PRACTICE_CODES, not WEEKEND_ORDER (the sessions that get odds).
+SESSION_NAMES = {"R": "Race", "S": "Sprint", "Q": "Qualifying", "SQ": "Sprint Qualifying",
+                 "FP1": "Practice 1", "FP2": "Practice 2", "FP3": "Practice 3"}
 SESSION_NAME_ALIASES = {"SQ": ("Sprint Qualifying", "Sprint Shootout")}
-SESSION_LABELS = {"R": "Grand Prix", "S": "Sprint", "Q": "Qualifying", "SQ": "Sprint Qualifying"}
+SESSION_LABELS = {"R": "Grand Prix", "S": "Sprint", "Q": "Qualifying", "SQ": "Sprint Qualifying",
+                  "FP1": "Practice 1", "FP2": "Practice 2", "FP3": "Practice 3"}
 RACE_CODES = ("R", "S")
 QUALI_CODES = ("Q", "SQ")
+PRACTICE_CODES = ("FP1", "FP2", "FP3")
 WEEKEND_ORDER = ("SQ", "S", "Q", "R")
+ALL_SESSIONS = PRACTICE_CODES + WEEKEND_ORDER     # every kind loaded (a weekend's order is by start time)
 RACE_OF_QUALI = {"Q": "R", "SQ": "S"}       # the race a qualifying session sets the grid for
 QUALI_OF_RACE = {"R": "Q", "S": "SQ"}
 
@@ -46,10 +52,12 @@ def session_names(code: str) -> tuple[str, ...]:
 # Q3) is FINISH_SETTLE old (the last cars cross the line and the feed catches up), or, with no
 # flag at all (abandoned, or qualifying ended under a red flag), LATEST_FINISH after the start.
 # scripts/needs_update.py keeps its own copy (standard library only): keep them in step.
-EARLIEST_FINISH_MIN = {"R": 75, "S": 25, "Q": 55, "SQ": 40}   # start to the earliest last flag
-CHEQUERED_FLAGS = {"R": 1, "S": 1, "Q": 3, "SQ": 3}
+EARLIEST_FINISH_MIN = {"R": 75, "S": 25, "Q": 55, "SQ": 40,   # start to the earliest last flag
+                       "FP1": 55, "FP2": 55, "FP3": 55}
+CHEQUERED_FLAGS = {"R": 1, "S": 1, "Q": 3, "SQ": 3, "FP1": 1, "FP2": 1, "FP3": 1}
 FINISH_SETTLE_MIN = 5
-LATEST_FINISH_H = {"R": 6, "S": 6, "Q": 3, "SQ": 3}           # race: 3 h limit plus a delayed start
+LATEST_FINISH_H = {"R": 6, "S": 6, "Q": 3, "SQ": 3,             # race: 3 h limit plus a delayed start
+                   "FP1": 3, "FP2": 3, "FP3": 3}
 RECENT_DAYS = 4                            # until then a session may still change (penalties, grid)
 
 
@@ -298,15 +306,35 @@ MC_SC_PIT_WINDOW = 8             # pit early under SC if a stop was due within N
 RACE_POINTS = (25, 18, 15, 12, 10, 8, 6, 4, 2, 1)
 SPRINT_POINTS = (8, 7, 6, 5, 4, 3, 2, 1)
 FORM_MIN_CLEAN_LAPS = 8          # clean laps a driver needs for a race-pace figure
-FORM_DECAY = 0.75                # weight of each earlier race vs the next one (most recent = 1)
-FORM_MAX_RACES = 6               # races that count towards form
+# Free practice (modules/practice.py). A long run: at least PRACTICE_LONG_RUN_LAPS consecutive laps
+# within PRACTICE_RUN_TOL of the run's best. A weekend's sessions count PRACTICE_SESSION_WEIGHT each.
+PRACTICE_LONG_RUN_LAPS = 6
+PRACTICE_RUN_TOL = 0.035
+PRACTICE_SESSION_WEIGHT = {"FP1": 1.0, "FP2": 1.0, "FP3": 1.0}   # FP1 at 0.25, 0.5 or 1: within 0.004
+# Share of practice in the expected pace once a weekend's practice is in (forecast.expected_pace):
+# one-lap pace into qualifying form, long-run pace into race form, each moving a driver at most
+# PRACTICE_CLIP (%) from their form (a crash or an aborted programme puts a driver 5-10% off: unclipped,
+# even a 0.1 share made qualifying forecasts worse, -2.80 -> -3.10). Replays of 2025-26 after practice
+# (calibrate_forecast.py): qualifying -2.803 without practice, -2.711 with one-lap at 0.2 clipped at 1%
+# (0.15-0.25 and clips 0.75-1.5 within 0.01); races and sprints -2.649 -> -2.590 (through qualifying
+# form). Long runs added nothing at any share or clip (0 best, 0.1-0.3 within 0.01), so they stay out.
+PRACTICE_QUALI_BLEND = 0.2
+PRACTICE_RACE_BLEND = 0.0
+PRACTICE_CLIP = 1.0
+# Recency. Form counts the last FORM_MAX_RACES rounds of this season only (never last season), each round
+# back weighted FORM_DECAY. Replays of 2025-26 (races + qualifying, 1-2 rounds ahead) by window: last 2
+# rounds -3.066, 3 -2.931, 4 -2.844, 6 -2.771, 8 -2.768, 12 -2.748; decay 0.4-1.0 within 0.012 (0.65
+# best). A short window is worse: one session is noisy, so more rounds help as long as recent ones count
+# most (with 0.65, the last three rounds carry about three-quarters of the weight).
+FORM_DECAY = 0.65                # weight of each earlier race vs the next one (most recent = 1)
+FORM_MAX_RACES = 12              # rounds that count towards form
 # % of lap time: a session's pace counts at most this far from the driver's median pace over the form
 # window, so one crash, failure or scrappy lap (2026 Baku Q: ANT set only a Q1 banker, +0.38% against
 # a -0.6% norm) can't swing form. None = no limit. Replays (calibrate_forecast.py, scores as below):
 # 0.15 -2.774, 0.2 -2.775, 0.25 -2.777, 0.35 -2.790, 0.5 -2.809, none -2.821 (races + quali, 1-2 ahead):
 # 0.15-0.25 tie, 0.25 kept (best summed over every session kind and the after-qualifying forecasts).
 FORM_CLIP = 0.25
-FORECAST_SIMS = 10_000           # simulated races per forecast / simulated seasons for title odds
+FORECAST_SIMS = 10_000          # simulated races per forecast / simulated seasons for title odds
 FORM_DRIFT_SD = 0.35             # % of lap time: how far a driver's form moves over the rest of a season, one
                                  # draw per simulated season (title odds). 2026: the sd of (mean pace over the
                                  # next 7 races - form now) is 0.41, part of which is race-to-race noise
@@ -327,9 +355,18 @@ SPRINT_FORM_WEIGHT = 0.75        # a sprint's race pace counts this much of a Gr
 RACE_QUALI_BLEND = 0.75          # share of qualifying form in a race's expected pace
 RACE_QUALI_BLEND_WEEKEND = 0.85  # ... of the pace in the race's own qualifying, once it's done
 GRID_WEIGHT = {"R": 0.02, "S": 0.2}    # % per grid place: track position (a sprint is mostly decided by it)
+# % per grid place lost to a penalty. GRID_WEIGHT is fitted on ordinary grids, where the slot and the pace
+# go together, so it undervalues a drop: in 94 power-unit penalty starts (2020-25, f1penalties.com against
+# Jolpica results) drivers finished 0.237 places worse per grid place dropped (front-runners 0.238), where
+# GRID_WEIGHT gives 0.09-0.10. 0.05 gives 0.237 in the simulation (0.052 before the grid is known, 0.049
+# after). Used for announced penalties and power-unit risk before the grid, and for a grid slot behind
+# the qualifying position once the grid is in (on top of GRID_WEIGHT).
+PENALTY_GRID_WEIGHT = {"R": 0.05, "S": 0.2}
 # Share of last season's team-circuit offset. On 2026 (new rules) 0 and 0.25 tie for races (-2.667 vs
 # -2.672) and qualifying prefers 0: kept at 0.25 for races only, as circuits do suit some cars.
-CIRCUIT_WEIGHT = {"R": 0.25, "S": 0.25, "Q": 0.0, "SQ": 0.0}
+# Re-fitted with practice, upgrades and the longer form window: races 0 -2.622, 0.25 -2.624; qualifying
+# 0 best. Set to 0: last season (another car, often other rules) says nothing the replays can find.
+CIRCUIT_WEIGHT = {"R": 0.0, "S": 0.0, "Q": 0.0, "SQ": 0.0}
 CIRCUIT_CLIP = 1.0               # % bound on a team's circuit offset
 DRIFT_PER_ROUND = 0.1            # % of form drift per sqrt(round) beyond the next one
 SPRINT_DNF_FACTOR = 0.4          # a sprint's retirement chance against a Grand Prix's (a third the distance)
@@ -348,6 +385,83 @@ CLASSIFIED_FRACTION = 0.9        # share of the winner's laps needed to be class
 # qualifying is done the forecast takes the grid from OpenF1's starting_grid (penalties applied) and
 # these only fill in until it's out; after the race the official grid is used.
 GRID_PENALTIES: dict[int, dict[int, dict[str, int | str]]] = {}
+
+# ---------------------------------------------------------------------------
+# Power-unit penalties (modules/penalties.py; the model's constants are fitted by
+# scripts/calibrate_penalties.py on every round since 2022)
+# ---------------------------------------------------------------------------
+PENALTY_FRESH_HOURS = 6          # f1penalties.com's export is fetched again after this
+FIA_PAGE_FRESH_HOURS = 3         # an FIA event page (its document list) is fetched again after this
+# Each element's allocation per season, where the FIA's documents haven't stated it yet (they do
+# once someone goes past it: "the fifth (5th) of the four (4) ... allowed").
+PU_LIMITS = {
+    2022: {"ICE": 3, "TC": 3, "MGU-H": 3, "MGU-K": 3, "ES": 2, "CE": 2, "EX": 8},
+    2023: {"ICE": 4, "TC": 4, "MGU-H": 4, "MGU-K": 4, "ES": 2, "CE": 2, "EX": 8},
+    2024: {"ICE": 4, "TC": 4, "MGU-H": 4, "MGU-K": 4, "ES": 2, "CE": 2, "EX": 8},
+    2025: {"ICE": 4, "TC": 4, "MGU-H": 4, "MGU-K": 4, "ES": 2, "CE": 2, "EX": 8},
+    2026: {"ICE": 4, "TC": 4, "EX": 4, "MGU-K": 3, "ES": 3, "CE": 3, "ANC": 6},
+}
+# Grid drops (Sporting Regulations): the first element of a kind past the allocation, each one after
+# it, and more than PU_BACK_OVER places in all = the back of the grid.
+PU_FIRST_DROP = 10
+PU_NEXT_DROP = 5
+PU_BACK_OVER = 15
+# How big a power-unit penalty turns out to be, as shares (f1penalties.com, 75 penalties 2022-26;
+# "back" includes pit-lane starts: teams mostly fit a whole new unit at once).
+PU_DROP_SHARE = {"back": 0.65, 15: 0.05, 10: 0.14, 5: 0.16}
+# The hazard model: logit of the chance of an over-allocation element at a Grand Prix =
+# intercept + deficit·elements short + over·already over + left·share of season left
+# + circuit·log(circuit factor). Fitted on 2,272 car-rounds of 2022-26 (97 over-allocation changes,
+# FIA documents). Leave one season out it scores log loss 0.1635, against 0.1726 for the circuit
+# alone and 0.1792 for a constant. Taking one ("over") lowers the next round's chance (a fresh
+# pool); the circuit factor counts almost one for one (0.95).
+PU_HAZARD = {"intercept": -4.033, "deficit": 1.066, "over": -0.910, "left": -1.076, "circuit": 0.951}
+PU_CIRCUIT_PRIOR = 3.0           # races' worth of "average circuit" mixed into each circuit's factor
+PU_LATE_SHARE = 0.1              # of a round's hazard left once its "New PU elements" are out without the driver
+# Reported plans (hand-kept, from team statements): {season: {driver: {"rounds": [...], "note", "source"}
+# or a list of them}}. Each is one penalty, PU_PLAN_HAZARD at each of its rounds until it happens,
+# independent of the usage model and of other plans. One is retired automatically once the FIA's
+# tables show the driver went past the allocation at one of its rounds. News reports add more
+# (modules/news.py, NEWS_PLAN_MIN_SOURCES below).
+PU_PLAN_HAZARD = 0.6
+# F1 news (modules/news.py): the main sites' RSS feeds, scanned for power-unit penalties, stewards'
+# penalties and upgrades. A (driver, round) power-unit penalty reported by NEWS_PLAN_MIN_SOURCES sites
+# within NEWS_PLAN_DAYS counts as a reported plan (as PU_PLANS). PlanetF1's feed is gone (404) and
+# RaceFans' refuses scripts (403).
+NEWS_FEEDS = {
+    "The Race": "https://www.the-race.com/feed/",
+    "Crash.net": "https://www.crash.net/rss/f1",
+    "Autosport": "https://www.autosport.com/rss/f1/news/",
+    "Motorsport.com": "https://www.motorsport.com/rss/f1/news/",
+    "Formula1.com": "https://www.formula1.com/en/latest/all.xml",
+    "BBC Sport": "https://feeds.bbci.co.uk/sport/formula1/rss.xml",
+    "Sky Sports": "https://www.skysports.com/rss/12433",
+    "GPFans": "https://www.gpfans.com/en/rss.xml",
+}
+NEWS_FRESH_HOURS = 1
+NEWS_KEEP_DAYS = 45
+NEWS_PLAN_MIN_SOURCES = 2
+NEWS_PLAN_DAYS = 10
+# Upgrades (modules/upgrades.py, the FIA's "Car Presentation Submissions"): a team's pace at a round
+# where it brought performance parts is compared with its average over the UPGRADE_BEFORE rounds before.
+UPGRADE_BEFORE = 3
+# The forecast's upgrade term: % of pace per performance item a team brings to the round (negative =
+# quicker), at most UPGRADE_MAX_ITEMS items. Fitted by calibrate_forecast.py (0 = upgrades on the
+# FIA's list don't predict a faster car that weekend, on average).
+# Replays of 2025-26 (every session kind, the round's forecast): -0.1 -2.727, -0.05 -2.684, -0.025
+# -2.687, 0 -2.706, +0.025 -2.760 (the same in both passes). On average an upgrade helps a little,
+# though a single team's pace after one moves either way (news.json's upgrade_effect).
+UPGRADE_EFFECT = -0.05
+UPGRADE_MAX_ITEMS = 4
+PU_PLANS: dict[int, dict[str, dict]] = {
+    2026: {
+        "RUS": {"rounds": [18, 19],
+                "note": "Mercedes plan to take Russell's penalty with their ADUO power-unit upgrade, expected at "
+                        "the United States or Mexico City Grand Prix (a fresh engine in Singapore after his Malaysia "
+                        "failure would be a second one: the news scan picks that up).",
+                "source": "https://www.crash.net/f1/news/1104120/1/reason-george-russell-and-mercedes-are-delaying-his-f1-engine-penalty"},
+    },
+}
 
 # Strategy search for upcoming races: every 1- and 2-stop plan over the dry compounds.
 STRATEGY_MIN_STINT = 8           # shortest stint the search considers (laps)

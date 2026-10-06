@@ -94,6 +94,7 @@ export default function App() {
       <footer>
         Lap timing, tyres, race control and results from OpenF1; the calendar via FastF1; starting grids from Jolpica (Ergast).
         Weather data by <a href="https://open-meteo.com/">Open-Meteo.com</a>.
+        Stewards' decisions from <a href="https://www.f1penalties.com/data">f1penalties.com</a>; power-unit elements from the FIA's documents.
         History since 1950 from <a href="https://github.com/jolpica/jolpica-f1">Jolpica F1</a>'s database
         (<a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a>).
         Forecasts are a personal prototype, not betting advice. Not affiliated with Formula 1 or the FIA.
