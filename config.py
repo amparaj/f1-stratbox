@@ -334,6 +334,24 @@ FORM_MAX_RACES = 12              # rounds that count towards form
 # 0.15 -2.774, 0.2 -2.775, 0.25 -2.777, 0.35 -2.790, 0.5 -2.809, none -2.821 (races + quali, 1-2 ahead):
 # 0.15-0.25 tie, 0.25 kept (best summed over every session kind and the after-qualifying forecasts).
 FORM_CLIP = 0.25
+# Car + driver form (forecast.split_form). A session's pace = the car's level that round + the driver's rating
+# against teammates + noise. The car's form fades FORM_DECAY a round, this season only (upgrades move it fast);
+# the rating is a ridge regression on teammate gaps since the start of last season, fading TEAMMATE_DECAY a
+# round, so it carries over winters and team changes. On top, a driver's streak (own recent form against car +
+# rating) is real but fades: STREAK_PERSIST of it is left per round ahead.
+# Replays of 2025-26 (calibrate_forecast.py; 2025 has no 2024 to carry over), current form -> split:
+#   Q next round -2.718 -> -2.725, 3 rounds ahead -2.993 -> -2.846, after practice -2.657 -> -2.654
+#   SQ -3.253 -> -3.033, 3 ahead -3.166 -> -2.916; S -3.094 -> -3.012, 3 ahead -2.919 -> -2.820 (11 weekends)
+#   R -2.526 -> -2.525, 3 ahead -2.688 -> -2.746: no persistence (0-1) or setting beat the current form, so
+#   the Grand Prix keeps it. Without the streak (persist 0) Q next round fell to -2.769: a driver's run of form
+#   does carry into the next session, then fades. Teammate gaps unclipped: SQ -3.087 (clip 0.15: -2.932).
+SPLIT_FORM: tuple[str, ...] = ("Q", "SQ", "S")   # the sessions whose forecasts use it
+STREAK_PERSIST = 0.5             # share of a streak left one round on (0.5-0.7 tie for Q; SQ, S prefer 0)
+TEAMMATE_DECAY = 0.9             # weight of each earlier round's teammate gap vs the next one (0.8-0.97 tie)
+TEAMMATE_CARRY = 0.5             # weight on last season's gaps, on top of the decay (0: Q 3 ahead -2.898)
+TEAMMATE_PRIOR = 0.25            # ratings pulled towards 0 with this many sessions' weight (0.1-0.5 tie)
+TEAMMATE_CLIP = 0.15             # % a session's teammate gap counts at most from the pair's median gap
+TEAMMATE_MAX_ROUNDS = 40         # rounds back that count (this season and last)
 FORECAST_SIMS = 10_000          # simulated races per forecast / simulated seasons for title odds
 FORM_DRIFT_SD = 0.35             # % of lap time: how far a driver's form moves over the rest of a season, one
                                  # draw per simulated season (title odds). 2026: the sd of (mean pace over the

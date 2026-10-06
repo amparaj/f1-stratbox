@@ -231,7 +231,7 @@ export interface Quali {
   upgrades?: Columns;
 }
 
-export interface ForecastDriver {
+export interface ForecastDriver extends SplitTerms {
   driver: string; team: string; color: string; p_win: number; p_podium: number;
   p_points: number; p_dnf: number; exp_pos: number; exp_points: number;
   /** Expected pace (% against the field, negative = faster) before the circuit and grid terms. */
@@ -252,7 +252,13 @@ export interface ForecastDriver {
   /** Performance parts the team brings (the FIA's list) and their term (%); whether this weekend's practice is in. */
   upgrade_items?: number; upgrade_term?: number; practice?: boolean;
 }
-export interface QualiForecastDriver {
+/** Car + driver form (sessions in config.SPLIT_FORM): the form part of `pace` as the car's form, the
+ * driver's rating against teammates and their streak, each at its share, plus what this weekend's
+ * practice moved it (%). Absent or null: the plain race / qualifying form rows. */
+export interface SplitTerms {
+  form_car?: number | null; form_driver?: number | null; form_streak?: number | null; form_practice?: number | null;
+}
+export interface QualiForecastDriver extends SplitTerms {
   driver: string; team: string; color: string; pace: number; circuit?: number | null;
   p_pole: number; p_front_row: number; p_top3: number; p_q3: number; p_q1_out: number; exp_pos: number;
   quali_form?: number | null; quali_share?: number; circuit_term?: number;

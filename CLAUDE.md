@@ -272,12 +272,19 @@ and emoji). This is a Windows PowerShell 5.1 / Git Bash environment.
   session has `complete: false`; `needs_update.py` rebuilds while a session < 4 days old is
   provisional or anything is pending.
 - **Forecasts** (`modules/forecast.py`, constants in `config.py` "Season forecasts"; fitted by
-  `scripts/calibrate_forecast.py 2025 2026`, which replays every session from the ones before it):
+  `scripts/calibrate_forecast.py 2025 2026`, which replays every session from the ones before it, then scores
+  the result against naive baselines (equal odds, last session's order, standings, grid) on the same targets;
+  `--report-only` skips the search):
   - race pace = median fuel-corrected clean lap / field median on that compound, in %; quali pace
     as above. Race form (R + S, a sprint `SPRINT_FORM_WEIGHT`) and quali form (Q + SQ) = decayed
     mean over the last 6 rounds, each session's pace first held to ±`FORM_CLIP` (0.25 %) of the
     driver's median over the window (`forecast.form_inputs`): without it one bad session (2026 Baku Q:
     ANT +0.38 %) flipped every race left. Improved every session kind in the replays
+  - **car + driver form** (`forecast.split_form`, sessions in `config.SPLIT_FORM`: Q, SQ, S): team form
+    (this season, `FORM_DECAY`) + the driver's rating against teammates (ridge on teammate gaps since the
+    start of last season, `TEAMMATE_*`; `last_season()["form"]` feeds it) + streak (own form less those)
+    × `STREAK_PERSIST`^rounds ahead. Q 3 ahead −2.99 → −2.85, SQ/S better, next-round Q level; the Grand
+    Prix got no better at any setting, so it keeps plain form. The "why" rows are `form_car/driver/streak/practice`
   - grid: official once the race is in, else OpenF1 `starting_grid` (keyed on the qualifying session;
     has grid penalties, misses only late pit-lane starts: checked on 2025-26), else the qualifying order
     with `config.GRID_PENALTIES` (hand-kept, Grand Prix only). Before qualifying an announced penalty

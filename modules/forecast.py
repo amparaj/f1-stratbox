@@ -16,6 +16,12 @@ Form = weighted mean of the paces from the last FORM_MAX_RACES rounds, each roun
 FORM_DECAY times the next; a sprint counts SPRINT_FORM_WEIGHT of a Grand Prix. Race form uses
 races and sprints, qualifying form uses Qualifying and Sprint Qualifying.
 
+Car + driver form (split_form; the sessions in SPLIT_FORM: Qualifying, Sprint Qualifying, Sprint):
+the team's form (its drivers' paces less their ratings, weighted as above, this season only) +
+the driver's rating against teammates (teammate_ratings: ridge regression on teammate gaps since
+the start of last season, fading slowly, chained across pairings) + their streak (own form above
+less those two) × STREAK_PERSIST per round ahead. The Grand Prix keeps the plain form.
+
 Session forecasts (Monte Carlo)
 -------------------------------
 Every simulated session draws each driver's performance as
@@ -129,6 +135,74 @@ def driver_form(paces: list[pd.Series], rounds: list[int] | None = None,
     w = inp["weight"]
     den = w.groupby(inp["driver"]).sum()
     return ((inp["used"] * w).groupby(inp["driver"]).sum() / den.where(den > 0)).dropna()
+
+
+def teammate_ratings(paces: list[pd.Series], rounds: list[int], teams: list[pd.Series],
+                     weights: list[float] | None = None) -> pd.Series:
+    """
+    Driver -> pace against an average teammate (%, negative = faster), from every pair of
+    teammates in `paces` (this season and last: `rounds` run on across seasons, last season's
+    ending at 0). Ridge regression: each session's gap between teammates = the difference of
+    their ratings; a gap counts TEAMMATE_DECAY per round back (last season's × TEAMMATE_CARRY),
+    is held to ±TEAMMATE_CLIP of the pair's median gap (one car's failure or crash can't swing
+    it), and the ratings are pulled towards 0 with TEAMMATE_PRIOR sessions' weight. Gaps chain
+    across pairings, so a driver who changes team keeps their rating.
+    """
+    weights = weights or [1.0] * len(paces)
+    latest = max(rounds) if rounds else 0
+    rows = []
+    for p, r, t, w in zip(paces, rounds, teams, weights):
+        if latest - r >= config.TEAMMATE_MAX_ROUNDS:
+            continue
+        team = t.reindex(p.index).map(lambda x: team_now(x) if isinstance(x, str) else x)
+        wt = w * config.TEAMMATE_DECAY ** (latest - r) * (config.TEAMMATE_CARRY if r <= 0 else 1.0)
+        for _, g in p.dropna().groupby(team):
+            if len(g) == 2:
+                (a, pa), (b, pb) = sorted(g.items())
+                rows.append((a, b, pa - pb, wt))
+    if not rows:
+        return pd.Series(dtype=float)
+    df = pd.DataFrame(rows, columns=["a", "b", "gap", "w"])
+    centre = df.groupby(["a", "b"])["gap"].transform("median")
+    df["gap"] = df["gap"].clip(centre - config.TEAMMATE_CLIP, centre + config.TEAMMATE_CLIP)
+    drivers = sorted(set(df["a"]) | set(df["b"]))
+    ix = {d: i for i, d in enumerate(drivers)}
+    a = np.zeros((len(df), len(drivers)))
+    a[np.arange(len(df)), df["a"].map(ix)] = 1.0
+    a[np.arange(len(df)), df["b"].map(ix)] = -1.0
+    w = df["w"].to_numpy()
+    lhs = a.T @ (a * w[:, None]) + config.TEAMMATE_PRIOR * np.eye(len(drivers))
+    return pd.Series(np.linalg.solve(lhs, a.T @ (w * df["gap"].to_numpy())), index=drivers)
+
+
+def split_form(paces: list[pd.Series], rounds: list[int], teams: list[pd.Series], now: pd.Series,
+               weights: list[float] | None = None, ahead: int = 1) -> pd.DataFrame:
+    """
+    Form as car + driver + streak. `paces` (oldest first) may include last season, its `rounds`
+    <= 0; `teams` maps each session's drivers to their team then, `now` each driver to their
+    team for the forecast, `ahead` the rounds ahead it is for. Columns: team (the team's form:
+    its drivers' paces less their ratings, this season only, weighted as driver_form), driver
+    (teammate_ratings), streak (how far the driver's own recent form, driver_form, is from
+    team + driver, × STREAK_PERSIST per round ahead: a streak is real but fades) and form, their
+    sum. A driver whose team has no form this season gets their own driver_form.
+    """
+    weights = weights or [1.0] * len(paces)
+    rating = teammate_ratings(paces, rounds, teams, weights)
+    this = [i for i, r in enumerate(rounds) if r > 0]
+    team_paces = []
+    for i in this:
+        p = paces[i].dropna()
+        team = teams[i].reindex(p.index).map(lambda x: team_now(x) if isinstance(x, str) else x)
+        team_paces.append((p - rating.reindex(p.index).fillna(0.0)).groupby(team).mean())
+    team_form = driver_form(team_paces, [rounds[i] for i in this], [weights[i] for i in this])
+    own = driver_form([paces[i] for i in this], [rounds[i] for i in this], [weights[i] for i in this])
+    now_team = now.map(lambda x: team_now(x) if isinstance(x, str) else x)
+    out = pd.DataFrame({"team": now_team.map(team_form), "driver": rating.reindex(now.index).fillna(0.0)},
+                       index=now.index)
+    base = out["team"] + out["driver"]
+    out["streak"] = ((own.reindex(now.index) - base) * config.STREAK_PERSIST ** max(ahead, 1)).fillna(0.0)
+    out["form"] = (base + out["streak"]).fillna(own.reindex(now.index))
+    return out.dropna(subset=["form"])
 
 
 def dnf_rates(starts: pd.Series, dnfs: pd.Series) -> pd.Series:

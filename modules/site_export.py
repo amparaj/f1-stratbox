@@ -529,8 +529,9 @@ def last_season(year: int) -> dict:
       race     team -> circuit offset in race pace (forecast.circuit_offset)
       quali    team -> circuit offset in qualifying pace
       qref     that qualifying's segment evolution and cut-offs (the qualifying strategy)
+      form     every R, S, Q and SQ in running order: {"code", "round", "pace", "teams"} (teammate ratings)
     """
-    models, race_pace, quali_pace, qref, teams = {}, {}, {}, {}, {}
+    models, race_pace, quali_pace, qref, teams, form = {}, {}, {}, {}, {}, []
     now = pd.Timestamp.now(tz="UTC")
     for ev in calendar(year):
         key = circuit_key(ev["location"])
@@ -546,6 +547,8 @@ def last_season(year: int) -> dict:
                 }
                 race_pace[key] = fc.race_pace(clean)
                 teams.update(info["drivers"].set_index("Driver")["Team"].to_dict())
+                form.append({"code": "R", "round": ev["round"], "pace": race_pace[key],
+                             "teams": info["drivers"].set_index("Driver")["Team"]})
             except Exception as exc:  # noqa: BLE001 — a missing race just isn't used
                 log.warning("Skipping %s %s for calibration: %s", year, ev["event"], exc)
         if ev["quali_utc"] and pd.Timestamp(ev["quali_utc"]) <= now:
@@ -561,14 +564,32 @@ def last_season(year: int) -> dict:
                              "q1_cut_pct": float((cut["Q1"] / pole - 1) * 100) if pd.notna(cut["Q1"]) else None,
                              "q2_cut_pct": float((cut["Q2"] / pole - 1) * 100) if pd.notna(cut["Q2"]) else None}
                 teams.update(res.set_index("Driver")["Team"].to_dict())
+                form.append({"code": "Q", "round": ev["round"], "pace": quali_pace[key],
+                             "teams": res.set_index("Driver")["Team"]})
             except Exception as exc:  # noqa: BLE001
                 log.warning("Skipping %s %s qualifying: %s", year, ev["event"], exc)
+        for code in ("SQ", "S"):
+            if not ev.get(UTC_KEY[code]) or pd.Timestamp(ev[UTC_KEY[code]]) > now:
+                continue
+            try:
+                if code == "SQ":
+                    res = de.get_quali_results(year, ev["event"], code)
+                    pace, line_up = res.set_index("Driver")["Pace"].dropna(), res.set_index("Driver")["Team"]
+                else:
+                    pace = fc.race_pace(de.get_cleaned_laps(year, ev["event"], code))
+                    line_up = de.get_session_info(year, ev["event"], code)["drivers"].set_index("Driver")["Team"]
+                form.append({"code": code, "round": ev["round"], "pace": pace, "teams": line_up})
+            except Exception as exc:  # noqa: BLE001 -- a missing sprint session just isn't used
+                log.warning("Skipping %s %s %s: %s", year, ev["event"], code, exc)
+    order = {c: i for i, c in enumerate(config.WEEKEND_ORDER)}
+    form.sort(key=lambda f: (f["round"], order[f["code"]]))
     teams = pd.Series(teams, dtype=object)
     return {
         "models": models,
         "race": {k: fc.circuit_offset(p, list(race_pace.values()), teams) for k, p in race_pace.items()},
         "quali": {k: fc.circuit_offset(p, list(quali_pace.values()), teams) for k, p in quali_pace.items()},
         "qref": qref,
+        "form": form,
     }
 
 
@@ -673,6 +694,28 @@ def _form_args(recs: list[dict], codes: tuple[str, ...]) -> tuple[list[dict], tu
 
 def _form(recs: list[dict], codes: tuple[str, ...]) -> pd.Series:
     return fc.driver_form(*_form_args(recs, codes)[1])
+
+
+def _split(recs: list[dict], codes: tuple[str, ...], last: dict, now: pd.Series, ahead: int) -> pd.DataFrame:
+    """Car + driver form (forecast.split_form) from this season's `recs` and last season's sessions
+    of `codes`; `now` maps each driver to their team for the forecast."""
+    this = [r for r in recs if r["code"] in codes and not r["_pace"].empty]
+    prev = [f for f in last.get("form", []) if f["code"] in codes and not f["pace"].empty]
+    end = max((f["round"] for f in prev), default=0)
+    paces = [f["pace"] for f in prev] + [r["_pace"] for r in this]
+    rounds = [f["round"] - end for f in prev] + [r["round"] for r in this]
+    teams = [f["teams"] for f in prev] + [r["_results"].set_index("driver")["team"] for r in this]
+    weights = [config.SPRINT_FORM_WEIGHT if x["code"] == "S" else 1.0 for x in prev + this]
+    return fc.split_form(paces, rounds, teams, now, weights, ahead=ahead)
+
+
+def _forms(recs: list[dict], code: str, last: dict, now: pd.Series, ahead: int):
+    """(race form, qualifying form, {"race", "quali": split_form} or None) for a forecast of `code`."""
+    if code not in config.SPLIT_FORM:
+        return _form(recs, config.RACE_CODES), _form(recs, config.QUALI_CODES), None
+    split = {"race": _split(recs, config.RACE_CODES, last, now, ahead),
+             "quali": _split(recs, config.QUALI_CODES, last, now, ahead)}
+    return split["race"]["form"], split["quali"]["form"], split
 
 
 def _form_inputs(recs: list[dict], codes: tuple[str, ...]) -> pd.DataFrame:
@@ -974,7 +1017,10 @@ def session_forecast(year: int, ev: dict, code: str, before: list[dict], last: d
     """
     if not any(r["code"] == "R" for r in before):
         return None
-    race_form, quali_form = _form(before, config.RACE_CODES), _form(before, config.QUALI_CODES)
+    latest = before[-1]["_results"]
+    line_up = latest["driver"]
+    teams = latest.set_index("driver")["team"]
+    race_form, quali_form, split = _forms(before, code, last, teams, rounds_ahead)
     weekend = grid = grid_source = quali_order = None
     if code in config.RACE_CODES:
         q = next((r for r in before if r["round"] == ev["round"] and r["code"] == config.QUALI_OF_RACE[code]), None)
@@ -982,9 +1028,6 @@ def session_forecast(year: int, ev: dict, code: str, before: list[dict], last: d
             weekend = q["_pace"]
             grid, grid_source = _grid(year, ev, code, before, exported)
             quali_order = q["_results"].set_index("driver")["position"]
-    latest = before[-1]["_results"]
-    line_up = latest["driver"]
-    teams = latest.set_index("driver")["team"]
     if practice:
         # This weekend's practice moves the forms (shown that way in the "why" panel too).
         quali_form = fc._blend(quali_form, practice.get("one_lap"), config.PRACTICE_QUALI_BLEND)
@@ -1025,6 +1068,8 @@ def session_forecast(year: int, ev: dict, code: str, before: list[dict], last: d
     out["quali_share"] = (0.0 if code not in config.RACE_CODES else
                           config.RACE_QUALI_BLEND_WEEKEND if use_weekend else config.RACE_QUALI_BLEND)
     out["practice"] = bool(practice)
+    if split:
+        _split_terms(out, code, race_form, quali_form, split, use_weekend)
     for c in ("circuit_term", "grid_term", "penalty_places", "penalty_term", "pu_risk", "pu_places", "pu_term",
               "upgrade_items", "upgrade_term"):
         out[c] = drivers.map(terms[c]).round(4)
@@ -1036,6 +1081,41 @@ def session_forecast(year: int, ev: dict, code: str, before: list[dict], last: d
     form = form[form["driver"].isin(set(drivers))]
     return {"odds": out, "form": form, "grid_source": grid_source,
             "quali_source": "weekend" if use_weekend else "form"}
+
+
+def _split_terms(out: pd.DataFrame, code: str, race_form: pd.Series, quali_form: pd.Series,
+                 split: dict[str, pd.DataFrame], use_weekend: bool) -> None:
+    """
+    The "why" panel's car / driver / streak rows: the form part of each driver's expected pace
+    split up (each form at its share, as forecast.expected_pace weighs them), and form_practice,
+    what this weekend's practice moved it. This weekend's qualifying (a race once it's in) stays
+    its own row. A driver without a split (no team form yet) keeps the plain rows (NaN here).
+    """
+    d = out["driver"]
+    race = code in config.RACE_CODES
+    r = d.map(race_form) if race else pd.Series(np.nan, index=d.index)
+    q = d.map(quali_form)
+    has_r = r.notna().to_numpy()
+    has_q = (out["quali_form"].notna() if use_weekend else q.notna()).to_numpy()
+    share = float(out["quali_share"].iloc[0]) if race else 1.0
+    w_r = np.where(has_r, np.where(has_q, 1 - share, 1.0), 0.0)
+    w_q = np.where(has_q, np.where(has_r, share, 1.0), 0.0)
+    w_qf = np.zeros(len(d)) if use_weekend else w_q      # qualifying form's share (not the weekend's pace)
+    parts = {"car": "team", "driver": "driver", "streak": "streak"}
+    cols = {k: np.zeros(len(d)) for k in parts}
+    total = np.zeros(len(d))
+    missing = np.zeros(len(d), dtype=bool)
+    for kind, w, f in (("race", w_r, r), ("quali", w_qf, q)):
+        sp = split[kind].reindex(d.to_numpy())
+        used = w > 0
+        for k, c in parts.items():
+            cols[k] += np.where(used, sp[c].fillna(0.0).to_numpy() * w, 0.0)
+        total += np.where(used, f.fillna(0.0).to_numpy() * w, 0.0)
+        missing |= used & sp["team"].isna().to_numpy()
+    for k in parts:
+        out[f"form_{k}"] = np.where(missing, np.nan, cols[k]).round(4)
+    rest = total - cols["car"] - cols["driver"] - cols["streak"]
+    out["form_practice"] = np.where(missing, np.nan, rest).round(4)
 
 
 def weekend_codes(ev: dict) -> list[str]:
@@ -1256,15 +1336,15 @@ def export_season(year: int, out_dir: Path, now: dt.datetime | None = None, tele
         if ev["round"] in by_round or ev is next_ev:
             done_keys = {(r["round"], r["code"]) for r in prior}
             standing = pts[[(r, c) in done_keys for r, c in zip(pts["round"], pts["code"])]].groupby("driver")["points"].sum()
-            race_form, quali_form = _form(prior, config.RACE_CODES), _form(prior, config.QUALI_CODES)
             line_up = prior[-1]["_results"]
             standing = standing.reindex(standing.index.union(line_up["driver"]), fill_value=0.0)
             cur_teams = line_up.set_index("driver")["team"]
+            forms = {c: _forms(prior, c, last, cur_teams, 1)[:2] for c in ("S", "R")}
             left = [(e, c) for e in events if e["round"] >= ev["round"] for c in ("S", "R")
                     if e.get(UTC_KEY[c]) and (e["round"], c) not in done_keys]
             plan = []
             for e, c in left:
-                pace = fc.expected_pace(c, race_form, quali_form)
+                pace = fc.expected_pace(c, *forms[c])
                 pace = pace[pace.index.isin(line_up["driver"])]
                 pen = penalties_for(year, e["round"], c)
                 mean = fc.session_mean(c, pace, last["race"].get(circuit_key(e["location"])), cur_teams, penalties=pen)

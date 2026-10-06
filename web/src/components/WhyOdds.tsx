@@ -1,7 +1,7 @@
 // "Why these odds?": what makes each driver's expected performance in a session forecast, two
 // drivers side by side, and the sessions behind their form (outliers capped, as the model does).
 import { useEffect, useMemo, useState } from "react";
-import { rows, SESSION_LABEL, type ForecastWhy, type FormInput, type SessionCode } from "../data";
+import { rows, SESSION_LABEL, type ForecastWhy, type FormInput, type SessionCode, type SplitTerms } from "../data";
 import { pct, signed } from "../format";
 import { useSite } from "../site";
 import { DriverChip, SessionBadge } from "./f1";
@@ -13,7 +13,7 @@ export const FORM_CLIP = 0.25;
 const BIG_CAP = 0.1;
 
 /** The breakdown columns a forecast row carries (race or qualifying). */
-export interface WhyDriver {
+export interface WhyDriver extends SplitTerms {
   driver: string; color: string; pace?: number; form?: number; p_dnf?: number;
   race_form?: number | null; quali_form?: number | null; quali_share?: number;
   circuit?: number | null; circuit_term?: number; grid?: number | null; grid_term?: number;
@@ -40,9 +40,16 @@ export function terms(d: WhyDriver, race: boolean, why: ForecastWhy | null): Ter
   const hasR = race && d.race_form != null, hasQ = d.quali_form != null;
   // A driver with only one of the two gets that one at full weight (forecast.expected_pace).
   const wR = hasR ? (hasQ ? 1 - share : 1) : 0, wQ = hasQ ? (hasR ? share : 1) : 0;
-  if (hasR) out.push({ key: "race", label: "Race form", raw: `${signed(d.race_form, 2)}% × ${pct(wR)}`, value: d.race_form! * wR });
-  if (hasQ) {
-    const weekend = race && why?.quali_source === "weekend";
+  const weekend = race && why?.quali_source === "weekend";
+  if (d.form_car != null) {
+    // Car + driver form: the form part split up (forecast.split_form), each at its share.
+    out.push({ key: "car", label: "Car: the team's form", value: d.form_car });
+    out.push({ key: "driver", label: "Driver against teammates", value: d.form_driver ?? 0 });
+    if (d.form_streak) out.push({ key: "streak", label: "Recent streak", raw: "fades a round on", value: d.form_streak });
+    if (d.form_practice && Math.abs(d.form_practice) >= 0.005) out.push({ key: "practice", label: "This weekend's practice", value: d.form_practice });
+    if (weekend && hasQ) out.push({ key: "quali", label: "This weekend's qualifying", raw: `${signed(d.quali_form, 2)}% × ${pct(wQ)}`, value: d.quali_form! * wQ });
+  } else if (hasR) out.push({ key: "race", label: "Race form", raw: `${signed(d.race_form, 2)}% × ${pct(wR)}`, value: d.race_form! * wR });
+  if (d.form_car == null && hasQ) {
     out.push({ key: "quali", label: weekend ? "This weekend's qualifying" : d.practice ? "Qualifying form, with this weekend's practice" : "Qualifying form", raw: `${signed(d.quali_form, 2)}% × ${pct(wQ)}`, value: d.quali_form! * wQ });
   }
   if (d.circuit_term) out.push({ key: "circuit", label: "Team at this circuit last season", raw: d.circuit != null ? `${signed(d.circuit, 2)}%, part counted` : undefined, value: d.circuit_term });
@@ -75,6 +82,11 @@ function explain(a: WhyDriver, b: WhyDriver, ta: Term[], tb: Term[], race: boole
   if (gaps.length) {
     const parts = gaps.slice(0, 2).map((g) => `${label(g.t)} (${Math.abs(g.gap).toFixed(2)}% to ${g.gap < 0 ? a.driver : b.driver})`);
     out.push(`The biggest difference${gaps.length > 1 ? "s" : ""}: ${parts.join("; ")}.`);
+  }
+  if (a.form_car != null && b.form_car != null && a.form_driver != null && b.form_driver != null
+      && Math.abs(a.form_car - b.form_car) < 0.03 && Math.abs(a.form_driver - b.form_driver) >= 0.02) {
+    const [quick, other] = a.form_driver < b.form_driver ? [a, b] : [b, a];
+    out.push(`Their cars are close: it's mostly the driver. ${quick.driver} has been ${Math.abs(a.form_driver - b.form_driver).toFixed(2)}% quicker against their teammates than ${other.driver}, a figure that builds up since the start of last season.`);
   }
   if (race && a.p_dnf != null && b.p_dnf != null && Math.abs(a.p_dnf - b.p_dnf) >= 0.03) {
     const [hi, lo] = a.p_dnf > b.p_dnf ? [a, b] : [b, a];
@@ -216,6 +228,7 @@ export function WhyOdds({ drivers, why, code }: { drivers: WhyDriver[]; why: For
             An arrow marks an outlier: a session more than {FORM_CLIP}% off the driver's median over these rounds counts
             as if it were {FORM_CLIP}% off, so one crash, failure or scrappy lap can't swing the forecast.
             {race ? " Race form is Grands Prix and sprints, qualifying form Qualifying and Sprint Qualifying." : ""}
+            {da.form_car != null && " Here form is split into the car (both of the team's cars, this season, recent rounds counting most), the driver's pace against their teammates (since the start of last season, following them across teams) and their streak: how far their own recent sessions are from those two, which carries on but fades, half of it a round."}
           </p>
         </>
       )}

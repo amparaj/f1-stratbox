@@ -24,6 +24,8 @@ const PRESETS = {
 const FORM_DECAY = 0.65;
 const FORM_RACES = 12;
 const FORM_CLIP = 0.25;
+// Car + driver form (config.py SPLIT_FORM ... TEAMMATE_CLIP).
+const SPLIT = { persist: 0.5, decay: 0.9, carry: 0.5, prior: 0.25, clip: 0.15 };
 // Practice and upgrades (config.py, fitted by calibrate_forecast.py).
 const PRACTICE = { blend: 0.2, clip: 1.0, runLaps: 6, tol: 3.5 };
 const UPGRADE = { effect: -0.05, max: 4 };
@@ -608,6 +610,27 @@ function Form() {
         <Chart make={make} height={220} ariaLabel={`The weight of each of the last ${FORM_RACES} rounds in the form figure`} />
       </Figure>
       <p>
+        <b>Car and driver.</b> A driver's pace mixes two things that change at different speeds: the car (upgrades
+        every few weeks) and the driver (much steadier). For Qualifying, Sprint Qualifying and the Sprint, form is
+        split in three. The <b>car</b>'s form is the mean of the team's two cars, each less their driver's rating,
+        weighted and capped as above, this season only. The <b>driver</b>'s rating is their pace against their
+        teammates: every session's gap between two teammates (held to within {SPLIT.clip}% of that pair's usual gap,
+        so one car's failure can't swing it) is the difference of their ratings, fitted together by ridge regression
+        since the start of last season. Older rounds fade {SPLIT.decay} a round, last season's count {SPLIT.carry} on
+        top, and every rating is pulled towards 0 as if by {SPLIT.prior} of a session. Gaps chain across pairings, so a
+        driver who changes team keeps their rating. Last, a <b>streak</b>: how far the driver's own form (above) is
+        from car + rating, of which {SPLIT.persist * 100}% is left one round on, {SPLIT.persist ** 2 * 100}% two rounds on:
+      </p>
+      <M block t={String.raw`f_d = c_{t(d)} + r_d + ${SPLIT.persist}^{\,h}\big(f^{\text{own}}_d - c_{t(d)} - r_d\big), \qquad \min_r \sum_s w_s \big(g_{ab,s} - (r_a - r_b)\big)^2 + ${SPLIT.prior} \sum_d r_d^2`} />
+      <p>
+        where <M t="h" /> is the rounds ahead and <M t="g_{ab,s}" /> the gap between teammates <M t="a" /> and{" "}
+        <M t="b" /> in session <M t="s" />. Replayed on 2025 and 2026, it made qualifying forecasts three rounds ahead
+        much better (−2.99 → −2.85), Sprint Qualifying (−3.25 → −3.03) and the Sprint (−3.09 → −3.01) too (11 weekends
+        each), and left the next round's qualifying level (−2.718 → −2.725). Without the streak that next round got worse
+        (−2.77): a driver's run of form is real and carries into the next session, then fades. The Grand Prix keeps the
+        plain form: no setting of the split beat it (three rounds ahead −2.69 → −2.75 at best).
+      </p>
+      <p>
         <b>This weekend's practice.</b> Once a weekend's practice is in, each driver's best clean lap (against the
         field) moves their qualifying form {PRACTICE.blend * 100}% of the way towards it, but by no more than{" "}
         {PRACTICE.clip}% of pace: a crash or an aborted programme leaves a driver 5–10% off, and unclipped even a tenth
@@ -1066,6 +1089,17 @@ function Checking() {
         same sessions, the Grand Prix before the weekend −2.574 → −2.558, after qualifying −1.807 → −1.799, the Sprint
         −3.159 → −3.141, Qualifying −2.818 → −2.754 and Sprint Qualifying −3.403 → −3.318. The title-odds drift (0.35%) comes from how far form really moved over
         the following seven races.
+      </p>
+      <p>
+        <b>Against naive forecasts.</b> The same sessions were scored with simple orderings turned into odds by the same
+        simulation (each at its best spread): everyone equal, the last session's order, the championship standings, and
+        for races after qualifying, the grid. With the plain form the model beat the best of them for the Grand Prix
+        (−2.53 against the standings' −2.75 before the weekend, −1.72 against the grid's −2.10 after qualifying) and
+        Qualifying (−2.72 against −2.91), but not Sprint Qualifying (−3.25 against −3.03) or Qualifying three rounds
+        ahead (−2.99 against −2.95). Long-memory standings beating a short-memory form further out is what led to the
+        car and driver split (Form): with it, Qualifying three rounds ahead beats them (−2.85 against −2.95) and Sprint
+        Qualifying and the Sprint draw level (−3.03 against −3.03, −3.01 against −3.01). Sprint Qualifying three rounds
+        ahead is still behind (−2.92 against −2.57, from 9 weekends).
       </p>
     </Section>
   );
