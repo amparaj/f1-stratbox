@@ -1,0 +1,162 @@
+{
+  "_doc": [
+    "Team badges for the site (components/f1.tsx TeamBadge) and the dashboard (modules/teams.py). A team is found by",
+    "its name (lower case, accents stripped; then the chassis part before '-', so 'Lotus-Climax' is Lotus), first entry",
+    "that lists it and whose 'years' hold the season. A logo shows for seasons in its since/until; otherwise the badge is",
+    "the team colour with 'short' (or letters from the name). Logos are freely licensed files from Wikimedia Commons:",
+    "'source' is the file's title there; scripts/fetch_team_logos.py downloads them to web/public/logos/ and fills in",
+    "licence, author and url. Add a logo by adding its source and file, then run that script. No free file exists for",
+    "Ferrari, Racing Bulls (Toro Rosso, AlphaTauri) or Cadillac: they keep the badge."
+  ],
+  "teams": [
+    {"key": "mercedes", "name": "Mercedes", "names": ["mercedes", "mercedes-amg petronas f1 team", "mercedes gp"], "short": "MER", "logos": [
+      {"file": "mercedes.svg", "source": "Mercedes-Benz Star (1969-1986, 2025-).svg", "licence": "Public domain", "author": "Mercedes-Benz", "page": "https://commons.wikimedia.org/wiki/File:Mercedes-Benz_Star_(1969-1986,_2025-).svg"}
+    ]},
+    {"key": "ferrari", "name": "Ferrari", "names": ["ferrari", "scuderia ferrari"], "short": "FER", "logos": []},
+    {"key": "mclaren", "name": "McLaren", "names": ["mclaren"], "short": "MCL", "logos": [
+      {"file": "mclaren.svg", "since": 1997, "source": "McLaren Speedmark.svg", "licence": "Public domain", "author": "Ved havet", "page": "https://commons.wikimedia.org/wiki/File:McLaren_Speedmark.svg"}
+    ]},
+    {"key": "red_bull", "name": "Red Bull Racing", "names": ["red bull racing", "red bull"], "short": "RBR", "logos": [
+      {"file": "red_bull.png", "source": "Red Bull Racing - 2005 Logo.png", "licence": "Public domain", "author": "Unknown author", "page": "https://commons.wikimedia.org/wiki/File:Red_Bull_Racing_-_2005_Logo.png"}
+    ]},
+    {"key": "racing_bulls", "name": "Racing Bulls", "names": ["racing bulls", "rb", "rb f1 team", "visa cash app rb", "visa cash app racing bulls"], "short": "RB", "logos": []},
+    {"key": "alphatauri", "name": "AlphaTauri", "names": ["alphatauri", "scuderia alphatauri"], "short": "AT", "logos": []},
+    {"key": "toro_rosso", "name": "Toro Rosso", "names": ["toro rosso", "scuderia toro rosso"], "short": "STR", "logos": []},
+    {"key": "alpine", "name": "Alpine", "names": ["alpine", "alpine f1 team", "bwt alpine f1 team"], "short": "ALP", "logos": [
+      {"file": "alpine.svg", "source": "Alpine F1 Team Logo.svg", "licence": "Public domain", "author": "Alpine F1 Team", "page": "https://commons.wikimedia.org/wiki/File:Alpine_F1_Team_Logo.svg"}
+    ]},
+    {"key": "haas", "name": "Haas", "names": ["haas", "haas f1 team", "moneygram haas f1 team", "tgr haas f1 team"], "short": "HAA", "logos": [
+      {"file": "haas.png", "source": "Mini Free Logo Haas.png", "licence": "CC0", "author": "MiniPictures", "page": "https://commons.wikimedia.org/wiki/File:Mini_Free_Logo_Haas.png"}
+    ]},
+    {"key": "audi", "name": "Audi", "names": ["audi", "audi f1 team", "audi revolut f1 team"], "short": "AUD", "logos": [
+      {"file": "audi.svg", "since": 2026, "source": "Audif1.com logo17 (cropped).svg", "licence": "Public domain", "author": "Audi Revolut F1 Team / Sauber Motorsports AG", "page": "https://commons.wikimedia.org/wiki/File:Audif1.com_logo17_(cropped).svg"}
+    ]},
+    {"key": "alfa", "name": "Alfa Romeo", "names": ["alfa romeo", "alfa romeo racing", "alfa romeo f1 team stake"], "short": "ALF", "logos": [
+      {"file": "alfa.svg", "since": 2019, "source": "Alfa Romeo F1 Team Stake Logo.svg", "licence": "Public domain", "author": "Alfa Romeo - Sauber Group", "page": "https://commons.wikimedia.org/wiki/File:Alfa_Romeo_F1_Team_Stake_Logo.svg"}
+    ]},
+    {"key": "bmw_sauber", "name": "BMW Sauber", "names": ["bmw sauber", "bmw"], "short": "BMW", "logos": [
+      {"file": "bmw.svg", "source": "BMW.svg", "licence": "Public domain", "author": "BMW", "page": "https://commons.wikimedia.org/wiki/File:BMW.svg"}
+    ]},
+    {"key": "sauber", "name": "Sauber", "names": ["sauber", "kick sauber", "stake f1 team kick sauber", "stake f1 team"], "short": "SAU", "logos": [
+      {"file": "sauber.png", "source": "Mini Free Logo Sauber.png", "licence": "CC0", "author": "MiniPictures", "page": "https://commons.wikimedia.org/wiki/File:Mini_Free_Logo_Sauber.png"}
+    ]},
+    {"key": "williams", "name": "Williams", "names": ["williams", "williams racing", "atlassian williams racing"], "short": "WIL", "logos": [
+      {"file": "williams-1977.png", "since": 1977, "until": 2019, "source": "Mini Free Logo Williams.png", "licence": "CC0", "author": "MiniPictures", "page": "https://commons.wikimedia.org/wiki/File:Mini_Free_Logo_Williams.png"},
+      {"file": "williams.png", "since": 2020, "source": "Williams Racing Monogram.png", "licence": "CC BY-SA 4.0", "author": "DJClements", "page": "https://commons.wikimedia.org/wiki/File:Williams_Racing_Monogram.png"}
+    ]},
+    {"key": "aston_martin", "name": "Aston Martin", "names": ["aston martin", "aston martin aramco"], "short": "AST", "logos": [
+      {"file": "aston_martin.jpg", "since": 2022, "source": "Aston Martin F1 Team logo 2024.jpg", "licence": "CC BY 4.0", "author": "Unknown author", "page": "https://commons.wikimedia.org/wiki/File:Aston_Martin_F1_Team_logo_2024.jpg"}
+    ]},
+    {"key": "cadillac", "name": "Cadillac", "names": ["cadillac", "cadillac f1 team"], "short": "CAD", "logos": []},
+    {"key": "racing_point", "name": "Racing Point", "names": ["racing point", "bwt racing point"], "short": "RP", "logos": [
+      {"file": "racing_point.svg", "source": "BWT Racing Point Logo.svg", "licence": "Public domain", "author": "Racing Point UK Limited", "page": "https://commons.wikimedia.org/wiki/File:BWT_Racing_Point_Logo.svg"}
+    ]},
+    {"key": "force_india", "name": "Force India", "names": ["force india", "sahara force india"], "short": "FI", "logos": [
+      {"file": "force_india.png", "source": "Mini Free Logo Force India.png", "licence": "CC0", "author": "MiniPictures", "page": "https://commons.wikimedia.org/wiki/File:Mini_Free_Logo_Force_India.png"}
+    ]},
+    {"key": "renault", "name": "Renault", "names": ["renault"], "short": "REN", "logos": [
+      {"file": "renault.png", "source": "Mini Free Logo Renault.png", "licence": "CC0", "author": "MiniPictures", "page": "https://commons.wikimedia.org/wiki/File:Mini_Free_Logo_Renault.png"}
+    ]},
+    {"key": "brawn", "name": "Brawn GP", "names": ["brawn", "brawn gp"], "short": "BGP", "logos": [
+      {"file": "brawn.png", "source": "Brawngplogo.png", "licence": "Public domain", "author": "Браун", "page": "https://commons.wikimedia.org/wiki/File:Brawngplogo.png"}
+    ]},
+    {"key": "honda", "name": "Honda", "names": ["honda"], "short": "HON", "logos": [
+      {"file": "honda.svg", "source": "Logo Honda F1.svg", "licence": "Public domain", "author": "Original: Honda Vector:  ReneeWrites", "page": "https://commons.wikimedia.org/wiki/File:Logo_Honda_F1.svg"}
+    ]},
+    {"key": "toyota", "name": "Toyota", "names": ["toyota"], "short": "TOY", "logos": [
+      {"file": "toyota.png", "source": "Mini Free Logo Toyota.png", "licence": "CC0", "author": "MiniPictures", "page": "https://commons.wikimedia.org/wiki/File:Mini_Free_Logo_Toyota.png"}
+    ]},
+    {"key": "super_aguri", "name": "Super Aguri", "names": ["super aguri"], "short": "SA", "logos": [
+      {"file": "super_aguri.svg", "source": "Super Aguri logo.svg", "licence": "Public domain", "author": "Flyz1", "page": "https://commons.wikimedia.org/wiki/File:Super_Aguri_logo.svg"}
+    ]},
+    {"key": "mf1", "name": "MF1", "names": ["mf1", "midland"], "short": "MF1", "logos": [
+      {"file": "mf1.svg", "source": "MF1.svg", "licence": "Public domain", "author": "Flyz1", "page": "https://commons.wikimedia.org/wiki/File:MF1.svg"}
+    ]},
+    {"key": "benetton", "name": "Benetton", "names": ["benetton"], "short": "BEN", "logos": [
+      {"file": "benetton.png", "source": "Mini Free Logo Benetton.png", "licence": "CC0", "author": "MiniPictures", "page": "https://commons.wikimedia.org/wiki/File:Mini_Free_Logo_Benetton.png"}
+    ]},
+    {"key": "jordan", "name": "Jordan", "names": ["jordan"], "short": "JOR", "logos": [
+      {"file": "jordan.png", "source": "Mini Free Logo Jordan v2.png", "licence": "CC0", "author": "MiniPictures", "page": "https://commons.wikimedia.org/wiki/File:Mini_Free_Logo_Jordan_v2.png"}
+    ]},
+    {"key": "minardi", "name": "Minardi", "names": ["minardi"], "short": "MIN", "logos": [
+      {"file": "minardi.png", "source": "Mini Free Logo Minardi.png", "licence": "CC0", "author": "MiniPictures", "page": "https://commons.wikimedia.org/wiki/File:Mini_Free_Logo_Minardi.png"}
+    ]},
+    {"key": "tyrrell", "name": "Tyrrell", "names": ["tyrrell"], "short": "TYR", "logos": [
+      {"file": "tyrrell.svg", "source": "Tyrrell.svg", "licence": "Public domain", "author": "Original: Unknown Author\nSVG: DraftSaturn15", "page": "https://commons.wikimedia.org/wiki/File:Tyrrell.svg"}
+    ]},
+    {"key": "prost", "name": "Prost", "names": ["prost"], "short": "PRO", "logos": [
+      {"file": "prost.png", "source": "Mini Free Logo Prost.png", "licence": "CC0", "author": "MiniPictures", "page": "https://commons.wikimedia.org/wiki/File:Mini_Free_Logo_Prost.png"}
+    ]},
+    {"key": "stewart", "name": "Stewart", "names": ["stewart"], "short": "STW", "logos": [
+      {"file": "stewart.png", "source": "Mini Free Logo Stewart.png", "licence": "CC0", "author": "MiniPictures", "page": "https://commons.wikimedia.org/wiki/File:Mini_Free_Logo_Stewart.png"}
+    ]},
+    {"key": "arrows", "name": "Arrows", "names": ["arrows"], "short": "ARR", "logos": [
+      {"file": "arrows.png", "source": "Mini Free Logo Arrows.png", "licence": "CC0", "author": "MiniPictures", "page": "https://commons.wikimedia.org/wiki/File:Mini_Free_Logo_Arrows.png"}
+    ]},
+    {"key": "footwork", "name": "Footwork", "names": ["footwork"], "short": "FOO", "logos": [
+      {"file": "footwork.png", "source": "Mini Free Logo Footwork.png", "licence": "CC0", "author": "MiniPictures", "page": "https://commons.wikimedia.org/wiki/File:Mini_Free_Logo_Footwork.png"}
+    ]},
+    {"key": "ligier", "name": "Ligier", "names": ["ligier"], "short": "LIG", "logos": [
+      {"file": "ligier.png", "source": "Mini Free Logo Ligier.png", "licence": "CC0", "author": "MiniPictures", "page": "https://commons.wikimedia.org/wiki/File:Mini_Free_Logo_Ligier.png"}
+    ]},
+    {"key": "larrousse", "name": "Larrousse", "names": ["larrousse"], "short": "LAR", "logos": [
+      {"file": "larrousse.png", "source": "Mini Free Logo Larrousse.png", "licence": "CC0", "author": "MiniPictures", "page": "https://commons.wikimedia.org/wiki/File:Mini_Free_Logo_Larrousse.png"}
+    ]},
+    {"key": "lola", "name": "Lola", "names": ["lola"], "short": "LOL", "logos": [
+      {"file": "lola.png", "source": "Mini Free Logo Lola.png", "licence": "CC0", "author": "MiniPictures", "page": "https://commons.wikimedia.org/wiki/File:Mini_Free_Logo_Lola.png"}
+    ]},
+    {"key": "march", "name": "March", "names": ["march"], "short": "MAR", "logos": [
+      {"file": "march.png", "source": "Mini Free Logo March.png", "licence": "CC0", "author": "MiniPictures", "page": "https://commons.wikimedia.org/wiki/File:Mini_Free_Logo_March.png"}
+    ]},
+    {"key": "simtek", "name": "Simtek", "names": ["simtek"], "short": "SIM", "logos": [
+      {"file": "simtek.png", "source": "Mini Free Logo Simtek.png", "licence": "CC0", "author": "MiniPictures", "page": "https://commons.wikimedia.org/wiki/File:Mini_Free_Logo_Simtek.png"}
+    ]},
+    {"key": "pacific", "name": "Pacific", "names": ["pacific"], "short": "PAC", "logos": [
+      {"file": "pacific.svg", "source": "Logo Pacific Grand Prix.svg", "licence": "Public domain", "author": "Unknown author", "page": "https://commons.wikimedia.org/wiki/File:Logo_Pacific_Grand_Prix.svg"}
+    ]},
+    {"key": "forti", "name": "Forti", "names": ["forti"], "short": "FOR", "logos": [
+      {"file": "forti.png", "source": "Mini Free Logo Forti.png", "licence": "CC0", "author": "MiniPictures", "page": "https://commons.wikimedia.org/wiki/File:Mini_Free_Logo_Forti.png"}
+    ]},
+    {"key": "fondmetal", "name": "Fondmetal", "names": ["fondmetal"], "short": "FON", "logos": [
+      {"file": "fondmetal.png", "source": "Mini Free Logo Fondmetal.png", "licence": "CC0", "author": "MiniPictures", "page": "https://commons.wikimedia.org/wiki/File:Mini_Free_Logo_Fondmetal.png"}
+    ]},
+    {"key": "hesketh", "name": "Hesketh", "names": ["hesketh"], "short": "HES", "logos": [
+      {"file": "hesketh.gif", "source": "Hesketh.gif", "licence": "Public domain", "author": "Unknown author", "page": "https://commons.wikimedia.org/wiki/File:Hesketh.gif"}
+    ]},
+    {"key": "ats", "name": "ATS", "names": ["ats"], "short": "ATS", "logos": [
+      {"file": "ats.gif", "since": 1977, "source": "ATS logo.gif", "licence": "Public domain", "author": "The original uploader was Vici at Finnish Wikipedia.", "page": "https://commons.wikimedia.org/wiki/File:ATS_logo.gif"}
+    ]},
+    {"key": "coloni", "name": "Coloni", "names": ["coloni"], "short": "COL", "logos": [
+      {"file": "coloni.png", "source": "Coloni.png", "licence": "Public domain", "author": "Unknown author", "page": "https://commons.wikimedia.org/wiki/File:Coloni.png"}
+    ]},
+    {"key": "theodore", "name": "Theodore", "names": ["theodore"], "short": "THE", "logos": [
+      {"file": "theodore.png", "source": "Theodore logo.png", "licence": "CC BY-SA 4.0", "author": "Cassio96", "page": "https://commons.wikimedia.org/wiki/File:Theodore_logo.png"}
+    ]},
+    {"key": "team_lotus", "name": "Team Lotus", "names": ["team lotus", "lotus"], "years": [1950, 1994], "short": "LOT", "logos": []},
+    {"key": "lotus_racing", "name": "Lotus Racing", "names": ["lotus", "lotus racing", "team lotus"], "years": [2010, 2011], "short": "LOT", "logos": [
+      {"file": "lotus_racing.png", "source": "Mini Free Logo Lotus Racing.png", "licence": "CC0", "author": "MiniPictures", "page": "https://commons.wikimedia.org/wiki/File:Mini_Free_Logo_Lotus_Racing.png"}
+    ]},
+    {"key": "lotus_f1", "name": "Lotus F1", "names": ["lotus f1", "lotus f1 team", "lotus"], "years": [2012, 2015], "short": "LOT", "logos": []},
+    {"key": "caterham", "name": "Caterham", "names": ["caterham"], "short": "CAT", "logos": [
+      {"file": "caterham.png", "source": "Mini Free Logo Caterham.png", "licence": "CC0", "author": "MiniPictures", "page": "https://commons.wikimedia.org/wiki/File:Mini_Free_Logo_Caterham.png"}
+    ]},
+    {"key": "virgin", "name": "Virgin", "names": ["virgin", "virgin racing"], "short": "VIR", "logos": [
+      {"file": "virgin.png", "source": "Mini Free Logo Virgin.png", "licence": "CC0", "author": "MiniPictures", "page": "https://commons.wikimedia.org/wiki/File:Mini_Free_Logo_Virgin.png"}
+    ]},
+    {"key": "marussia", "name": "Marussia", "names": ["marussia", "marussia virgin"], "short": "MRS", "logos": [
+      {"file": "marussia.png", "source": "Mini Free Logo Marussia.png", "licence": "CC0", "author": "MiniPictures", "page": "https://commons.wikimedia.org/wiki/File:Mini_Free_Logo_Marussia.png"}
+    ]},
+    {"key": "manor", "name": "Manor", "names": ["manor marussia", "manor", "manor racing mrt"], "short": "MAN", "logos": [
+      {"file": "manor.png", "source": "Mini Free Logo Manor.png", "licence": "CC0", "author": "MiniPictures", "page": "https://commons.wikimedia.org/wiki/File:Mini_Free_Logo_Manor.png"}
+    ]},
+    {"key": "hrt", "name": "HRT", "names": ["hrt", "hispania"], "short": "HRT", "logos": [
+      {"file": "hrt.png", "source": "Mini Free Logo HRT.png", "licence": "CC0", "author": "MiniPictures", "page": "https://commons.wikimedia.org/wiki/File:Mini_Free_Logo_HRT.png"}
+    ]},
+    {"key": "andrea_moda", "name": "Andrea Moda", "names": ["andrea moda"], "short": "AM", "logos": [
+      {"file": "andrea_moda.png", "source": "Mini Free Logo Andrea Moda.png", "licence": "CC0", "author": "MiniPictures", "page": "https://commons.wikimedia.org/wiki/File:Mini_Free_Logo_Andrea_Moda.png"}
+    ]},
+    {"key": "brabham", "name": "Brabham", "names": ["brabham"], "short": "BRA", "logos": []},
+    {"key": "jaguar", "name": "Jaguar", "names": ["jaguar"], "short": "JAG", "logos": []},
+    {"key": "bar", "name": "BAR", "names": ["bar"], "short": "BAR", "logos": []}
+  ]
+}

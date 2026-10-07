@@ -5,7 +5,7 @@ import { useMemo, useState } from "react";
 import { rows, SESSION_LABEL, type AnySession, type PenaltyRow, type PowerUnitDriver, type PowerUnits, type WeekendPenalties } from "../data";
 import { pct, shortEvent } from "../format";
 import { useData, useSite } from "../site";
-import { DriverChip } from "./f1";
+import { DriverChip, TeamName } from "./f1";
 import { Note, Segmented, Table } from "./ui";
 
 export const ELEMENT_ORDER = ["ICE", "TC", "MGU-H", "MGU-K", "ES", "CE", "EX", "ANC"];
@@ -169,7 +169,7 @@ export function PowerUnitOutlook({ round }: { round: number }) {
         cardStats={["p_here", "p_season"]}
         columns={[
           { key: "driver", label: "Driver", value: (d) => d.driver, render: (d) => <DriverChip code={d.driver} color={d.color} /> },
-          { key: "team", label: "Team", value: (d) => d.team ?? "" },
+          { key: "team", label: "Team", value: (d) => d.team ?? "", render: (d) => <TeamName team={d.team} color={d.color} /> },
           ...pu.elements.map((el) => ({
             key: el, label: el, group: "Elements used", title: `${pu.names[el]}: ${pu.limits[el]} allowed`, numeric: true,
             value: (d: PowerUnitDriver) => d[el] as number,

@@ -30,6 +30,7 @@ import config
 from modules import analytics as an
 from modules import data_engine as de
 from modules import penalties as pn
+from modules import teams
 from modules import telemetry as tm
 from modules import weather as wx
 
@@ -458,13 +459,15 @@ with tab_pen:
         show = dec[~dec["outcome"].astype(str).str.match(r"(No Further Action|Warning|Not Investigated|Noted)")] if only else dec
         order = {s: i for i, s in enumerate(["FP1", "FP2", "FP3", "SQ", "S", "Q", "R"])}
         show = show.assign(_o=show["session"].map(order)).sort_values("_o")
-        st.dataframe(show[["session", "driver", "team", "allegation", "involving", "outcome", "time_s", "grid",
-                           "points", "fine", "notes"]]
-                     .rename(columns={"session": "Session", "driver": "Driver", "team": "Team", "allegation": "Offence",
-                                      "involving": "With", "outcome": "Outcome", "time_s": "Time (s)", "grid": "Grid",
-                                      "points": "Points", "fine": "Fine (€)", "notes": "Notes"})
-                     .astype({"Grid": str}).replace({"Grid": {"None": "", "back": "Back of grid", "pit": "Pit lane"}}),
-                     hide_index=True, width="stretch")
+        table = (show[["session", "driver", "team", "allegation", "involving", "outcome", "time_s", "grid",
+                       "points", "fine", "notes"]]
+                 .rename(columns={"session": "Session", "driver": "Driver", "team": "Team", "allegation": "Offence",
+                                  "involving": "With", "outcome": "Outcome", "time_s": "Time (s)", "grid": "Grid",
+                                  "points": "Points", "fine": "Fine (€)", "notes": "Notes"})
+                 .astype({"Grid": str}).replace({"Grid": {"None": "", "back": "Back of grid", "pit": "Pit lane"}}))
+        colors = drivers.set_index("Driver")["Color"]
+        st.dataframe(teams.with_badges(table, dict(zip(table["Team"], table["Driver"].map(colors))), info["year"]),
+                     hide_index=True, width="stretch", column_config=teams.badge_column())
     if pu_rows.empty:
         st.info("No FIA power-unit documents for this round (yet).")
     else:

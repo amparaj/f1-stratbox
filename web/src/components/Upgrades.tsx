@@ -5,7 +5,7 @@ import { useMemo, useState } from "react";
 import { rows, type Columns, type News, type NewsItem, type UpgradeRow } from "../data";
 import { shortEvent, signed } from "../format";
 import { useData, useSite } from "../site";
-import { DriverChip, TeamDot } from "./f1";
+import { DriverChip, TeamBadge, TeamName } from "./f1";
 import { Segmented, Table } from "./ui";
 
 const REASON: Record<string, { label: string; cls: string }> = {
@@ -57,11 +57,11 @@ export function WeekendUpgrades({ items, round }: { items?: Columns; round: numb
       <Table<UpgradeRow>
         data={list}
         rowKey={(u) => `${u.team}-${u.item}`}
-        cardTitle={(u) => <><TeamDot color={teamColor.get(u.team)} /> {u.team}: {u.component}</>}
+        cardTitle={(u) => <><TeamName team={u.team} color={teamColor.get(u.team)} />: {u.component}</>}
         cardSub={["reason"]}
         cardStats={[]}
         columns={[
-          { key: "team", label: "Team", value: (u) => u.team, render: (u) => <><TeamDot color={teamColor.get(u.team)} /> {u.team}</> },
+          { key: "team", label: "Team", value: (u) => u.team, render: (u) => <TeamName team={u.team} color={teamColor.get(u.team)} /> },
           { key: "component", label: "Component", value: (u) => u.component },
           { key: "reason", label: "Reason", value: (u) => u.reason, render: (u) => <span className={REASON[u.reason]?.cls ?? "tag"}>{REASON[u.reason]?.label ?? u.reason}</span> },
           { key: "text", label: "What it does", value: (u) => u.text, wrap: true, sortable: false, render: (u) => <span className="muted">{u.text.replace(/^.*?(?=[A-Z][a-z]+ [a-z])/, "").slice(0, 260)}</span> },
@@ -102,11 +102,11 @@ export function UpgradeTracker({ round }: { round: number }) {
         <Table<UpgradeRow>
           data={here}
           rowKey={(u) => `${u.team}-${u.item}`}
-          cardTitle={(u) => <><TeamDot color={teamColor.get(u.team)} /> {u.team}: {u.component}</>}
+          cardTitle={(u) => <><TeamName team={u.team} color={teamColor.get(u.team)} />: {u.component}</>}
           cardSub={["reason"]}
           cardStats={[]}
           columns={[
-            { key: "team", label: "Team", value: (u) => u.team, render: (u) => <><TeamDot color={teamColor.get(u.team)} /> {u.team}</> },
+            { key: "team", label: "Team", value: (u) => u.team, render: (u) => <TeamName team={u.team} color={teamColor.get(u.team)} /> },
             { key: "component", label: "Component", value: (u) => u.component },
             { key: "reason", label: "Reason", value: (u) => u.reason, render: (u) => <span className={REASON[u.reason]?.cls ?? "tag"}>{REASON[u.reason]?.label ?? u.reason}</span> },
           ]}
@@ -120,11 +120,11 @@ export function UpgradeTracker({ round }: { round: number }) {
             rowKey={(t) => t.team}
             sort="avg"
             desc={false}
-            cardTitle={(t) => <><TeamDot color={teamColor.get(t.team)} /> {t.team}</>}
+            cardTitle={(t) => <TeamName team={t.team} color={teamColor.get(t.team)} />}
             cardSub={["last"]}
             cardStats={["quicker", "avg"]}
             columns={[
-              { key: "team", label: "Team", value: (t) => t.team, render: (t) => <><TeamDot color={teamColor.get(t.team)} /> {t.team}</> },
+              { key: "team", label: "Team", value: (t) => t.team, render: (t) => <TeamName team={t.team} color={teamColor.get(t.team)} /> },
               { key: "rounds", label: "Rounds", title: "Rounds it brought performance parts to", value: (t) => t.rounds, numeric: true },
               { key: "parts", label: "Parts", value: (t) => t.parts, numeric: true },
               { key: "quicker", label: "Quicker after", title: "Rounds its race pace beat its previous three races", value: (t) => t.quickerN / t.rounds, render: (t) => `${t.quickerN} of ${t.rounds}`, numeric: true },
@@ -138,12 +138,12 @@ export function UpgradeTracker({ round }: { round: number }) {
             rowKey={(e) => `${e.round}-${e.team}`}
             sort="round"
             desc
-            cardTitle={(e) => <><TeamDot color={teamColor.get(e.team)} /> {e.team}, {evName(e.round)}</>}
+            cardTitle={(e) => <><TeamName team={e.team} color={teamColor.get(e.team)} />, {evName(e.round)}</>}
             cardSub={[]}
             cardStats={["items", "change"]}
             columns={[
               { key: "round", label: "Round", value: (e) => e.round, render: (e) => evName(e.round), rank: true },
-              { key: "team", label: "Team", value: (e) => e.team, render: (e) => <><TeamDot color={teamColor.get(e.team)} /> {e.team}</> },
+              { key: "team", label: "Team", value: (e) => e.team, render: (e) => <TeamName team={e.team} color={teamColor.get(e.team)} /> },
               { key: "items", label: "Parts", title: "Performance parts declared", value: (e) => e.items, numeric: true },
               { key: "before", label: "Before", title: "Race pace over the previous three races (% against the field)", value: (e) => e.before, render: (e) => `${signed(e.before, 2)}%`, numeric: true },
               { key: "after", label: "That race", value: (e) => e.after, render: (e) => `${signed(e.after, 2)}%`, numeric: true },
@@ -162,6 +162,7 @@ const TOPIC_LABEL: Record<string, string> = { pu: "Power units", penalty: "Penal
 export function NewsFeed({ round }: { round: number }) {
   const site = useSite();
   const news = useData<News>("news.json");
+  const teamColor = useTeamColor();
   const [topic, setTopic] = useState<"all" | "pu" | "penalty" | "upgrade">("all");
   const [more, setMore] = useState(false);
   const items = useMemo(() => rows<NewsItem>(news?.items), [news]);
@@ -188,6 +189,7 @@ export function NewsFeed({ round }: { round: number }) {
             <div className="news-meta">
               <span>{i.source} · {when(i.published)}</span>
               {i.drivers.map((d) => <DriverChip key={d} code={d} color={site.driver.get(d)?.color} />)}
+              {i.teams.map((t) => <TeamBadge key={t} team={t} color={teamColor.get(t)} />)}
               {i.rounds.filter((r) => r >= round).map((r) => <span key={r} className="tag">{evName(r)}</span>)}
               {i.topics.map((t) => <span key={t} className="tag">{TOPIC_LABEL[t]}</span>)}
             </div>

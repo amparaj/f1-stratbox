@@ -1,7 +1,7 @@
 import * as Plot from "@observablehq/plot";
 import { useCallback, useMemo, useState } from "react";
 import { color } from "../colors";
-import { ChanceBars, DriverChip, SessionBadge, TeamDot } from "../components/f1";
+import { ChanceBars, DriverChip, SessionBadge, TeamName } from "../components/f1";
 import { Chart, Note, plotDefaults, Segmented, Table, Tiles, type Column } from "../components/ui";
 import { rows, type CalendarEvent, type DriverStanding, type TeamStanding, type TitleOdds } from "../data";
 import { day, int, pct, shortEvent } from "../format";
@@ -48,7 +48,7 @@ export default function Season() {
           columns={[
             { key: "position", label: "Pos", value: (d) => d.position, numeric: true, rank: true },
             { key: "driver", label: "Driver", value: (d) => d.name, render: (d) => <><DriverChip code={d.driver} color={d.color} /> {d.name}</> },
-            { key: "team", label: "Team", value: (d) => d.team },
+            { key: "team", label: "Team", value: (d) => d.team, render: (d) => <TeamName team={d.team} color={d.color} /> },
             { key: "points", label: "Points", value: (d) => d.points, numeric: true },
             ...(split ? [
               { key: "gp_points", label: "GP", title: "Points from Grands Prix", value: (d: DriverStanding) => d.gp_points, numeric: true, group: "Points from" },
@@ -81,7 +81,7 @@ export default function Season() {
           cards={false}
           columns={[
             { key: "position", label: "Pos", value: (t) => t.position, numeric: true, rank: true },
-            { key: "team", label: "Team", value: (t) => t.team, render: (t) => <><TeamDot color={t.color} /> {t.team}</> },
+            { key: "team", label: "Team", value: (t) => t.team, render: (t) => <TeamName team={t.team} color={t.color} /> },
             { key: "points", label: "Points", value: (t) => t.points, numeric: true },
             ...(split ? [{ key: "sprint_points", label: "From sprints", value: (t: TeamStanding) => t.sprint_points, numeric: true }] as Column<TeamStanding>[] : []),
             { key: "wins", label: "Wins", title: "Grand Prix wins", value: (t) => t.wins, numeric: true },

@@ -46,11 +46,13 @@ modules/penalties.py       stewards' decisions (f1penalties.com), PU usage (FIA 
 modules/practice.py        free practice: one-lap pace, long runs (fuel corrected, driver + compound effects)
 modules/upgrades.py        car upgrades from the FIA's Car Presentation Submissions (PDF per event)
 modules/news.py            F1 news RSS (The Race, Crash.net, Autosport, ...): topics, reported PU penalty plans
+modules/teams.py           team badges (logo or colour + code) for dashboard tables, from web/src/teamLogos.json
 pages/6_Practice.py        FP1-3: timesheet, one-lap vs long-run pace map, long runs, the weekend combined
 scripts/export_site.py     runs site_export; scripts/needs_update.py: the Action's "anything new?"
 scripts/calibrate_forecast.py  fits config's "Session forecasts" constants by replaying 2025-26
 scripts/calibrate_penalties.py fits config's "Power-unit penalties" constants on every round since 2022
 scripts/prefetch_practice.py   downloads a season's practice sessions through OpenF1 (archived like the rest)
+scripts/fetch_team_logos.py    downloads the team logos in web/src/teamLogos.json from Wikimedia Commons
 web/                       the website (React + TypeScript + Vite, theme copied from xpfpl)
 .github/workflows/site.yml scheduled export + build + push to gh-pages
 ```
@@ -205,6 +207,15 @@ web/                       the website (React + TypeScript + Vite, theme copied 
   colour, so the second driver gets a dotted line.
 - Status colours come from `config.STATUS_COLORS` and always appear with an icon and a
   label. Compound colours come from `config.COMPOUND_COLORS`.
+- **Team badges** (`web/src/teamLogos.json`, one manifest for both sides; site `TeamBadge`/`TeamName` in
+  `components/f1.tsx` + `teams.ts`, dashboard `modules/teams.py` → `with_badges` + `badge_column()` as an
+  `ImageColumn`): a freely licensed logo (Wikimedia Commons: public domain, CC0, CC BY/BY-SA; files in
+  `web/public/logos/`, credits on About) on a white tile edged in the team colour, else the colour with a short
+  code. Matched by name, then the chassis before '-' ("Lotus-Climax"); entries' `years` split teams that shared a
+  name (Lotus), logos' `since`/`until` pick the era (pass the season). No free logo: Ferrari, Racing Bulls/Toro
+  Rosso/AlphaTauri, Cadillac, most pre-1980s teams. Add one: put its Commons title and file in the manifest, run
+  `scripts/fetch_team_logos.py` (refuses non-free licences, fills licence/author/page). Drivers keep their colour
+  chip/dot; badges are for teams. Plotly legends stay colour lines.
 - Avoid uncommon emoji in chart or metric text. Some don't render on Windows (🛞 showed
   as a box), and 🟢 inside `st.metric` renders huge.
 

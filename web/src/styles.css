@@ -646,6 +646,16 @@ pre.code {
 
 /* ---------------------------------------------------------------- F1 Stratbox additions */
 
+/* Team badge: a fixed box so names after it line up. Logos sit on white in both themes (most are dark ink). */
+.team-badge {
+  display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box;
+  width: 42px; height: 20px; margin-right: 6px; vertical-align: middle; flex: none;
+  border-radius: 4px; border-left: 3px solid; font-size: 11px; font-weight: 700; letter-spacing: 0.02em; line-height: 1;
+}
+.team-badge-logo { background: #fff; padding: 2px 3px; box-shadow: inset 0 0 0 1px rgba(11, 11, 11, 0.12); }
+.team-badge-logo img { display: block; max-width: 100%; max-height: 100%; object-fit: contain; }
+.news-meta .team-badge { margin-right: 0; }
+.team-name { display: inline-flex; align-items: center; }
 .team-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
 .tyre {
   display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px;
@@ -793,3 +803,8 @@ table.pu-grid td.pu-plan { box-shadow: inset 0 0 0 2px var(--ink-2); }
 .news-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12px; color: var(--muted); margin-top: 4px; }
 .news-list p { margin: 4px 0 0; }
 .link-button { background: none; border: 0; padding: 4px 0; cursor: pointer; color: inherit; text-decoration: underline; font: inherit; }
+
+/* About: team logo credits */
+.logo-credits ul { list-style: none; padding: 0; margin: 8px 0 0; font-size: 13px; color: var(--ink-2); }
+.logo-credits li { padding: 3px 0; overflow-wrap: anywhere; }
+.logo-credits img { height: 16px; max-width: 40px; object-fit: contain; vertical-align: middle; background: #fff; padding: 1px 3px; border-radius: 3px; }

@@ -25,6 +25,7 @@ import streamlit as st
 import config
 from modules import data_engine as de
 from modules import practice as pr
+from modules import teams
 
 
 def lap_time(s: float | None) -> str:
@@ -83,12 +84,12 @@ with tab_sheet:
     sheet["One-lap %"] = sheet["driver"].map(pace["one_lap"])
     sheet["Long-run %"] = sheet["driver"].map(pace["long_run"])
     sheet["Team"] = sheet["driver"].map(drivers["Team"])
-    st.dataframe(pd.DataFrame({
+    st.dataframe(teams.with_badges(pd.DataFrame({
         "Pos": range(1, len(sheet) + 1), "Driver": sheet["driver"], "Team": sheet["Team"],
         "Best": sheet["best"].map(lap_time), "Gap": sheet["gap"].map(lambda g: "–" if g == 0 else f"+{g:.3f}"),
         "Tyre": sheet["compound"].str.title(), "Laps": sheet["Laps"],
         "One-lap %": sheet["One-lap %"].round(2), "Long-run %": sheet["Long-run %"].round(2),
-    }), hide_index=True, width="stretch")
+    }), teams.team_colors(info["drivers"]), year), hide_index=True, width="stretch", column_config=teams.badge_column())
     st.caption("% columns: against the field median, negative = faster. Long-run pace is blank for drivers "
                "with no long run in this session.")
 

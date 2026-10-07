@@ -1,7 +1,7 @@
 import * as Plot from "@observablehq/plot";
 import { useCallback, useMemo, useState } from "react";
 import { color } from "../colors";
-import { DriverChip, DriverPicker, PositionChart, TeamDot } from "../components/f1";
+import { DriverChip, DriverPicker, PositionChart, TeamDot, TeamName } from "../components/f1";
 import { Chart, Loading, Note, plotDefaults, Segmented, Table, Tiles } from "../components/ui";
 import { rows } from "../data";
 import { dayYear, delta, lapTime, raceTime, signed } from "../format";
@@ -107,12 +107,12 @@ function Seasons({ index }: { index: HistoryIndex }) {
           { key: "year", label: "Season", value: (s) => s.year, render: (s) => <a href={link.season(s.year)}>{s.year}</a>, numeric: true },
           { key: "rounds", label: "Races", value: (s) => s.rounds, numeric: true },
           { key: "champion", label: "Drivers' champion", value: (s) => s.champion_name, render: (s) => <><TeamDot color={s.champion_color} /> <a href={link.driver(s.champion_ref!)} onClick={(e) => e.stopPropagation()}>{s.champion_name}</a></> },
-          { key: "team", label: "Team", value: (s) => s.champion_team },
+          { key: "team", label: "Team", value: (s) => s.champion_team, render: (s) => <TeamName team={s.champion_team} color={s.champion_color} year={s.year} /> },
           { key: "points", label: "Points", value: (s) => s.champion_points, render: (s) => pts(s.champion_points), numeric: true },
           { key: "wins", label: "Wins", value: (s) => s.champion_wins, numeric: true },
           { key: "margin", label: "Margin", title: "Points ahead of the runner-up", value: (s) => s.margin, render: (s) => pts(s.margin), numeric: true },
           { key: "runner_up", label: "Runner-up", value: (s) => s.runner_up },
-          { key: "constructor", label: "Constructors' champion", value: (s) => s.constructor ?? "", render: (s) => (s.constructor ? <><TeamDot color={s.constructor_color} /> {s.constructor}</> : <span className="muted">from 1958</span>) },
+          { key: "constructor", label: "Constructors' champion", value: (s) => s.constructor ?? "", render: (s) => (s.constructor ? <TeamName team={s.constructor} color={s.constructor_color} year={s.year} /> : <span className="muted">from 1958</span>) },
         ]}
       />
     </section>
@@ -205,11 +205,11 @@ function Constructors({ index }: { index: HistoryIndex }) {
         rowKey={(t) => t.team}
         sort="wins"
         limit={30}
-        cardTitle={(t) => <><TeamDot color={t.color} /> {t.team}</>}
+        cardTitle={(t) => <TeamName team={t.team} color={t.color} year={t.last} />}
         cardSub={["years"]}
         cardStats={["wins", "titles", "races"]}
         columns={[
-          { key: "team", label: "Constructor", value: (t) => t.team, render: (t) => <><TeamDot color={t.color} /> {t.team}</> },
+          { key: "team", label: "Constructor", value: (t) => t.team, render: (t) => <TeamName team={t.team} color={t.color} year={t.last} /> },
           { key: "years", label: "Years", value: (t) => (t.first === t.last ? `${t.first}` : `${t.first}–${t.last}`) },
           { key: "races", label: "Races", value: (t) => t.races, numeric: true },
           { key: "wins", label: "Wins", value: (t) => t.wins, numeric: true },
@@ -303,7 +303,7 @@ function SeasonView({ year, index }: { year: number; index: HistoryIndex }) {
           columns={[
             { key: "position", label: "Pos", value: (d) => d.position, numeric: true, rank: true },
             { key: "driver", label: "Driver", value: (d) => d.name, render: (d) => <><DriverChip code={d.driver} color={d.color} /> <a href={link.driver(d.ref)}>{d.name}</a></> },
-            { key: "team", label: "Team", value: (d) => d.team, wrap: true },
+            { key: "team", label: "Team", value: (d) => d.team, render: (d) => <TeamName team={d.team} color={d.color} year={year} />, wrap: true },
             { key: "points", label: "Points", value: (d) => d.points, render: (d) => pts(d.points), numeric: true },
             ...(dropped ? [{ key: "scored", label: "All results", title: "Points scored in every race, before dropped results", value: (d: HistoryDriverStanding) => d.points_scored, render: (d: HistoryDriverStanding) => pts(d.points_scored), numeric: true }] : []),
             { key: "wins", label: "Wins", value: (d) => d.wins, numeric: true },
@@ -330,7 +330,7 @@ function SeasonView({ year, index }: { year: number; index: HistoryIndex }) {
             cards={false}
             columns={[
               { key: "position", label: "Pos", value: (t) => t.position, numeric: true, rank: true },
-              { key: "team", label: "Constructor", value: (t) => t.team, render: (t) => <><TeamDot color={t.color} /> {t.team}</> },
+              { key: "team", label: "Constructor", value: (t) => t.team, render: (t) => <TeamName team={t.team} color={t.color} year={year} /> },
               { key: "points", label: "Points", value: (t) => t.points, render: (t) => pts(t.points), numeric: true },
               { key: "wins", label: "Wins", value: (t) => t.wins, numeric: true },
             ]}
@@ -354,7 +354,7 @@ function SeasonView({ year, index }: { year: number; index: HistoryIndex }) {
             { key: "circuit", label: "Circuit", value: (r) => r.circuit_name, render: (r) => <a href={link.circuit(r.circuit)} onClick={(e) => e.stopPropagation()}>{r.circuit_name}</a>, wrap: true },
             { key: "date", label: "Date", value: (r) => dayYear(r.date) },
             { key: "winner", label: "Winner", value: (r) => r.winner_name ?? "", render: (r) => (r.winner ? <><DriverChip code={r.winner} color={r.winner_color} /> {r.winner_name}</> : "–") },
-            { key: "team", label: "Team", value: (r) => r.winner_team ?? "" },
+            { key: "team", label: "Team", value: (r) => r.winner_team ?? "", render: (r) => <TeamName team={r.winner_team} color={r.winner_color} year={year} /> },
             { key: "pole", label: "Pole", value: (r) => r.pole ?? "" },
             ...(file.rounds.some((r) => r.sprint) ? [{ key: "sprint", label: "Sprint", value: (r: HistoryRound) => (r.sprint ? "Sprint" : ""), render: (r: HistoryRound) => (r.sprint ? <a className="tag" href={link.race(year, r.round, "S")} onClick={(e) => e.stopPropagation()}>Sprint</a> : "") }] : []),
           ]}
@@ -458,7 +458,7 @@ function RaceView({ year, round, code, index }: { year: number; round: number; c
           columns={[
             { key: "pos", label: "Pos", value: (r) => r.pos, render: (r) => r.pos ?? (r.started ? "–" : "DNS"), numeric: true, rank: true },
             { key: "driver", label: "Driver", value: (r) => r.name, render: (r) => <><DriverChip code={r.driver} color={r.color} /> <a href={link.driver(r.ref)}>{r.name}</a></> },
-            { key: "team", label: "Team", value: (r) => r.team },
+            { key: "team", label: "Team", value: (r) => r.team, render: (r) => <TeamName team={r.team} color={r.color} year={year} /> },
             { key: "number", label: "No.", value: (r) => r.number, numeric: true },
             { key: "grid", label: "Grid", value: (r) => r.grid, render: (r) => r.grid ?? (r.started ? "Pit lane" : "–"), numeric: true, rank: true },
             { key: "gained", label: "+/−", title: "Places gained from the grid", value: (r) => (r.grid && r.pos ? r.grid - r.pos : null), render: (r) => (r.grid && r.pos ? signed(r.grid - r.pos, 0) : "–"), numeric: true },
@@ -555,7 +555,7 @@ function DriverView({ refId }: { refId: string }) {
           cardStats={["position", "points", "wins"]}
           columns={[
             { key: "year", label: "Season", value: (s) => s.year, render: (s) => <a href={link.season(s.year)}>{s.year}</a>, numeric: true },
-            { key: "team", label: "Team", value: (s) => s.team, render: (s) => <><TeamDot color={s.color} /> {s.team}</> },
+            { key: "team", label: "Team", value: (s) => s.team, render: (s) => <TeamName team={s.team} color={s.color} year={s.year} /> },
             { key: "position", label: "Pos", value: (s) => s.position, render: (s) => (s.position ? `P${s.position}` : "–"), numeric: true, rank: true },
             { key: "points", label: "Points", value: (s) => s.points, render: (s) => pts(s.points), numeric: true },
             { key: "starts", label: "Starts", value: (s) => s.starts, numeric: true },
@@ -632,7 +632,7 @@ function CircuitView({ refId }: { refId: string }) {
             { key: "year", label: "Season", value: (r) => r.year, render: (r) => <a href={link.race(r.year, r.round)}>{r.year}</a>, numeric: true },
             { key: "event", label: "Race", value: (r) => r.event },
             { key: "winner", label: "Winner", value: (r) => r.winner_name, render: (r) => <><DriverChip code={r.winner} color={r.color} /> {r.winner_name}</> },
-            { key: "team", label: "Team", value: (r) => r.team },
+            { key: "team", label: "Team", value: (r) => r.team, render: (r) => <TeamName team={r.team} color={r.color} year={r.year} /> },
             { key: "pole", label: "Pole", value: (r) => r.pole ?? "" },
           ]}
         />

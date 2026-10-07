@@ -29,6 +29,7 @@ import streamlit as st
 import config
 from modules import data_engine as de
 from modules import forecast as fc
+from modules import teams
 
 
 def lap_time(s: float | None) -> str:
@@ -108,7 +109,8 @@ with tab_res:
         "Teammate (s)": res["TeammateGap"].round(3),
         "Pace (%)": res["Pace"].round(2),
     })
-    st.dataframe(table, hide_index=True, width="stretch")
+    st.dataframe(teams.with_badges(table, teams.team_colors(res), info["year"]), hide_index=True, width="stretch",
+                 column_config=teams.badge_column())
     st.caption("Pace puts every driver on one scale although the track gets faster: each segment's times "
                "against the median time of the Q3 runners in that segment, the best of them, centred on "
                "the field median (negative = faster). Teammate: against the teammate in the last segment "

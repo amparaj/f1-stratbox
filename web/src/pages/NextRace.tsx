@@ -1,7 +1,7 @@
 import * as Plot from "@observablehq/plot";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { color } from "../colors";
-import { ChanceBars, DriverChip, Plan, SessionBadge } from "../components/f1";
+import { ChanceBars, DriverChip, Plan, SessionBadge, TeamName } from "../components/f1";
 import { PowerUnitOutlook } from "../components/Penalties";
 import { NewsFeed, UpgradeTracker } from "../components/Upgrades";
 import { liveSession, Radar, useNow } from "../components/Radar";
@@ -172,7 +172,7 @@ function RaceOdds({ forecast, code, ahead }: { forecast: Forecast; code: "R" | "
         cardStats={["p_win", "p_podium", "exp_points"]}
         columns={[
           { key: "driver", label: "Driver", value: (d) => d.driver, render: (d) => <DriverChip code={d.driver} color={d.color} /> },
-          { key: "team", label: "Team", value: (d) => d.team },
+          { key: "team", label: "Team", value: (d) => d.team, render: (d) => <TeamName team={d.team} color={d.color} /> },
           { key: "pace", label: "Pace", title: "Expected performance against the field median (negative = faster): race and qualifying form, plus the circuit, grid and penalty terms", value: (d) => -(d.pace ?? d.form ?? 0), render: (d) => `${signed(d.pace ?? d.form, 2)}%`, numeric: true },
           ...(circuit ? [{ key: "circuit", label: "Circuit", title: "The team's pace here last season against its season average (negative = better here)", value: (d: ForecastDriver) => -(d.circuit ?? 0), render: (d: ForecastDriver) => (d.circuit == null ? "–" : `${signed(d.circuit, 2)}%`), numeric: true }] : []),
           ...(grid ? [{ key: "grid", label: "Grid", value: (d: ForecastDriver) => d.grid ?? 99, render: (d: ForecastDriver) => d.grid ?? "–", numeric: true, rank: true }] : []),
@@ -226,7 +226,7 @@ function QualiOdds({ forecast, code, ahead }: { forecast: Forecast; code: "Q" | 
         cardStats={["p_pole", "p_q3", "p_q1_out"]}
         columns={[
           { key: "driver", label: "Driver", value: (d) => d.driver, render: (d) => <DriverChip code={d.driver} color={d.color} /> },
-          { key: "team", label: "Team", value: (d) => d.team },
+          { key: "team", label: "Team", value: (d) => d.team, render: (d) => <TeamName team={d.team} color={d.color} /> },
           { key: "pace", label: "Pace", title: "Qualifying form against the field median (negative = faster)", value: (d) => -d.pace, render: (d) => `${signed(d.pace, 2)}%`, numeric: true },
           ...(circuit ? [{ key: "circuit", label: "Circuit", title: "The team's qualifying pace here last season against its season average (negative = better here)", value: (d: QualiForecastDriver) => -(d.circuit ?? 0), render: (d: QualiForecastDriver) => (d.circuit == null ? "–" : `${signed(d.circuit, 2)}%`), numeric: true }] : []),
           { key: "p_pole", label: "Pole", value: (d) => d.p_pole, render: (d) => pct(d.p_pole), numeric: true },

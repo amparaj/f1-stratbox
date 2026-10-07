@@ -6,6 +6,7 @@ import * as Plot from "@observablehq/plot";
 import { useCallback } from "react";
 import { color } from "../colors";
 import { SESSION_LABEL, SESSION_SHORT, type AnySession, type LapRow, type ResultRow, type StintRow } from "../data";
+import { logoUrl, teamLogo, teamShort } from "../teams";
 import { Chart, plotDefaults } from "./ui";
 
 export const COMPOUND: Record<string, { name: string; color: string; ink: string }> = {
@@ -40,6 +41,31 @@ export function SessionBadge({ code, short }: { code: AnySession; short?: boolea
 
 export function TeamDot({ color: c }: { color?: string | null }) {
   return <span className="team-dot" style={{ background: c ?? "var(--neutral)" }} aria-hidden />;
+}
+
+/** A team's logo on a light tile edged in its colour, or (no free logo) its colour with a short code.
+ *  `year` picks the era's logo and tells apart teams that shared a name (Lotus); without it, the latest. */
+export function TeamBadge({ team, color: bg, year }: { team: string; color?: string | null; year?: number | null }) {
+  const logo = teamLogo(team, year);
+  const c = bg || "var(--neutral)";
+  if (logo) {
+    return (
+      <span className="team-badge team-badge-logo" style={{ borderLeftColor: c }} title={team}>
+        <img src={logoUrl(logo)} alt={team} loading="lazy" />
+      </span>
+    );
+  }
+  return (
+    <span className="team-badge" style={{ background: c, borderLeftColor: c, color: bg ? inkOn(bg) : "#fff" }} title={team} role="img" aria-label={team}>
+      {teamShort(team, year)}
+    </span>
+  );
+}
+
+/** A team column's cell: badge, then the name. */
+export function TeamName({ team, color: c, year }: { team: string | null | undefined; color?: string | null; year?: number | null }) {
+  if (!team) return null;
+  return <span className="team-name"><TeamBadge team={team} color={c} year={year} />{team}</span>;
 }
 
 export function Tyre({ compound, label }: { compound: string; label?: string }) {

@@ -1,7 +1,7 @@
 import * as Plot from "@observablehq/plot";
 import { useCallback, useMemo, useState } from "react";
 import { color } from "../colors";
-import { COMPOUND, compoundKey, DriverChip, DriverPicker, GapChart, Plan, PositionChart, SessionBadge, StrategyChart, Tyre } from "../components/f1";
+import { COMPOUND, compoundKey, DriverChip, DriverPicker, GapChart, Plan, PositionChart, SessionBadge, StrategyChart, TeamName, Tyre } from "../components/f1";
 import { dropText, WeekendPenaltiesSection } from "../components/Penalties";
 import { PracticeBody } from "../components/Practice";
 import { WeekendUpgrades } from "../components/Upgrades";
@@ -194,7 +194,7 @@ function RaceView({ round, code }: { round: number; code: "R" | "S" }) {
           columns={[
             { key: "position", label: "Pos", value: (r) => r.position, render: (r) => (r.classified ? r.position : r.dns ? "DNS" : "DNF"), numeric: true, rank: true },
             { key: "driver", label: "Driver", value: (r) => r.name ?? r.driver, render: (r) => <><DriverChip code={r.driver} color={r.color} /> {r.name}</> },
-            { key: "team", label: "Team", value: (r) => r.team },
+            { key: "team", label: "Team", value: (r) => r.team, render: (r) => <TeamName team={r.team} color={r.color} /> },
             ...(results.some((r) => r.quali != null) ? [{ key: "quali", label: "Qualified", title: `Position in ${code === "S" ? "Sprint Qualifying" : "Qualifying"}`, value: (r: ResultRow) => r.quali ?? null, render: (r: ResultRow) => r.quali ?? "–", numeric: true, rank: true }] : []),
             { key: "grid", label: "Grid", value: (r) => r.grid, render: (r) => <>{r.pit_lane_start ? "Pit lane" : r.grid ?? "–"}{gridPenalty(r) && <span className="tag warn" title={gridPenalty(r)!} style={{ marginLeft: 4 }}>pen</span>}</>, numeric: true, rank: true },
             { key: "gained", label: "+/−", title: "Places gained from the grid", value: (r) => (r.grid && r.classified && r.position ? r.grid - r.position : null), render: (r) => (r.grid && r.classified && r.position ? signed(r.grid - r.position, 0) : "–"), numeric: true },
@@ -476,7 +476,7 @@ function QualiView({ round, code }: { round: number; code: "Q" | "SQ" }) {
           columns={[
             { key: "position", label: "Pos", value: (r) => r.position, numeric: true, rank: true },
             { key: "driver", label: "Driver", value: (r) => r.name ?? r.driver, render: (r) => <><DriverChip code={r.driver} color={r.color} /> {r.name}</> },
-            { key: "team", label: "Team", value: (r) => r.team },
+            { key: "team", label: "Team", value: (r) => r.team, render: (r) => <TeamName team={r.team} color={r.color} /> },
             { key: "q1", label: "Q1", value: (r) => r.q1, render: (r) => segCell(r, "q1", 1), numeric: true, group: "Times" },
             { key: "q2", label: "Q2", value: (r) => r.q2, render: (r) => segCell(r, "q2", 2), numeric: true, group: "Times" },
             { key: "q3", label: "Q3", value: (r) => r.q3, render: (r) => segCell(r, "q3", 3), numeric: true, group: "Times" },

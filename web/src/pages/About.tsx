@@ -3,6 +3,7 @@ import { Flow } from "../components/Flow";
 import { Loading, Segmented } from "../components/ui";
 import { dayYear } from "../format";
 import { useHash, useSite } from "../site";
+import { logoUrl, TEAMS } from "../teams";
 
 // The maths needs KaTeX, so the technical documentation loads as its own chunk.
 const Docs = lazy(() => import("./Docs"));
@@ -143,6 +144,26 @@ function Overview() {
         Pit-lane losses are approximate public figures. The code is at{" "}
         <a href="https://github.com/amparaj/f1-stratbox">github.com/amparaj/f1-stratbox</a>.
       </p>
+
+      <h3>Team logos</h3>
+      <p>
+        Team logos are freely licensed files from <a href="https://commons.wikimedia.org/">Wikimedia Commons</a> (public
+        domain, CC0 or Creative Commons), shown only to identify the teams; the logos are trademarks of their owners. A team
+        with no free logo for that era (Ferrari, Racing Bulls, Cadillac and most teams before the 1980s) gets a badge in its
+        colour with a short code instead.
+      </p>
+      <details className="logo-credits">
+        <summary>Logo credits ({LOGO_CREDITS.length} files)</summary>
+        <ul>
+          {LOGO_CREDITS.map(({ team, logo }) => (
+            <li key={logo.file}>
+              <img src={logoUrl(logo)} alt="" /> {team}: <a href={logo.page}>{logo.source}</a>, {logo.author}, {logo.licence}
+            </li>
+          ))}
+        </ul>
+      </details>
     </>
   );
 }
+
+const LOGO_CREDITS = TEAMS.flatMap((t) => t.logos.filter((l) => l.page).map((logo) => ({ team: t.name, logo })));
