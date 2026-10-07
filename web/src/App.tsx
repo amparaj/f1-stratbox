@@ -1,5 +1,6 @@
 import { Component, useEffect, useRef, useState, type ReactNode } from "react";
 import { ProfileHost } from "./components/Profiles";
+import PageJump from "./components/PageJump";
 import { Loading, usePhone } from "./components/ui";
 import { SESSION_LABEL, sessionStart, weekendSessions } from "./data";
 import { dayYear, shortEvent, when } from "./format";
@@ -39,8 +40,21 @@ export default function App() {
   const [offset, setOffset] = useState(0);
   useEffect(() => {
     const h = header.current, n = nav.current;
-    if (!h || !n || !phone) { setOffset(0); return; }
-    const measure = () => setOffset(n.offsetTop);
+    if (!h || !n) return;
+    if (!phone) {
+      // The whole header stays pinned on a wide screen.
+      setOffset(0);
+      const pin = () => document.documentElement.style.setProperty("--pinned", `${h.offsetHeight}px`);
+      const observer = new ResizeObserver(pin);
+      observer.observe(h);
+      pin();
+      return () => observer.disconnect();
+    }
+    const measure = () => {
+      setOffset(n.offsetTop);
+      // What stays pinned (the tabs): a section jumped to lands just below it.
+      document.documentElement.style.setProperty("--pinned", `${h.offsetHeight - n.offsetTop}px`);
+    };
     const observer = new ResizeObserver(measure);
     observer.observe(h);
     measure();
@@ -91,6 +105,7 @@ export default function App() {
               <Boundary key={page.id}>
                 <Page />
               </Boundary>
+              <PageJump page={hash} />
             </ProfileHost>
           </SiteContext.Provider>
         )}

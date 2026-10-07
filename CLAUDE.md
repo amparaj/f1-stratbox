@@ -433,6 +433,10 @@ and emoji). This is a Windows PowerShell 5.1 / Git Bash environment.
 - Circuits are matched across seasons by `circuit_key(location)` (via the pit-loss table),
   never by event name: the 2026 "Bahrain Grand Prix" was in Kuala Lumpur.
 - Pages must render at phone width (`usePhone`, cards via `Table`). Screenshot both widths.
+- **Page navigation** (`components/PageJump.tsx`, mounted once in `App.tsx`): floating "Sections" (3+ headings) and
+  "Top" (after scrolling most of a screen) buttons. Sections are every visible `h3` in `<main>` (not in a dialog),
+  found by a MutationObserver, so a new section needs no wiring: give it an `h3`. Jumps land under the pinned header
+  (`--pinned`, set by App).
 - Site routes: `#races/16` Grand Prix (or the weekend's latest finished session before it),
   `#races/16/S|Q|SQ`; `#next/17/<code>` a session's forecast. `web/src/data.ts` has the session
   helpers (`weekendSessions`, `sessionDone`, `sessionHash`, `sessionOdds`).
