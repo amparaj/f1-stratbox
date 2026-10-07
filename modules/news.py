@@ -22,9 +22,12 @@ from __future__ import annotations
 
 import datetime as dt
 import email.utils
+import gzip
 import hashlib
 import html
 import json
+import urllib.parse
+import urllib.robotparser
 import re
 import xml.etree.ElementTree as ET
 
@@ -75,6 +78,20 @@ def _date(s: str | None) -> str | None:
     return d.astimezone(dt.timezone.utc).isoformat()
 
 
+# The link text some feeds end a teaser with ("... Keep reading"): the item's link is shown anyway.
+READ_ON = re.compile(r"\s*(?:\.\.\.|…)?\s*(?:keep reading|continue reading|read more|read the full (?:story|article))\.?\s*$", re.I)
+# An item kept before summaries were stored whole: cut at 400 characters, mid-"Keep reading".
+OLD_CUT = re.compile(r"\s*(?:\.\.\.|…)\s*\w{0,12}$")
+
+
+def clean_summary(s: str) -> str:
+    """The feed's summary in full, its "Keep reading" link text dropped; a teaser ends with "…"."""
+    s = s or ""
+    if READ_ON.search(s) or (len(s) == 400 and OLD_CUT.search(s[-20:])):
+        s = (READ_ON if READ_ON.search(s) else OLD_CUT).sub("", s).rstrip() + " …"
+    return s
+
+
 def parse_feed(source: str, body: bytes) -> list[dict]:
     """RSS (or Atom) items: source, title, link, published (UTC ISO), summary (plain text)."""
     root = ET.fromstring(body)
@@ -93,7 +110,7 @@ def parse_feed(source: str, body: bytes) -> list[dict]:
                      if (get.get("pubDate") is not None or get.get("published") is not None) else None)
         if title and href:
             out.append({"source": source, "title": title, "link": href.strip(), "published": when,
-                        "summary": summary[:400]})
+                        "summary": clean_summary(summary)})
     return out
 
 
@@ -103,7 +120,7 @@ def fetch(now: dt.datetime | None = None) -> list[dict]:
     CACHE.mkdir(parents=True, exist_ok=True)
     store = CACHE / "items.json"
     kept = json.loads(store.read_text(encoding="utf-8")) if store.exists() else {"items": [], "fetched": {}}
-    by_link = {i["link"]: i for i in kept["items"]}
+    by_link = {i["link"]: {**i, "summary": clean_summary(i.get("summary", ""))} for i in kept["items"]}
     for source, url in config.NEWS_FEEDS.items():
         last = kept["fetched"].get(source)
         if last and now - dt.datetime.fromisoformat(last) < dt.timedelta(hours=config.NEWS_FRESH_HOURS):
@@ -118,14 +135,121 @@ def fetch(now: dt.datetime | None = None) -> list[dict]:
         for i in items:
             i.setdefault("published", now.isoformat())
             i["published"] = i["published"] or now.isoformat()
-            by_link.setdefault(i["link"], i)
+            old = by_link.get(i["link"])
+            if old is None:
+                by_link[i["link"]] = i
+            elif old.get("teaser", old["summary"]) != i["summary"]:     # an edited summary: complete it again
+                old.update(title=i["title"], summary=i["summary"])
+                old.pop("teaser", None)
+            else:
+                old["title"] = i["title"]
         kept["fetched"][source] = now.isoformat()
+    complete_teasers(list(by_link.values()))
     cutoff = now - dt.timedelta(days=config.NEWS_KEEP_DAYS)
     items = sorted((i for i in by_link.values() if dt.datetime.fromisoformat(i["published"]) >= cutoff),
                    key=lambda i: i["published"], reverse=True)
     kept["items"] = items
     store.write_text(json.dumps(kept, ensure_ascii=False), encoding="utf-8")
     return items
+
+
+_robots: dict[str, urllib.robotparser.RobotFileParser | None] = {}
+
+
+def _allowed(url: str) -> bool:
+    """The site's robots.txt lets us read this page (none, or a 4xx: yes; unreachable: no)."""
+    host = urllib.parse.urlsplit(url)
+    root = f"{host.scheme}://{host.netloc}"
+    if root not in _robots:
+        rp = urllib.robotparser.RobotFileParser()
+        try:
+            r = requests.get(root + "/robots.txt", headers=HEADERS, timeout=15)
+            rp.parse(r.text.splitlines() if r.status_code < 400 else [])
+            _robots[root] = rp if r.status_code < 500 else None
+        except Exception:  # noqa: BLE001
+            _robots[root] = None
+    rp = _robots[root]
+    return rp is not None and rp.can_fetch(HEADERS["User-Agent"], url)
+
+
+def _norm(s: str) -> str:
+    s = html.unescape(s).translate({0x2018: "'", 0x2019: "'", 0x201C: '"', 0x201D: '"', 0xA0: " "})
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def _page_text(url: str) -> str | None:
+    """The article's paragraphs as plain text, or None (not allowed or not reachable). Read once,
+    for the end of one sentence; never stored."""
+    if not _allowed(url):
+        return None
+    try:
+        r = requests.get(url, headers=HEADERS, timeout=20)
+        r.raise_for_status()
+    except Exception:  # noqa: BLE001
+        return None
+    body = re.sub(r"(?is)<(script|style|noscript)[^>]*>.*?</>", " ", r.text)
+    paras = re.findall(r"(?is)<p[^>]*>(.*?)</p>", body)
+    return _norm(" ".join(re.sub(r"<[^>]+>", "", p) for p in paras))
+
+
+SENTENCE_END = re.compile(r"[.!?][\"')\]]?(?=\s|$)")
+
+
+def complete_summary(teaser: str, page: str | None) -> str:
+    """A teaser ("... cut mid-sentence …") with its last sentence finished from the article page,
+    else cut back to its last full sentence, else left as it is."""
+    base = _norm(re.sub(r"\s*(?:\.\.\.|…)$", "", teaser))
+    if page:
+        tail = base[-60:].lower()
+        at = page.lower().find(tail)
+        if at >= 0:
+            after = page[at + len(tail):]
+            m = SENTENCE_END.search(after[:config.NEWS_COMPLETE_MAX_CHARS])
+            if m:
+                return base + after[:m.end()]
+    ends = list(SENTENCE_END.finditer(base))
+    if ends and ends[-1].end() >= 80:
+        return base[:ends[-1].end()]
+    return teaser
+
+
+def complete_teasers(items: list[dict]) -> None:
+    """Finish the sentence each teaser was cut in (complete_summary), at most NEWS_COMPLETE_MAX
+    articles a run, each once: the feed's text is kept in "teaser", the result in "summary"."""
+    todo = [i for i in items if "teaser" not in i and i["summary"].endswith("…")]
+    for i in sorted(todo, key=lambda i: i["published"], reverse=True)[:config.NEWS_COMPLETE_MAX]:
+        page = _page_text(i["link"])
+        i["teaser"] = i["summary"]
+        i["summary"] = complete_summary(i["summary"], page)
+
+
+ARCHIVE = config.PROJECT_ROOT / "archive" / "news"
+
+
+def archive_days(items: list[dict], now: dt.datetime | None = None) -> list[str]:
+    """Each UTC day's items (source, title, link, published, summary) to
+    archive/news/<year>/<date>.json.gz once the day is NEWS_ARCHIVE_AFTER_DAYS old (feeds can show an
+    item a day or two late), and never again: the kept list only holds NEWS_KEEP_DAYS. Days at the
+    kept list's edge (possibly cut) aren't written. Returns the days written."""
+    now = now or dt.datetime.now(dt.timezone.utc)
+    last = (now - dt.timedelta(days=config.NEWS_ARCHIVE_AFTER_DAYS)).date()
+    first = (now - dt.timedelta(days=config.NEWS_KEEP_DAYS - 1)).date()
+    by_day: dict[dt.date, list[dict]] = {}
+    for i in items:
+        day = dt.datetime.fromisoformat(i["published"]).astimezone(dt.timezone.utc).date()
+        if first <= day <= last:
+            by_day.setdefault(day, []).append({k: i.get(k) for k in ("source", "title", "link", "published", "summary")})
+    written = []
+    for day, rows in sorted(by_day.items()):
+        path = ARCHIVE / str(day.year) / f"{day.isoformat()}.json.gz"
+        if path.exists():
+            continue
+        path.parent.mkdir(parents=True, exist_ok=True)
+        rows = sorted(rows, key=lambda r: (r["published"], r["link"]))
+        path.write_bytes(gzip.compress(json.dumps(rows, ensure_ascii=False, indent=0).encode("utf-8"),
+                                       compresslevel=9, mtime=0))
+        written.append(day.isoformat())
+    return written
 
 
 def _sentences(item: dict) -> list[str]:

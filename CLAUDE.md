@@ -300,8 +300,11 @@ and emoji). This is a Windows PowerShell 5.1 / Git Bash environment.
     2026 (new rules): keep the weights the calibration gives, don't inflate them
   - each forecast file has `sessions[code] = {pre, latest, latest_after}`: before the weekend, and
     after the weekend's earlier sessions. Title odds play every S and R left with its circuit term
-  - forecasts for finished rounds are recomputed from earlier sessions on every export, not
-    saved, so they change if the model changes
+  - forecasts for finished rounds are recomputed from earlier sessions on every export, so they
+    change if the model changes. **As published** (`site_export.archive_forecast`): the next round's
+    forecast file + title odds are cached in `.snapshots/<year>.json` each export; when the stage (the
+    round's last finished session, "pre" before any) moves on, the last version goes to
+    `archive/forecasts/<year>/rNN-pre|after-FP1|...|after-Q.json.gz`, written once (gh-pages keeps no history)
   - strategy: per-compound deg fits and intercepts from one race are too noisy (late-run
     Hards fit faster than Softs; a compound few drivers used fits 0 deg). So a circuit gets
     one *tyre severity* (field deg / preset deg, weighted by drivers) from last season's race
@@ -376,7 +379,11 @@ and emoji). This is a Windows PowerShell 5.1 / Git Bash environment.
   - Dashboard: Race Recap's Penalties tab. Site: "Stewards & Power Units" on every session page, "Power-Unit Penalties"
     and a "PU risk" column on Next Race, terms in "Why these odds?", Docs section "Power-unit penalties".
 - **News** (`modules/news.py`, config "NEWS_*"): RSS from eight sites (PlanetF1 404s, RaceFans 403s), read at most
-  hourly, kept in `.news/items.json` 45 days (never the repo: headline, link, date, the feed's summary). Items are
+  hourly, kept in `.news/items.json` 45 days (headline, link, date, the feed's summary). A teaser cut
+  mid-sentence (Motorsport.com, Autosport: "... Keep reading") gets that one sentence finished from the article page
+  (robots.txt permitting, `NEWS_COMPLETE_MAX` a run, each article once, the page never stored), else is cut back to
+  its last full sentence; the feed's text stays in `teaser`. **Archive:** each UTC day's
+  items go to `archive/news/<year>/<date>.json.gz` once the day is `NEWS_ARCHIVE_AFTER_DAYS` (3) old, written once. Items are
   tagged with topics (pu / penalty / upgrade), drivers (surname), teams (`upgrades.TEAM_KEYS`) and rounds (event,
   city, country, nicknames). A sentence with a driver, a round still to run and a PU penalty (no negation) is a
   claim; `NEWS_PLAN_MIN_SOURCES` (2) different sites within 10 days make a reported plan, handled like `PU_PLANS`.

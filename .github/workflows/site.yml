@@ -79,6 +79,7 @@ jobs:
             .fia
             .f1penalties
             .news
+            .snapshots
           key: data-${{ github.run_id }}
           restore-keys: data-
 
@@ -119,6 +120,7 @@ jobs:
             .fia
             .f1penalties
             .news
+            .snapshots
           key: data-${{ github.run_id }}
 
       - uses: actions/setup-node@v5

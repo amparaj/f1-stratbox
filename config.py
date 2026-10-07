@@ -460,6 +460,9 @@ NEWS_FRESH_HOURS = 0.15          # every export reads the feeds (scheduled runs 
 NEWS_KEEP_DAYS = 45
 NEWS_PLAN_MIN_SOURCES = 2
 NEWS_PLAN_DAYS = 10
+NEWS_COMPLETE_MAX = 80             # teaser articles read a run, to finish the cut sentence (modules/news.py)
+NEWS_COMPLETE_MAX_CHARS = 400      # how far past the cut that sentence may run
+NEWS_ARCHIVE_AFTER_DAYS = 3        # a day's news goes to archive/news/ once it's this old (write once)
 # Upgrades (modules/upgrades.py, the FIA's "Car Presentation Submissions"): a team's pace at a round
 # where it brought performance parts is compared with its average over the UPGRADE_BEFORE rounds before.
 UPGRADE_BEFORE = 3

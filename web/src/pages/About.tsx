@@ -40,7 +40,7 @@ function Overview() {
           { title: "Penalties & news", text: "stewards' decisions, FIA power-unit documents, F1 news", kind: "source", section: "penalties" },
         ] },
         { label: "Analyse", join: "per race", nodes: [
-          { title: "Clean laps", text: "neutralised, pit, wet and outlier laps out", section: "cleaning" },
+          { title: "Clean laps", text: "neutralised, pit, wet and outlier laps out", kind: "model", section: "cleaning" },
           { title: "Tyre wear", text: "degradation lines and cliffs", kind: "model", section: "degradation" },
           { title: "Race pace", text: "each driver against the field", kind: "model", section: "pace" },
           { title: "Qualifying", text: "cut-offs, sectors, track evolution", kind: "model", section: "qualifying" },

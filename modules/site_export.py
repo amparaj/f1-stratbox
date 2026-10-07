@@ -740,6 +740,42 @@ def _dnf(recs: list[dict]) -> pd.Series:
     return fc.dnf_rates(a["start"], a["dnf"])
 
 
+FORECAST_ARCHIVE = config.PROJECT_ROOT / "archive" / "forecasts"
+SNAPSHOT_CACHE = config.PROJECT_ROOT / ".snapshots"
+
+
+def archive_forecast(year: int, out_dir: Path, meta: dict, now: dt.datetime) -> str | None:
+    """
+    Keep the next round's forecast as it was published. Forecasts are recomputed on every export
+    (and gh-pages keeps no history), so this is the only record of what the site said at the time.
+    A stage is the round's last finished session ("pre" before any). Every export puts the current
+    forecast (forecasts/rNN.json + the title odds) in .snapshots/<year>.json; when the stage moves
+    on (a session finishes, or the round is run), the cached one, the last version of that stage, is
+    written to archive/forecasts/<year>/rNN-<stage>.json.gz, once. Returns the file written.
+    """
+    rnd = meta.get("next_round")
+    done = [s["code"] for s in meta["sessions"] if s["round"] == rnd]
+    stage = f"after-{done[-1]}" if done else "pre"
+    cache = SNAPSHOT_CACHE / f"{year}.json"
+    old = json.loads(cache.read_text(encoding="utf-8")) if cache.exists() else None
+    written = None
+    if old and (old["round"], old["stage"]) != (rnd, stage):
+        path = FORECAST_ARCHIVE / str(year) / f"r{old['round']:02d}-{old['stage']}.json.gz"
+        if not path.exists():
+            pn._write_gz(path, json.dumps(old, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+            written = path.name
+            print(f"  forecast archived: {path.name}", flush=True)
+    src = out_dir / "forecasts" / f"r{rnd:02d}.json" if rnd else None
+    if src and src.exists():
+        SNAPSHOT_CACHE.mkdir(parents=True, exist_ok=True)
+        cache.write_text(json.dumps({"round": rnd, "stage": stage, "generated": meta["generated"],
+                                     "forecast": json.loads(src.read_text(encoding="utf-8")),
+                                     "title_odds": meta.get("title_odds")}, ensure_ascii=False), encoding="utf-8")
+    elif cache.exists():
+        cache.unlink()                   # the season is over: nothing left to forecast
+    return written
+
+
 def penalties_for(year: int, rnd: int, code: str = "R") -> dict[str, int | str]:
     """Grid penalties announced for a round's Grand Prix: config.GRID_PENALTIES and, once the FIA's
     "New PU elements" document is out, power-unit penalties (PowerUnits.announced). None for other
@@ -1190,6 +1226,9 @@ def export_season(year: int, out_dir: Path, now: dt.datetime | None = None, tele
     next_round = next((e["round"] for e in events if e["race_utc"] and pd.Timestamp(e["race_utc"]) > now), None)
     try:
         tagged = news.tag(news.fetch(now), names.to_dict(), team_names, events)
+        days = news.archive_days(tagged, now)
+        if days:
+            print(f"  news archived: {days[0]}" + (f" to {days[-1]}" if len(days) > 1 else ""), flush=True)
     except Exception as exc:  # noqa: BLE001 — no news: the model runs on the FIA's documents alone
         print(f"  news: {str(exc)[:160]}", flush=True)
         tagged = []
@@ -1405,6 +1444,10 @@ def export_season(year: int, out_dir: Path, now: dt.datetime | None = None, tele
         tc["color"] = tc["team"].map(team_color)
         meta["title_odds"] = {"drivers": columns(td), "teams": columns(tc)}
     _write(out_dir / "meta.json", meta)
+    try:
+        archive_forecast(year, out_dir, meta, now)
+    except Exception as exc:  # noqa: BLE001 — the record is extra: never fail the export
+        print(f"  forecast archive failed: {type(exc).__name__}: {str(exc)[:160]}", flush=True)
     _write(out_dir / "news.json", news_export(tagged, ups, exported, events, now))
     try:
         _write(out_dir / "power-units.json", _PU.export(meta["next_round"], color_of, team_of))
