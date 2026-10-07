@@ -21,11 +21,15 @@ Prints "yes" or "no" (and writes `update=true|false` to $GITHUB_OUTPUT when set)
     f1penalties.com's rows for the season (it catches up on the FIA days to weeks late) or the
     FIA's power-unit documents of its latest event (a "New PU elements" document is an announced
     grid penalty; modules/penalties.py);
-  * the export is NEWS_REFRESH_HOURS old (the F1 news: reported penalties and upgrades);
+  * a news feed has a power-unit penalty headline from the last NEWS_PLAN_DAYS that the export
+    didn't have (meta.json "news"; a reported penalty moves the forecasts), checked once the export
+    is NEWS_CHECK_MINUTES old; and in any case once it's NEWS_REFRESH_HOURS old (the rest of the news);
   * the site's data is more than MAX_AGE_DAYS old (calendar changes, code fixes).
 """
 import datetime as dt
+import email.utils
 import hashlib
+import html
 import json
 import os
 import re
@@ -33,6 +37,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
 
 # Copies of config.py's finish rules (this script runs before anything is installed).
 EARLIEST_FINISH_MIN = {"R": 75, "S": 25, "Q": 55, "SQ": 40, "FP1": 55, "FP2": 55, "FP3": 55}
@@ -45,6 +50,23 @@ UTC_KEY = {"SQ": "sprint_quali_utc", "S": "sprint_utc", "Q": "quali_utc", "R": "
            "FP1": "fp1_utc", "FP2": "fp2_utc", "FP3": "fp3_utc"}
 # The news (modules/news.py: power-unit penalties, upgrades) moves between sessions too.
 NEWS_REFRESH_HOURS = 12
+NEWS_CHECK_MINUTES = 20
+# Copies of config.NEWS_FEEDS / NEWS_PLAN_DAYS and modules/news.py's power-unit penalty test (keep them in step).
+NEWS_FEEDS = {
+    "The Race": "https://www.the-race.com/feed/",
+    "Crash.net": "https://www.crash.net/rss/f1",
+    "Autosport": "https://www.autosport.com/rss/f1/news/",
+    "Motorsport.com": "https://www.motorsport.com/rss/f1/news/",
+    "Formula1.com": "https://www.formula1.com/en/latest/all.xml",
+    "BBC Sport": "https://feeds.bbci.co.uk/sport/formula1/rss.xml",
+    "Sky Sports": "https://www.skysports.com/rss/12433",
+    "GPFans": "https://www.gpfans.com/en/rss.xml",
+}
+NEWS_PLAN_DAYS = 10
+NEWS_PU = re.compile(r"\b(engine|power[ -]?units?|PU|ICE|turbo(charger)?|MGU-?[KH]|energy store|gearbox|ADUO)\b", re.I)
+NEWS_PU_PENALTY = re.compile(r"grid (penalty|drop)|engine penalty|back of the grid|pit[ -]lane start|penalt", re.I)
+NEWS_NEGATION = re.compile(r"\b(won't|will not|not (?:take|get|face|receive|need)|avoid\w*|escape\w*|no (?:grid )?penalty|"
+                           r"rule[sd]? out|dodge\w*)\b", re.I)
 RETRY_DAYS = 4
 REFRESH_MINUTES = 50
 MAX_AGE_DAYS = 7
@@ -142,6 +164,53 @@ def penalty_reasons(meta: dict, now: dt.datetime) -> list[str]:
     return out
 
 
+def _plain(s: str | None) -> str:
+    return re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", s or ""))).strip()
+
+
+def news_reasons(meta: dict, now: dt.datetime) -> list[str]:
+    """Power-unit penalty headlines in the feeds that the export didn't have (modules/news.py's
+    pu_penalty_ids: same id, same sentence test)."""
+    seen = meta.get("news")
+    if not seen:
+        return []
+    known = set(seen.get("pu_items", []))
+    cutoff = now - dt.timedelta(days=NEWS_PLAN_DAYS)
+    new = []
+    for source, url in NEWS_FEEDS.items():
+        try:
+            with urllib.request.urlopen(urllib.request.Request(url, headers=HEADERS), timeout=30) as r:
+                root = ET.fromstring(r.read())
+        except Exception as exc:  # noqa: BLE001 — one feed down: the others still count
+            print(f"  (news {source}: {str(exc)[:80]})")
+            continue
+        for it in root.iter():
+            if it.tag.rsplit("}", 1)[-1] not in ("item", "entry"):
+                continue
+            get = {c.tag.rsplit("}", 1)[-1]: c for c in it}
+            link = get.get("link")
+            href = ((link.get("href") or link.text) if link is not None else None) or ""
+            title = _plain(get["title"].text if "title" in get else "")
+            body = next((get[k].text for k in ("description", "summary") if get.get(k) is not None), "")
+            when = next((get[k].text for k in ("pubDate", "published") if get.get(k) is not None), None)
+            try:
+                d = email.utils.parsedate_to_datetime(when) if when else now
+            except (TypeError, ValueError):
+                try:
+                    d = dt.datetime.fromisoformat(when.replace("Z", "+00:00"))
+                except ValueError:
+                    d = now
+            d = d if d.tzinfo else d.replace(tzinfo=dt.timezone.utc)
+            if not (title and href) or d < cutoff:
+                continue
+            text = title + ". " + _plain(body)[:400]
+            sentences = [x for x in re.split(r"(?<=[.!?])\s+|\s+\|\s+", text) if x.strip()]
+            if any(NEWS_PU.search(x) and NEWS_PU_PENALTY.search(x) and not NEWS_NEGATION.search(x) for x in sentences) \
+                    and hashlib.sha1(href.strip().encode()).hexdigest()[:12] not in known:
+                new.append(f"{source}: {title}")
+    return [f"{len(new)} new power-unit penalty headline(s): {new[0]}"] if new else []
+
+
 def reasons(meta: dict | None, now: dt.datetime) -> list[str]:
     if meta is None:
         return ["nothing published yet"]
@@ -175,6 +244,8 @@ def reasons(meta: dict | None, now: dt.datetime) -> list[str]:
         out.append(f"data is {age.days} days old")
     elif age > dt.timedelta(hours=NEWS_REFRESH_HOURS):
         out.append(f"the news is {age.total_seconds() / 3600:.0f} h old")
+    if not out and age > dt.timedelta(minutes=NEWS_CHECK_MINUTES):
+        out += news_reasons(meta, now)
     if not out and age > dt.timedelta(minutes=PENALTY_CHECK_MINUTES):
         out += penalty_reasons(meta, now)
     return out

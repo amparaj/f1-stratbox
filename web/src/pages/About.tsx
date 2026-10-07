@@ -37,16 +37,18 @@ function Overview() {
           { title: "Lap timing", text: "lap times, tyres, pit stops", kind: "source", section: "data" },
           { title: "Race control", text: "Safety Cars, VSC, red flags, deleted laps", kind: "source", section: "data" },
           { title: "Results & grid", text: "classification, points, starting grid", kind: "source", section: "data" },
+          { title: "Penalties & news", text: "stewards' decisions, FIA power-unit documents, F1 news", kind: "source", section: "penalties" },
         ] },
         { label: "Analyse", join: "per race", nodes: [
           { title: "Clean laps", text: "neutralised, pit, wet and outlier laps out", section: "cleaning" },
           { title: "Tyre wear", text: "degradation lines and cliffs", kind: "model", section: "degradation" },
           { title: "Race pace", text: "each driver against the field", kind: "model", section: "pace" },
           { title: "Qualifying", text: "cut-offs, sectors, track evolution", kind: "model", section: "qualifying" },
+          { title: "Penalties", text: "grid drops announced, power-unit penalties likely", kind: "model", section: "penalties" },
         ] },
         { label: "Forecast", join: "", nodes: [
-          { title: "Session odds", text: "10,000 runs of each Qualifying, Sprint and Grand Prix", kind: "model", section: "race" },
-          { title: "Title odds", text: "10,000 simulated seasons", kind: "model", section: "title" },
+          { title: "Session odds", text: "10,000 runs of each Qualifying, Sprint and Grand Prix, grid penalties in", kind: "model", section: "race" },
+          { title: "Title odds", text: "10,000 simulated seasons, penalties race by race", kind: "model", section: "title" },
           { title: "Tyre strategy", text: "every 1- and 2-stop plan", kind: "model", section: "strategy" },
         ] },
         { label: "Pages", nodes: [
@@ -93,6 +95,13 @@ function Overview() {
           with retirements at each driver's (shrunk) DNF rate. Once the race's qualifying is in, that session's pace
           and the grid take over: a grid place is worth ten times as much in a Sprint as in a Grand Prix. Rounds
           further ahead are a little less certain. All of it was fitted by replaying 2025 and 2026.</li>
+        <li><b>Penalties.</b> A grid penalty already announced (a power-unit change past the allocation, or a drop
+          carried over from an incident or handed out in qualifying) moves the driver back before the race is played; a
+          place lost that way costs more than an ordinary grid slot, because the car is faster than where it starts. A
+          power-unit penalty that isn't announced yet comes in as a chance at every Grand Prix left: from how many
+          elements each driver has used against the allocation, the circuit (teams take them where overtaking is easy),
+          what the team has said and what two or more news sites report. Time penalties in a finished race are already in
+          its result and the points; ones still to come in a race ahead aren't forecast.</li>
         <li><b>Qualifying strategy.</b> How much the track came to the drivers at this circuit last season, how close
           the cut-offs were, the chance of rain, and who is on the edge of Q1 and Q3.</li>
         <li><b>Title odds.</b> Every remaining Sprint and Grand Prix simulated the same way, 10,000 times, on top of
@@ -124,7 +133,9 @@ function Overview() {
         Stewards' decisions (penalties, reprimands, power-unit and parc fermé grid drops) come from{" "}
         <a href="https://www.f1penalties.com/data">f1penalties.com</a>, and each driver's power-unit elements from the
         FIA Technical Delegate's documents at every event; together they drive the{" "}
-        <a href="#about/docs/penalties">power-unit penalty model</a>.
+        <a href="#about/docs/penalties">penalty model</a>. F1 news headlines (The Race, Crash.net, Autosport,
+        Motorsport.com, Formula1.com, BBC Sport, Sky Sports, GPFans) are read from their RSS feeds for reported
+        power-unit penalties and upgrades; the site shows the headline and links to the article.
         The <a href="#history">History</a> pages (every season since 1950) come from{" "}
         <a href="https://github.com/jolpica/jolpica-f1">Jolpica</a>'s database, licensed{" "}
         <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a>: results, grids and

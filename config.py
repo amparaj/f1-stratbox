@@ -456,7 +456,7 @@ NEWS_FEEDS = {
     "Sky Sports": "https://www.skysports.com/rss/12433",
     "GPFans": "https://www.gpfans.com/en/rss.xml",
 }
-NEWS_FRESH_HOURS = 1
+NEWS_FRESH_HOURS = 0.15          # every export reads the feeds (scheduled runs are >= 10 min apart)
 NEWS_KEEP_DAYS = 45
 NEWS_PLAN_MIN_SOURCES = 2
 NEWS_PLAN_DAYS = 10

@@ -380,6 +380,8 @@ and emoji). This is a Windows PowerShell 5.1 / Git Bash environment.
   tagged with topics (pu / penalty / upgrade), drivers (surname), teams (`upgrades.TEAM_KEYS`) and rounds (event,
   city, country, nicknames). A sentence with a driver, a round still to run and a PU penalty (no negation) is a
   claim; `NEWS_PLAN_MIN_SOURCES` (2) different sites within 10 days make a reported plan, handled like `PU_PLANS`.
+  Every export reads the feeds; meta.json `news.pu_items` lists the PU-penalty headlines it read, and
+  `needs_update.py` (hourly midweek, its own copy of the sentence test) rebuilds when a feed has a new one.
   Each plan is an independent one-off penalty (`penalty_risk`'s `plan_p`; title odds draw each plan's round once
   per season), so a Singapore change after a failure and a later upgrade change can both happen. Plans retire
   once the FIA tables show the change. News plans count only for forecasts made now (not replays).

@@ -68,7 +68,7 @@ const SECTIONS = [
   { id: "form", title: "Form" },
   { id: "race", title: "Session forecasts" },
   { id: "title", title: "Title odds" },
-  { id: "penalties", title: "Power-unit penalties" },
+  { id: "penalties", title: "Penalties" },
   { id: "strategy", title: "Tyre strategy" },
   { id: "weather", title: "Weather" },
   { id: "checking", title: "Checking the forecasts" },
@@ -172,8 +172,9 @@ function Architecture() {
       <p>
         Two halves. The <b>race analysis</b> looks back: it turns one race's timing into clean laps, then tyre
         wear, tyre cliffs and each driver's pace. The <b>forecasts</b> look ahead: they turn the pace of recent
-        races into a form figure per driver, play the next race and the rest of the season thousands of times, and
-        search for the fastest tyre strategy at the next circuit. Click a box to jump to its section.
+        races into a form figure per driver, play the next race and the rest of the season thousands of times (with
+        the grid penalties announced and the power-unit penalties likely to come), and search for the fastest tyre
+        strategy at the next circuit. Click a box to jump to its section.
       </p>
       <Flow label="The whole system, from timing data to the pages" stages={[
         { label: "Data", join: "one session at a time: Qualifying, Sprint Qualifying, Sprint, Grand Prix", nodes: [
@@ -181,6 +182,7 @@ function Architecture() {
           { title: "Race control", text: "SC, VSC and red flag periods, deleted laps", kind: "source", section: "data" },
           { title: "Weather", text: "track sensors through the race; Open-Meteo forecast and climate ahead", kind: "source", section: "weather" },
           { title: "Results & grid", text: "classification, points, starting grid", kind: "source", section: "data" },
+          { title: "Penalties & news", text: "stewards' decisions (f1penalties.com), FIA power-unit documents, F1 news feeds", kind: "source", section: "penalties" },
         ] },
         { label: "Clean", join: "laps that show true pace", nodes: [
           { title: "Lap filters", text: "lap 1, pit laps, neutralised, deleted, slicks in rain, outliers", section: "cleaning" },
@@ -192,13 +194,14 @@ function Architecture() {
           { title: "Cliffs", text: "a two-piece line per stint", kind: "model", section: "cliffs" },
           { title: "Race pace", text: "% against the field median, per compound", kind: "model", section: "pace" },
           { title: "Qualifying", text: "Q1/Q2/Q3, cut-offs, sectors, track evolution, one-lap pace", kind: "model", section: "qualifying" },
+          { title: "Penalties", text: "grid drops announced; each driver's chance of a power-unit penalty at every race left", kind: "model", section: "penalties" },
         ] },
         { label: "Form", join: "fed into three simulations", nodes: [
           { title: "Driver form", text: `race form (Grands Prix and sprints) and qualifying form, this season's last ${FORM_RACES} rounds, the latest counting most, plus each driver's DNF rate`, kind: "key", section: "form" },
         ] },
         { label: "Forecast", join: "", nodes: [
-          { title: "Session odds", text: "10,000 runs of each Qualifying, Sprint and Grand Prix", kind: "model", section: "race" },
-          { title: "Title odds", text: "10,000 seasons on top of the points so far", kind: "model", section: "title" },
+          { title: "Session odds", text: "10,000 runs of each Qualifying, Sprint and Grand Prix; grid penalties applied, a likely one drawn in or out", kind: "model", section: "race" },
+          { title: "Title odds", text: "10,000 seasons on top of the points so far; power-unit penalties race by race", kind: "model", section: "title" },
           { title: "Tyre strategy", text: "circuit tyre severity → every 1- and 2-stop plan (a sprint: no-stop too) → Monte Carlo", kind: "model", section: "strategy" },
         ] },
         { label: "Out", nodes: [
@@ -721,7 +724,7 @@ function RaceForecast() {
         where the slot and the pace go together, and undervalues a penalised car, which is faster than its slot. In 94
         power-unit penalty starts (2020–25) drivers finished 0.237 places worse per grid place dropped; {PEN_GRID}% gives
         that in the simulation, <M t="\gamma" /> about 0.1. A penalty that isn't announced yet comes in as a chance (see{" "}
-        <a href="#about/docs/penalties">Power-unit penalties</a>). A sprint's grid has no such penalties.
+        <a href="#about/docs/penalties">Penalties</a>). A sprint's grid has no such penalties.
         Then, for simulation <M t="s" />:
       </p>
       <M block t={String.raw`x_{d,s} = \mu_d + w\,c_{\text{team}(d)} + \delta_{d,s} + \varepsilon_{d,s}, \quad \delta_{d,s} \sim \mathcal{N}\!\left(0,\ (${DRIFT_ROUND}\sqrt{h-1})^2\right), \quad \varepsilon_{d,s} \sim \mathcal{N}\!\left(0,\ \sigma_{\text{session}}^2\right)`} />
@@ -789,7 +792,7 @@ function TitleOdds() {
       <M block t={String.raw`\text{Points}_{d,s} = \text{Points}^{\text{now}}_d + \sum_{\text{races left}} \text{pts}\big(\text{pos}_{d,s,r}\big), \qquad P(\text{title}_d) \approx \frac{1}{S}\sum_s \mathbf{1}\Big[d = \arg\max_{d'} \text{Points}_{d',s}\Big]`} />
       <p>
         Power-unit penalties are drawn the same way, race by race: in each simulated season a driver takes one at a Grand
-        Prix with its chance there (<a href="#about/docs/penalties">Power-unit penalties</a>), lower at the rounds after once
+        Prix with its chance there (<a href="#about/docs/penalties">Penalties</a>), lower at the rounds after once
         they have (a fresh pool), and loses the places it costs from where their pace puts them.
       </p>
       <p>
@@ -802,11 +805,36 @@ function TitleOdds() {
   );
 }
 
-// ---------------------------------------------------------------- 11. power-unit penalties
+// ---------------------------------------------------------------- 11. penalties
 
 function Penalties() {
   return (
     <Section id="penalties">
+      <p>Every kind of penalty reaches the site, each in its own way:</p>
+      <ul>
+        <li><b>Grid penalties for a race ahead</b>: a power-unit or gearbox change past the allocation, a drop carried
+          over from causing a collision in the race before, one handed out in qualifying (impeding, ignoring a red
+          flag), or a pit-lane start for changing the car under parc fermé. They move the driver back on the grid
+          before the race is played, at {PEN_GRID}% of pace a place (<a href="#about/docs/race">Session forecasts</a>,
+          Grid penalties). Before qualifying they come from the FIA's "New PU elements" document (power units, read
+          automatically) or are kept by hand (config.py <code>GRID_PENALTIES</code>: no free feed has the stewards'
+          decisions that fast); after qualifying, from OpenF1's published starting grid, which has them all applied;
+          after the race, the official grid.</li>
+        <li><b>Power-unit penalties nobody has announced yet</b>: a chance at every Grand Prix left, from each driver's
+          elements, the circuit, the team's word and the news (below).</li>
+        <li><b>Penalties in a race</b> (time penalties, drive-throughs, stop-and-gos, disqualification): a finished
+          race's result is the official classification, with them applied, so the points, the standings and the title
+          odds' starting point have them. Form doesn't: race pace is measured from lap times, which a time penalty
+          doesn't change, so a driver's speed isn't marked down for a penalty. In a race still to come they aren't
+          forecast one by one; they're part of the spread every simulated race has.</li>
+        <li><b>Deleted laps</b> (track limits): left out of the clean laps, and in qualifying a deleted lap doesn't count
+          for the segment times or qualifying pace, as it doesn't for the classification.</li>
+        <li><b>Sprints</b>: power-unit penalties are served in the Grand Prix; a Sprint's grid has only the drops the
+          stewards hand out for the Sprint itself, once OpenF1's starting grid has them.</li>
+        <li><b>Reprimands, penalty points and fines</b> are listed under Stewards &amp; Power Units on each session page
+          but don't enter the forecasts (a race ban at 12 points would be added by hand, like a grid penalty).</li>
+      </ul>
+      <h4 className="sub">Power-unit penalties</h4>
       <p>
         Each season a driver may use a set number of each power-unit element (2026: four combustion engines,
         turbochargers and exhausts, three MGU-Ks, energy stores and control electronics, six ancillary sets). Every
@@ -852,6 +880,16 @@ function Penalties() {
         take the penalty there, and anyone else keeps {Math.round(PU.late * 100)}% of their chance (a change after qualifying).
       </p>
       <p>
+        <b>Reported in the news.</b> The headlines and summaries of eight F1 news feeds (The Race, Crash.net, Autosport,
+        Motorsport.com, Formula1.com, BBC Sport, Sky Sports, GPFans) are read on every update. A sentence that names a
+        driver, a race still to run and a power-unit penalty (and no "won't", "avoid" or "no penalty") is a claim; when
+        two different sites make the same claim within ten days, it counts like a team's plan: at least{" "}
+        {Math.round(PU.plan * 100)}% at that race until the penalty is taken, independent of any other plan. The site
+        checks the feeds at least hourly (more often over a race weekend) and updates the forecasts as soon
+        as a new penalty headline appears. A news plan is used only for forecasts made now, not when past rounds are
+        re-forecast.
+      </p>
+      <p>
         <b>What it costs.</b> The places come from how big such penalties turn out to be (f1penalties.com, 2022 on): the back
         of the grid {Math.round(PU.drop.back * 100)}% of the time (pit-lane starts included), 15 places {Math.round(PU.drop[15] * 100)}%, 10{" "}
         {Math.round(PU.drop[10] * 100)}%, 5 {Math.round(PU.drop[5] * 100)}%, each no further than the back from where the driver's pace puts them,
@@ -863,6 +901,9 @@ function Penalties() {
         everything else: the whole allocation, with seven rounds left, so <M t="D" /> = 7/23 × 4 = 1.2 elements short.
         The model alone gives 3% at Singapore, 7% at Austin and 24% for the rest of the season; Mercedes said they'd take it with their upgraded
         engine at Austin or Mexico City, so with the plan it's 58% at Austin, 24% at Mexico City and 86% for the season.
+        Then Sky Sports and Crash.net both reported that his Malaysia failure means a fresh engine and a penalty at
+        Singapore: a reported plan there, so 61% at Singapore, and the forecast plays that race with him at the back
+        in 61% of the simulated runs.
       </Example>
     </Section>
   );
@@ -1114,7 +1155,9 @@ function Limits() {
         <li><b>The forecasts are pace and grid.</b> They know this season's race and qualifying pace, this weekend's
           practice one-lap pace, the grid once it's set, the teams' declared upgrades (on average), grid penalties once
           announced and the chance of a power-unit penalty from each driver's elements and from the news; not last season,
-          other penalties nobody has announced yet or weather (which only enters the strategy forecast). The power-unit
+          other penalties nobody has announced yet (an incident in a race ahead, a time penalty) or weather (which only
+          enters the strategy forecast). Grid drops other than power units are kept by hand until OpenF1's starting
+          grid has them, so one the stewards hand out between races can be missing for a day or two. The power-unit
           model can't see an engine's mileage or damage (a failure that forces a change comes as a surprise until it's
           reported). News is read from headlines and the feeds' summaries: a penalty counts only when two sites name the
           driver and the race. Even with all of it, much of a race (Safety Cars, retirements, a slow stop, the weather on

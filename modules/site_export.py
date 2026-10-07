@@ -1193,6 +1193,7 @@ def export_season(year: int, out_dir: Path, now: dt.datetime | None = None, tele
     except Exception as exc:  # noqa: BLE001 — no news: the model runs on the FIA's documents alone
         print(f"  news: {str(exc)[:160]}", flush=True)
         tagged = []
+    news_seen = {"pu_items": news.pu_penalty_ids(tagged, now)} if tagged else None
     reported = news.news_plans(tagged, next_round, now)
     try:
         ups = upgrades.season_upgrades(year, now)
@@ -1395,6 +1396,8 @@ def export_season(year: int, out_dir: Path, now: dt.datetime | None = None, tele
         "title_history": columns(pd.DataFrame(title_hist, columns=["after", "driver", "p_title"])),
         # What the penalty sources looked like, so scripts/needs_update.py can tell when they change.
         "penalties": _PU.sources_seen(),
+        # The power-unit penalty headlines read: needs_update.py rebuilds when a feed has a new one.
+        "news": news_seen,
     }
     if next_ev and title_now:
         td, tc = title_now

@@ -168,6 +168,18 @@ def tag(items: list[dict], drivers: dict[str, str], teams: list[str], events: li
     return out
 
 
+def pu_penalty_ids(items: list[dict], now: dt.datetime | None = None) -> list[str]:
+    """Ids of the items from the last NEWS_PLAN_DAYS with a sentence about a power-unit penalty
+    (whoever and wherever it names): meta.json keeps them, and scripts/needs_update.py (its own copy
+    of this test) rebuilds as soon as a feed has one that isn't in the list."""
+    now = now or dt.datetime.now(dt.timezone.utc)
+    cutoff = now - dt.timedelta(days=config.NEWS_PLAN_DAYS)
+    return sorted(hashlib.sha1(i["link"].encode()).hexdigest()[:12] for i in items
+                  if dt.datetime.fromisoformat(i["published"]) >= cutoff
+                  and any(TOPICS["pu"].search(s) and PU_PENALTY.search(s) and not NEGATION.search(s)
+                          for s in _sentences(i)))
+
+
 def news_plans(tagged: list[dict], next_round: int | None, now: dt.datetime | None = None) -> dict[str, list[dict]]:
     """
     Reported power-unit penalties: {driver: [{"rounds": [r], "sources": [...], "links": [...]}]} for
