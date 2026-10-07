@@ -6,6 +6,7 @@ import * as Plot from "@observablehq/plot";
 import { useCallback } from "react";
 import { color } from "../colors";
 import { SESSION_LABEL, SESSION_SHORT, type AnySession, type LapRow, type ResultRow, type StintRow } from "../data";
+import { useProfiles, type ProfileTarget } from "../profiles";
 import { logoUrl, teamLogo, teamShort } from "../teams";
 import { Chart, plotDefaults } from "./ui";
 
@@ -29,9 +30,24 @@ function inkOn(bg: string): string {
   return 0.299 * r + 0.587 * g + 0.114 * b > 150 ? "#111" : "#fff";
 }
 
-export function DriverChip({ code, color: bg, title }: { code: string; color?: string | null; title?: string }) {
+/** A driver's code in their team colour. A click opens their profile (components/Profiles.tsx): any chip on
+ * this season's pages, and on the History pages a chip given the driver's `historyRef` (codes repeat across
+ * eras). `plain`: never a button (inside another control, or a picker). */
+export function DriverChip({ code, color: bg, title, historyRef, plain }: {
+  code: string; color?: string | null; title?: string; historyRef?: string | null; plain?: boolean;
+}) {
+  const p = useProfiles();
   const c = bg || "var(--chip)";
-  return <span className="club" style={{ background: c, color: bg ? inkOn(bg) : "var(--ink)" }} title={title}>{code}</span>;
+  const style = { background: c, color: bg ? inkOn(bg) : "var(--ink)" };
+  const target: ProfileTarget | null = plain || !p ? null
+    : historyRef ? { kind: "history-driver", ref: historyRef } : p.scope === "season" ? { kind: "driver", code } : null;
+  if (!target) return <span className="club" style={style} title={title}>{code}</span>;
+  return (
+    <button type="button" className="club club-open" style={style} title={title ?? `${code}: profile`}
+            onClick={(e) => { e.stopPropagation(); p!.open(target); }} onKeyDown={(e) => e.stopPropagation()}>
+      {code}
+    </button>
+  );
 }
 
 /** Which kind of session: Grand Prix, Sprint, Qualifying, Sprint Qualifying (text and a tint, never colour alone). */
@@ -149,7 +165,7 @@ export function DriverPicker({ results, value, onChange }: { results: ChartDrive
       {results.map((r) => (
         <button key={r.driver} className={value === r.driver ? "on" : undefined} aria-pressed={value === r.driver}
                 onClick={() => onChange(value === r.driver ? null : r.driver)}>
-          <DriverChip code={r.driver} color={r.color} />
+          <DriverChip code={r.driver} color={r.color} plain />
         </button>
       ))}
     </div>

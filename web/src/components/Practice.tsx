@@ -6,6 +6,7 @@ import { color } from "../colors";
 import { rows, type Practice, type PracticeRow, type RunRow } from "../data";
 import { dec, lapTime, signed } from "../format";
 import { DriverChip, DriverPicker, TeamName, Tyre } from "./f1";
+import { DriverName } from "./Profiles";
 import { Chart, Loading, Note, plotDefaults, Table, Tiles } from "./ui";
 
 interface TraceRow { driver: string; run: string; run_lap: number; lap: number; lap_time: number; fuel_corrected: number; compound: string; tyre_life: number }
@@ -41,12 +42,12 @@ export function PracticeBody({ p }: { p: Practice }) {
           data={results}
           rowKey={(r) => r.driver}
           sort="position"
-          cardTitle={(r) => <><span className="muted">P{r.position}</span> <DriverChip code={r.driver} color={r.color} /> {r.name}</>}
+          cardTitle={(r) => <><span className="muted">P{r.position}</span> <DriverName code={r.driver} color={r.color} name={r.name} /></>}
           cardSub={["team"]}
           cardStats={["best", "one_lap", "long_run"]}
           columns={[
             { key: "position", label: "Pos", value: (r) => r.position, numeric: true, rank: true },
-            { key: "driver", label: "Driver", value: (r) => r.name ?? r.driver, render: (r) => <><DriverChip code={r.driver} color={r.color} /> {r.name}</> },
+            { key: "driver", label: "Driver", value: (r) => r.name ?? r.driver, render: (r) => <><DriverName code={r.driver} color={r.color} name={r.name} /></> },
             { key: "team", label: "Team", value: (r) => r.team, render: (r) => <TeamName team={r.team} color={r.color} /> },
             { key: "best", label: "Best", value: (r) => r.best, render: (r) => <>{lapTime(r.best)} {r.compound && r.compound !== "?" && <Tyre compound={r.compound} />}</>, numeric: true },
             { key: "gap", label: "Gap", value: (r) => r.gap, render: (r) => (r.gap ? `+${r.gap.toFixed(3)}` : r.best ? "–" : "No time"), numeric: true },

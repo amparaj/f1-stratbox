@@ -1,4 +1,5 @@
 import { Component, useEffect, useRef, useState, type ReactNode } from "react";
+import { ProfileHost } from "./components/Profiles";
 import { Loading, usePhone } from "./components/ui";
 import { SESSION_LABEL, sessionStart, weekendSessions } from "./data";
 import { dayYear, shortEvent, when } from "./format";
@@ -85,9 +86,12 @@ export default function App() {
         )}
         {site && site.meta.sessions.length > 0 && (
           <SiteContext.Provider value={site}>
-            <Boundary key={page.id}>
-              <Page />
-            </Boundary>
+            {/* History's driver codes repeat across eras: there a chip opens a pop-up only with the driver's History ref. */}
+            <ProfileHost scope={page.id === "history" ? "history" : "season"}>
+              <Boundary key={page.id}>
+                <Page />
+              </Boundary>
+            </ProfileHost>
           </SiteContext.Provider>
         )}
       </main>

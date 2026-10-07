@@ -64,10 +64,14 @@ export interface DriversFile { drivers: Columns & { title_years: number[][]; tea
 export interface CircuitRow {
   circuit: string; name: string; locality: string; country: string; lat: number; lon: number;
   races: number; first: number; last: number; top_winner: string; top_wins: number;
+  /** Fastest race lap on today's layout (lap times from 1996): seconds, who, when. */
+  record?: number | null; record_by?: string | null; record_year?: number | null;
 }
 export interface CircuitRace {
   circuit: string; year: number; round: number; event: string; winner: string; winner_ref: string;
   winner_name: string; team: string; color: string; pole: string | null;
+  /** Newer files: where the winner started, the race's fastest lap (1996 on) and its scheduled laps. */
+  winner_grid?: number | null; fl_time?: number | null; fl_name?: string | null; laps?: number | null;
 }
 export interface CircuitsFile { circuits: Columns; races: Columns }
 

@@ -627,21 +627,47 @@ def circuit_file(d: Data) -> dict:
     r = d.rounds.copy()
     r["winner_id"] = r.id.map(win.driver_id)
     r["team_id"] = r.id.map(win.team_id)
+    r["winner_grid"] = r.id.map(win.grid)
+    sched = d.sessions[d.sessions.type == RACE].groupby("round_id").scheduled_laps.first()
+    r["sched"] = r.id.map(sched).fillna(r.id.map(win.laps_completed))
     r = r.dropna(subset=["winner_id"])
+    # Each race's fastest lap (lap times from 1996): the quickest timed lap of any car in it.
+    entries = d.entries[d.entries.type == RACE].set_index("id")
+    laps = d.laps[d.laps.session_entry_id.isin(entries.index)][["session_entry_id", "time"]].copy()
+    laps["secs"] = _seconds(laps.time)
+    laps = laps.dropna(subset=["secs"])
+    laps["round_id"] = laps.session_entry_id.map(entries.round_id)
+    best = laps.loc[laps.groupby("round_id").secs.idxmin()].set_index("round_id")
+    best_driver = best.session_entry_id.map(entries.driver_id)
     races = pd.DataFrame({
         "circuit": r.circuit, "year": r.year, "round": r["round"], "event": r.name,
         "winner": r.winner_id.map(d.code), "winner_ref": r.winner_id.map(d.driver.reference),
         "winner_name": [d.name(x) for x in r.winner_id], "team": r.team_id.map(d.team_name),
         "color": r.team_id.map(d.color), "pole": [d.code.get(d.pole.get(i)) for i in r.id],
+        "winner_grid": r.winner_grid,
+        "fl_time": r.id.map(best.secs),
+        "fl_name": [d.name(best_driver[i]) if i in best_driver.index else None for i in r.id],
+        "laps": r.sched,
     })
     c = d.circuits.set_index("reference")
     rows = []
     for ref, g in races.groupby("circuit"):
         top = g.winner_name.value_counts()
+        # Fastest race lap on today's layout: a layout change (Silverstone 2010) usually changes the
+        # scheduled distance in laps, so only races over the latest race's lap count; and laps under 90%
+        # of its fastest (a shorter loop under the same name, such as Bahrain's outer circuit) don't count.
+        timed = g.dropna(subset=["fl_time"]).sort_values("year")
+        if len(timed):
+            latest = timed.iloc[-1]
+            timed = timed[(timed.laps == latest.laps) & (timed.fl_time >= 0.9 * latest.fl_time)]
+            rec = timed.loc[timed.fl_time.idxmin()]
         rows.append({"circuit": ref, "name": c.loc[ref, "name"], "locality": c.loc[ref, "locality"],
                      "country": c.loc[ref, "country"], "lat": c.loc[ref, "latitude"], "lon": c.loc[ref, "longitude"],
                      "races": len(g), "first": int(g.year.min()), "last": int(g.year.max()),
-                     "top_winner": top.index[0], "top_wins": int(top.iloc[0])})
+                     "top_winner": top.index[0], "top_wins": int(top.iloc[0]),
+                     "record": float(rec.fl_time) if len(timed) else None,
+                     "record_by": rec.fl_name if len(timed) else None,
+                     "record_year": int(rec.year) if len(timed) else None})
     return {"circuits": columns(pd.DataFrame(rows)), "races": columns(races)}
 
 

@@ -6,6 +6,7 @@ import { Chart, Note, plotDefaults, Segmented, Table, Tiles, type Column } from 
 import { rows, type CalendarEvent, type DriverStanding, type TeamStanding, type TitleOdds } from "../data";
 import { day, int, pct, shortEvent } from "../format";
 import { useSite } from "../site";
+import { CircuitLink, DriverName } from "../components/Profiles";
 
 export default function Season() {
   const site = useSite();
@@ -42,12 +43,12 @@ export default function Season() {
           data={drivers}
           rowKey={(d) => d.driver}
           sort="points"
-          cardTitle={(d) => <><DriverChip code={d.driver} color={d.color} /> {d.name}</>}
+          cardTitle={(d) => <><DriverName code={d.driver} color={d.color} name={d.name} /></>}
           cardSub={["team"]}
           cardStats={["points", "wins", "p_title"]}
           columns={[
             { key: "position", label: "Pos", value: (d) => d.position, numeric: true, rank: true },
-            { key: "driver", label: "Driver", value: (d) => d.name, render: (d) => <><DriverChip code={d.driver} color={d.color} /> {d.name}</> },
+            { key: "driver", label: "Driver", value: (d) => d.name, render: (d) => <><DriverName code={d.driver} color={d.color} name={d.name} /></> },
             { key: "team", label: "Team", value: (d) => d.team, render: (d) => <TeamName team={d.team} color={d.color} /> },
             { key: "points", label: "Points", value: (d) => d.points, numeric: true },
             ...(split ? [
@@ -105,7 +106,7 @@ export default function Season() {
           columns={[
             { key: "round", label: "Round", value: (e) => e.round, numeric: true, rank: true },
             { key: "event", label: "Grand Prix", value: (e) => e.event, render: (e) => <a href={e.done_R ? `#races/${e.round}` : `#next/${e.round}`}>{e.event}</a> },
-            { key: "location", label: "Circuit", value: (e) => `${e.location}, ${e.country}` },
+            { key: "location", label: "Circuit", value: (e) => `${e.location}, ${e.country}`, render: (e) => <CircuitLink round={e.round}>{e.location}, {e.country}</CircuitLink> },
             { key: "date", label: "Date", value: (e) => day(e.race_utc) },
             { key: "format", label: "Format", value: (e) => (e.sprint_utc ? "Sprint" : ""), render: (e) => (e.sprint_utc ? <SessionBadge code="S" short /> : "") },
             { key: "pole", label: "Pole", title: "Pole position in Qualifying", value: (e) => e.pole ?? "", render: (e) => (e.pole ? <DriverChip code={e.pole} color={e.pole_color} /> : "") },

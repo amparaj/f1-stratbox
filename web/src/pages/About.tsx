@@ -3,6 +3,7 @@ import { Flow } from "../components/Flow";
 import { Loading, Segmented } from "../components/ui";
 import { dayYear } from "../format";
 import { useHash, useSite } from "../site";
+import { PHOTOS } from "../profiles";
 import { logoUrl, TEAMS } from "../teams";
 
 // The maths needs KaTeX, so the technical documentation loads as its own chunk.
@@ -163,9 +164,30 @@ function Overview() {
           ))}
         </ul>
       </details>
+
+      <h3>Driver photos and flags</h3>
+      <p>
+        Click any driver's name or code, or a circuit's name, for their profile or circuit guide. Driver photos are
+        the lead images of their Wikipedia articles, freely licensed files from{" "}
+        <a href="https://commons.wikimedia.org/">Wikimedia Commons</a> (credited below); a driver without one shows
+        their car number. Flags are from <a href="https://github.com/lipis/flag-icons">flag-icons</a> (MIT licence).
+        Track maps come from MultiViewer's circuit data, as FastF1 reads it.
+      </p>
+      <details className="logo-credits">
+        <summary>Photo credits ({PHOTO_CREDITS.length} files)</summary>
+        <ul>
+          {PHOTO_CREDITS.map(([ref, p]) => (
+            <li key={ref}>
+              <a href={p.page}>{p.source.replace(/_/g, " ")}</a>, {p.author}, {p.licence}
+            </li>
+          ))}
+        </ul>
+      </details>
     </>
   );
 }
+
+const PHOTO_CREDITS = Object.entries(PHOTOS).sort(([a], [b]) => a.localeCompare(b));
 
 const LOGO_CREDITS = TEAMS.flatMap((t) => t.logos.filter((l) => l.page || l.archive).map((logo) => ({ team: t.name, logo })))
   .filter((c, i, all) => all.findIndex((o) => o.logo.file === c.logo.file) === i); // Lotus F1 shares Team Lotus' file

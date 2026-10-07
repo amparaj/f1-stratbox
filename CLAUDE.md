@@ -47,12 +47,15 @@ modules/practice.py        free practice: one-lap pace, long runs (fuel correcte
 modules/upgrades.py        car upgrades from the FIA's Car Presentation Submissions (PDF per event)
 modules/news.py            F1 news RSS (The Race, Crash.net, Autosport, ...): topics, reported PU penalty plans
 modules/teams.py           team badges (logo or colour + code) for dashboard tables, from web/src/teamLogos.json
+modules/profiles.py        website driver/circuit pop-ups (profiles.json): line-up, season results, circuits, race analysis
 pages/6_Practice.py        FP1-3: timesheet, one-lap vs long-run pace map, long runs, the weekend combined
 scripts/export_site.py     runs site_export; scripts/needs_update.py: the Action's "anything new?"
 scripts/calibrate_forecast.py  fits config's "Session forecasts" constants by replaying 2025-26
 scripts/calibrate_penalties.py fits config's "Power-unit penalties" constants on every round since 2022
 scripts/prefetch_practice.py   downloads a season's practice sessions through OpenF1 (archived like the rest)
 scripts/fetch_team_logos.py    downloads the team logos in web/src/teamLogos.json from Wikimedia Commons
+scripts/fetch_driver_photos.py downloads driver photos (web/src/driverPhotos.json) from Wikimedia Commons
+scripts/fetch_flags.py         downloads the flags in web/src/countries.json (flag-icons SVGs)
 web/                       the website (React + TypeScript + Vite, theme copied from xpfpl)
 .github/workflows/site.yml scheduled export + build + push to gh-pages
 ```
@@ -411,6 +414,22 @@ and emoji). This is a Windows PowerShell 5.1 / Git Bash environment.
   reliability / cooling). `site_export.upgrade_effect`: a team's race pace at an upgraded round against its
   previous `UPGRADE_BEFORE` races (2026: quicker only ~half the time). The forecast's `UPGRADE_EFFECT` term is
   fitted by calibrate_forecast.py. `news.json` has the items, upgrades and effects; Next Race shows them.
+- **Driver and circuit pop-ups** (`modules/profiles.py` → `profiles.json`; site `components/Profiles.tsx` (host, links, flags;
+  every page) + `ProfileViews.tsx` (the pop-ups, lazy-loaded)): any `DriverChip`/`DriverName` opens the driver, any
+  `CircuitLink` the circuit, in the wide `Sheet`; opening pushes a history entry so Back closes it, a hash change closes it.
+  On History codes repeat across eras, so a chip opens only with `historyRef` (`ProfileHost scope`). `profiles.json` is
+  built from the session files already in `races/` plus Jolpica's season `drivers`/`races` lists (driverId = the History
+  `ref`, circuitId = History circuit, nationality → ISO3 through `web/src/countries.json`, shared with Python), so
+  `export_site.py --profiles-only` rewrites it in seconds; the full export writes it last. Circuit outline: MultiViewer
+  (this season's, else last season's) else this season's telemetry file. `race_analysis` per finished Grand Prix (passes =
+  places gained over laps clear of pits, lap 1 and SC/VSC/red: an estimate for comparing races; stops = stints − 1, red-flag
+  changes count) is ranked client-side against the season. History `circuits.json` carries each race's fastest lap and the
+  winner's grid; a circuit's `record` = fastest race lap on today's layout (same scheduled laps as the latest race, ≥ 90 %
+  of its fastest lap: Silverstone 1:27.097 VER 2020, not 2005's old layout). Photos: Commons lead image of the
+  driver's Wikipedia article, free licences only (OGL counts; F1's headshots don't), credited on About; none = car number.
+  Flags are images (Windows has no flag emoji). A new driver: run `scripts/fetch_driver_photos.py` after an export.
+- Local preview: Vite's dev server refuses every file here (the path contains `.git`, which its default `fs.deny`
+  matches), so `npm run build` then `npx vite preview`.
 - Circuits are matched across seasons by `circuit_key(location)` (via the pit-loss table),
   never by event name: the 2026 "Bahrain Grand Prix" was in Kuala Lumpur.
 - Pages must render at phone width (`usePhone`, cards via `Table`). Screenshot both widths.

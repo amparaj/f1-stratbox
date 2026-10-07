@@ -1,9 +1,10 @@
 import * as Plot from "@observablehq/plot";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { color } from "../colors";
 import { COMPOUND, compoundKey, DriverChip, DriverPicker, GapChart, Plan, PositionChart, SessionBadge, StrategyChart, TeamName, Tyre } from "../components/f1";
 import { dropText, WeekendPenaltiesSection } from "../components/Penalties";
 import { PracticeBody } from "../components/Practice";
+import { CircuitAnalysis, CircuitLink, DriverName } from "../components/Profiles";
 import { WeekendUpgrades } from "../components/Upgrades";
 import LapTelemetry from "../components/Telemetry";
 import { Chart, Legend, Loading, Note, plotDefaults, Segmented, Table, Tiles } from "../components/ui";
@@ -97,7 +98,7 @@ function SourcesNote({ sources }: { sources?: Record<string, string> }) {
 }
 
 /** Breadcrumb, the round's title with the session's badge, and a switch between its finished sessions. */
-function WeekendHeader({ round, code, ev, subtitle }: { round: number; code: AnySession; ev: CalendarEvent; subtitle: string }) {
+function WeekendHeader({ round, code, ev, subtitle }: { round: number; code: AnySession; ev: CalendarEvent; subtitle: ReactNode }) {
   const site = useSite();
   const rounds = site.meta.calendar.filter(anyDone).map((e) => e.round);
   const i = rounds.indexOf(round);
@@ -112,7 +113,7 @@ function WeekendHeader({ round, code, ev, subtitle }: { round: number; code: Any
         {next && <> · <a href={`#races/${next}`}>Round {next}</a></>}
       </p>
       <h2 className="session-title">Round {round}: {ev.event} <SessionBadge code={code} /></h2>
-      <p className="lede">{subtitle}</p>
+      <p className="lede"><CircuitLink round={round}>{ev.location}, {ev.country}</CircuitLink> · {subtitle}</p>
       {done.length > 1 && (
         <div className="toolbar">
           <Segmented label="Session" value={code} onChange={(c) => { window.location.hash = sessionHash(round, c); }}
@@ -159,7 +160,7 @@ function RaceView({ round, code }: { round: number; code: "R" | "S" }) {
   return (
     <>
       <WeekendHeader round={round} code={code} ev={ev}
-                     subtitle={`${race.location}, ${race.country} · ${dayYear(race.start_utc)} · ${race.total_laps} laps${code === "S" ? " · a sprint: about a third of the distance, no compulsory stop, sprint points (8 to 1)" : ""}`} />
+                     subtitle={`${dayYear(race.start_utc)} · ${race.total_laps} laps${code === "S" ? " · a sprint: about a third of the distance, no compulsory stop, sprint points (8 to 1)" : ""}`} />
       <SourcesNote sources={race.sources} />
       {!race.complete && (
         <Note>
@@ -169,7 +170,7 @@ function RaceView({ round, code }: { round: number; code: "R" | "S" }) {
       )}
 
       <Tiles tiles={[
-        { label: "Winner", value: <><DriverChip code={winner.driver} color={winner.color} /> {winner.name ?? winner.driver}</>, note: winner.grid ? `${winner.team} · from P${winner.grid}` : winner.team },
+        { label: "Winner", value: <><DriverName code={winner.driver} color={winner.color} name={winner.name ?? winner.driver} /></>, note: winner.grid ? `${winner.team} · from P${winner.grid}` : winner.team },
         { label: "Fastest lap", value: race.fastest ? lapTime(race.fastest.time) : "–", note: race.fastest ? `${race.fastest.driver}, lap ${race.fastest.lap}` : undefined },
         { label: "Neutralised", value: neutralCount ? `${neutralCount} laps` : "None", note: [race.neutralised.SC.length && "Safety Car", race.neutralised.VSC.length && "VSC", race.neutralised.RED.length && "Red flag"].filter(Boolean).join(" · ") || "Green all race" },
         { label: "Weather", value: race.weather.rain ? "Rain" : "Dry", note: race.weather.track ? `Track ${race.weather.track[0].toFixed(0)}–${race.weather.track[1].toFixed(0)} °C · Air ${race.weather.air![0].toFixed(0)}–${race.weather.air![1].toFixed(0)} °C` : undefined },
@@ -182,18 +183,30 @@ function RaceView({ round, code }: { round: number; code: "R" | "S" }) {
         </ul>
       </section>
 
+      {code === "R" && (
+        <section>
+          <h3>How the Circuit Played</h3>
+          <p className="muted">
+            How easy it was to pass, how many stops it took, Safety Cars and track temperature, each ranked against
+            this season's other Grands Prix. <CircuitLink round={round}>The circuit guide</CircuitLink> has the
+            map, its records and past winners.
+          </p>
+          <CircuitAnalysis round={round} />
+        </section>
+      )}
+
       <section>
         <h3>Result</h3>
         <Table<ResultRow>
           data={results}
           rowKey={(r) => r.driver}
           sort="position"
-          cardTitle={(r) => <><span className="muted">{r.classified ? `P${r.position}` : "DNF"}</span> <DriverChip code={r.driver} color={r.color} /> {r.name}</>}
+          cardTitle={(r) => <><span className="muted">{r.classified ? `P${r.position}` : "DNF"}</span> <DriverName code={r.driver} color={r.color} name={r.name} /></>}
           cardSub={["team"]}
           cardStats={["gained", "gap", "points"]}
           columns={[
             { key: "position", label: "Pos", value: (r) => r.position, render: (r) => (r.classified ? r.position : r.dns ? "DNS" : "DNF"), numeric: true, rank: true },
-            { key: "driver", label: "Driver", value: (r) => r.name ?? r.driver, render: (r) => <><DriverChip code={r.driver} color={r.color} /> {r.name}</> },
+            { key: "driver", label: "Driver", value: (r) => r.name ?? r.driver, render: (r) => <><DriverName code={r.driver} color={r.color} name={r.name} /></> },
             { key: "team", label: "Team", value: (r) => r.team, render: (r) => <TeamName team={r.team} color={r.color} /> },
             ...(results.some((r) => r.quali != null) ? [{ key: "quali", label: "Qualified", title: `Position in ${code === "S" ? "Sprint Qualifying" : "Qualifying"}`, value: (r: ResultRow) => r.quali ?? null, render: (r: ResultRow) => r.quali ?? "–", numeric: true, rank: true }] : []),
             { key: "grid", label: "Grid", value: (r) => r.grid, render: (r) => <>{r.pit_lane_start ? "Pit lane" : r.grid ?? "–"}{gridPenalty(r) && <span className="tag warn" title={gridPenalty(r)!} style={{ marginLeft: 4 }}>pen</span>}</>, numeric: true, rank: true },
@@ -394,7 +407,7 @@ function PostMortem({ results, stints }: { results: ResultRow[]; stints: StintRo
           return (
             <div key={r.driver} className="pm-driver">
               <div className="pm-head">
-                <span className="muted">{r.classified ? `P${r.position}` : "DNF"}</span> <DriverChip code={r.driver} color={r.color} /> {r.name}
+                <span className="muted">{r.classified ? `P${r.position}` : "DNF"}</span> <DriverName code={r.driver} color={r.color} name={r.name} />
                 <span className="muted"> · {r.team}</span>
               </div>
               <ul>
@@ -442,7 +455,7 @@ function QualiView({ round, code }: { round: number; code: "Q" | "SQ" }) {
   return (
     <>
       <WeekendHeader round={round} code={code} ev={ev}
-                     subtitle={`${q.location}, ${q.country} · ${dayYear(q.start_utc)} · sets the ${race} grid · ${results.length} drivers: ${q.to_q2} through to Q2, 10 to Q3`} />
+                     subtitle={`${dayYear(q.start_utc)} · sets the ${race} grid · ${results.length} drivers: ${q.to_q2} through to Q2, 10 to Q3`} />
       <SourcesNote sources={q.sources} />
       {!q.complete && <Note>Provisional: the official classification isn't out yet, so times come from the timing data.</Note>}
 
@@ -470,12 +483,12 @@ function QualiView({ round, code }: { round: number; code: "Q" | "SQ" }) {
           data={results}
           rowKey={(r) => r.driver}
           sort="position"
-          cardTitle={(r) => <><span className="muted">P{r.position}</span> <DriverChip code={r.driver} color={r.color} /> {r.name}</>}
+          cardTitle={(r) => <><span className="muted">P{r.position}</span> <DriverName code={r.driver} color={r.color} name={r.name} /></>}
           cardSub={["team"]}
           cardStats={["best", "gap_to_pole", "out"]}
           columns={[
             { key: "position", label: "Pos", value: (r) => r.position, numeric: true, rank: true },
-            { key: "driver", label: "Driver", value: (r) => r.name ?? r.driver, render: (r) => <><DriverChip code={r.driver} color={r.color} /> {r.name}</> },
+            { key: "driver", label: "Driver", value: (r) => r.name ?? r.driver, render: (r) => <><DriverName code={r.driver} color={r.color} name={r.name} /></> },
             { key: "team", label: "Team", value: (r) => r.team, render: (r) => <TeamName team={r.team} color={r.color} /> },
             { key: "q1", label: "Q1", value: (r) => r.q1, render: (r) => segCell(r, "q1", 1), numeric: true, group: "Times" },
             { key: "q2", label: "Q2", value: (r) => r.q2, render: (r) => segCell(r, "q2", 2), numeric: true, group: "Times" },
@@ -539,7 +552,7 @@ function PracticeView({ round, code }: { round: number; code: PracticeCode }) {
   return (
     <>
       <WeekendHeader round={round} code={code} ev={ev}
-                     subtitle={`${p.location}, ${p.country} · ${dayYear(p.start_utc)} · free practice`} />
+                     subtitle={`${dayYear(p.start_utc)} · free practice`} />
       <SourcesNote sources={p.sources} />
       <PracticeBody p={p} />
       <WeekendPenaltiesSection code={code} data={p.penalties} round={round} />

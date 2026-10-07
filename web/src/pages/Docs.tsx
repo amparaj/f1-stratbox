@@ -65,6 +65,7 @@ const SECTIONS = [
   { id: "pace", title: "Race pace" },
   { id: "qualifying", title: "Qualifying analysis" },
   { id: "telemetry", title: "Lap telemetry" },
+  { id: "circuits", title: "Drivers and circuits" },
   { id: "form", title: "Form" },
   { id: "race", title: "Session forecasts" },
   { id: "title", title: "Title odds" },
@@ -152,6 +153,7 @@ export default function Docs() {
       <Pace />
       <Qualifying />
       <LapTelemetry />
+      <Circuits />
       <Form />
       <RaceForecast />
       <TitleOdds />
@@ -534,7 +536,7 @@ function LapTelemetry() {
           lap-time difference.</li>
         <li><b>Track dominance.</b> The lap is cut into 25 equal mini-sectors, or into corner zones and the straights
           between. Each piece is drawn in the colour of the driver who lost less time through it:
-          <M t={String.raw`\Delta(s_{	ext{end}}) - \Delta(s_{	ext{start}})`} />.</li>
+          <M t={String.raw`\Delta(s_{\text{end}}) - \Delta(s_{\text{start}})`} />.</li>
         <li><b>Corner zones.</b> Corners (positions from the circuit map F1's timing apps use) less than 150 m apart make one
           zone, which runs 100 m either side. A zone is low speed below 120 km/h at its slowest point (the two drivers'
           average), medium below 200, high above.</li>
@@ -553,6 +555,39 @@ function LapTelemetry() {
         Positions come in about four times a second, so a gap of a few hundredths inside one corner is within the
         noise; over a sector or a lap it adds up correctly.
       </p>
+    </Section>
+  );
+}
+
+// ---------------------------------------------------------------- drivers and circuits
+
+function Circuits() {
+  return (
+    <Section id="circuits">
+      <p>
+        A driver's name or code opens their profile: number, nationality, team, this season weekend by weekend, the
+        head-to-head with their teammate (qualifying, and Grands Prix where a retirement finishes behind and two
+        retirements don't count), the next race's odds and their career from the History files. A circuit's name opens
+        its guide: the track map, its records, who wins there, the coming weekend's forecast and how this season's
+        race there played.
+      </p>
+      <ul>
+        <li><b>Track map and length.</b> MultiViewer's circuit outline (F1's timing apps' map, rotated the same way),
+          this season's if it has one, else last season's; for a new circuit, the outline from this season's lap
+          telemetry. The length is the outline's, so it can differ from the official figure by a few metres.</li>
+        <li><b>Fastest race lap.</b> The quickest timed lap in any Grand Prix here since 1996 (when lap times start), on
+          today's layout: only races scheduled over the same number of laps as the latest one, and no lap under 90% of
+          the latest race's fastest (a shorter loop under the same name). Close to the official lap record, which also
+          counts only race laps.</li>
+        <li><b>Passes on track.</b> An estimate from the order at the end of each lap: the places a car gained over a
+          lap it neither started nor ended in the pit lane, leaving out lap 1 and Safety Car, VSC and red-flag laps.
+          A car going off or slowing with a problem counts as passed, so it's a way to compare races, not a count of
+          overtakes.</li>
+        <li><b>Places moved</b> is the average of <M t={String.raw`|\text{grid} - \text{finish}|`} /> over finishers; <b>stops</b> are tyre
+          changes per finisher (a change under a red flag counts); <b>tyre wear</b> is the field's median degradation per
+          compound (see <a href="#about/docs/degradation">Tyre degradation</a>). Each figure is ranked against this
+          season's other Grands Prix.</li>
+      </ul>
     </Section>
   );
 }

@@ -297,12 +297,12 @@ function SeasonView({ year, index }: { year: number; index: HistoryIndex }) {
           sort="position"
           limit={20}
           onRow={(d) => { window.location.hash = link.driver(d.ref); }}
-          cardTitle={(d) => <><span className="muted">P{d.position}</span> <DriverChip code={d.driver} color={d.color} /> {d.name}</>}
+          cardTitle={(d) => <><span className="muted">P{d.position}</span> <DriverChip code={d.driver} color={d.color} historyRef={d.ref} /> {d.name}</>}
           cardSub={["team"]}
           cardStats={["points", "wins", "podiums"]}
           columns={[
             { key: "position", label: "Pos", value: (d) => d.position, numeric: true, rank: true },
-            { key: "driver", label: "Driver", value: (d) => d.name, render: (d) => <><DriverChip code={d.driver} color={d.color} /> <a href={link.driver(d.ref)}>{d.name}</a></> },
+            { key: "driver", label: "Driver", value: (d) => d.name, render: (d) => <><DriverChip code={d.driver} color={d.color} historyRef={d.ref} /> <a href={link.driver(d.ref)}>{d.name}</a></> },
             { key: "team", label: "Team", value: (d) => d.team, render: (d) => <TeamName team={d.team} color={d.color} year={year} />, wrap: true },
             { key: "points", label: "Points", value: (d) => d.points, render: (d) => pts(d.points), numeric: true },
             ...(dropped ? [{ key: "scored", label: "All results", title: "Points scored in every race, before dropped results", value: (d: HistoryDriverStanding) => d.points_scored, render: (d: HistoryDriverStanding) => pts(d.points_scored), numeric: true }] : []),
@@ -452,12 +452,12 @@ function RaceView({ year, round, code, index }: { year: number; round: number; c
           rowKey={(r) => `${r.ref}-${r.number}`}
           sort="pos"
           onRow={(r) => { window.location.hash = link.driver(r.ref); }}
-          cardTitle={(r) => <><span className="muted">{r.pos ? `P${r.pos}` : r.started ? "DNF" : "DNS"}</span> <DriverChip code={r.driver} color={r.color} /> {r.name}</>}
+          cardTitle={(r) => <><span className="muted">{r.pos ? `P${r.pos}` : r.started ? "DNF" : "DNS"}</span> <DriverChip code={r.driver} color={r.color} historyRef={r.ref} /> {r.name}</>}
           cardSub={["team"]}
           cardStats={["gained", "gap", "points"]}
           columns={[
             { key: "pos", label: "Pos", value: (r) => r.pos, render: (r) => r.pos ?? (r.started ? "–" : "DNS"), numeric: true, rank: true },
-            { key: "driver", label: "Driver", value: (r) => r.name, render: (r) => <><DriverChip code={r.driver} color={r.color} /> <a href={link.driver(r.ref)}>{r.name}</a></> },
+            { key: "driver", label: "Driver", value: (r) => r.name, render: (r) => <><DriverChip code={r.driver} color={r.color} historyRef={r.ref} /> <a href={link.driver(r.ref)}>{r.name}</a></> },
             { key: "team", label: "Team", value: (r) => r.team, render: (r) => <TeamName team={r.team} color={r.color} year={year} /> },
             { key: "number", label: "No.", value: (r) => r.number, numeric: true },
             { key: "grid", label: "Grid", value: (r) => r.grid, render: (r) => r.grid ?? (r.started ? "Pit lane" : "–"), numeric: true, rank: true },
@@ -570,14 +570,16 @@ function DriverView({ refId }: { refId: string }) {
   );
 }
 
-function CareerChart({ seasons }: { seasons: DriverSeason[] }) {
+/** Championship position by season, coloured by team (also in the driver pop-up). */
+export function CareerChart({ seasons }: { seasons: DriverSeason[] }) {
   const make = useCallback((width: number) => {
     const data = seasons.filter((s) => s.position !== null);
     const worst = Math.max(10, ...data.map((s) => s.position!));
     return Plot.plot({
       ...plotDefaults(width),
       height: 260,
-      x: { label: null, tickFormat: "d", ticks: Math.min(seasons.length, width < 500 ? 5 : 10) },
+      // Whole years only: a short career's ticks fell between seasons ("2025 2026 2026").
+      x: { label: null, tickFormat: "d", ticks: seasons.length <= (width < 500 ? 5 : 10) ? seasons.map((s) => s.year) : width < 500 ? 5 : 10 },
       y: { label: "Championship position", reverse: true, domain: [1, worst], grid: true },
       marks: [
         Plot.line(data, { x: "year", y: "position", stroke: color.muted, strokeWidth: 1.25 }),
@@ -631,7 +633,7 @@ function CircuitView({ refId }: { refId: string }) {
           columns={[
             { key: "year", label: "Season", value: (r) => r.year, render: (r) => <a href={link.race(r.year, r.round)}>{r.year}</a>, numeric: true },
             { key: "event", label: "Race", value: (r) => r.event },
-            { key: "winner", label: "Winner", value: (r) => r.winner_name, render: (r) => <><DriverChip code={r.winner} color={r.color} /> {r.winner_name}</> },
+            { key: "winner", label: "Winner", value: (r) => r.winner_name, render: (r) => <><DriverChip code={r.winner} color={r.color} historyRef={r.winner_ref} /> {r.winner_name}</> },
             { key: "team", label: "Team", value: (r) => r.team, render: (r) => <TeamName team={r.team} color={r.color} year={r.year} /> },
             { key: "pole", label: "Pole", value: (r) => r.pole ?? "" },
           ]}

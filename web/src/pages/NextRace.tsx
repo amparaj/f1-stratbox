@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { color } from "../colors";
 import { ChanceBars, DriverChip, Plan, SessionBadge, TeamName } from "../components/f1";
 import { PowerUnitOutlook } from "../components/Penalties";
+import { CircuitLink } from "../components/Profiles";
 import { NewsFeed, UpgradeTracker } from "../components/Upgrades";
 import { liveSession, Radar, useNow } from "../components/Radar";
 import { FORM_CLIP, WhyOdds } from "../components/WhyOdds";
@@ -53,7 +54,7 @@ export default function NextRace() {
     <>
       <h2>Round {ev.round}: {ev.event}</h2>
       <p className="lede">
-        {ev.location}, {ev.country} · {weekendSessions(ev).map((c, i) => (
+        <CircuitLink round={ev.round}>{ev.location}, {ev.country}</CircuitLink> · {weekendSessions(ev).map((c, i) => (
           <span key={c}>{i > 0 && " · "}{SESSION_LABEL[c].toLowerCase()} {when(sessionStart(ev, c))}</span>
         ))}.
         {ev.sprint_utc ? " A sprint weekend: Sprint Qualifying sets the Sprint grid, Qualifying the Grand Prix's." : ""}

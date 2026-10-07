@@ -4,6 +4,7 @@ Write the website's data files (web/public/data/) for a season.
     .venv\\Scripts\\python scripts\\export_site.py              # current season
     .venv\\Scripts\\python scripts\\export_site.py --year 2026 --out web/public/data
     .venv\\Scripts\\python scripts\\export_site.py --history-only    # just history/: 1950 to last season
+    .venv\\Scripts\\python scripts\\export_site.py --profiles-only   # just profiles.json, from the session files there
 
 Then `npm run dev` in web/ to look at the site locally. The GitHub Action
 (.github/workflows/site.yml) runs this, builds the site and publishes it.
@@ -27,7 +28,7 @@ logging.disable(logging.WARNING)
 import fastf1  # noqa: E402
 
 import config  # noqa: E402
-from modules import history, site_export  # noqa: E402
+from modules import history, profiles, site_export  # noqa: E402
 
 
 def main() -> None:
@@ -42,6 +43,8 @@ def main() -> None:
     ap.add_argument("--telemetry-budget", type=int, default=None,
                     help=f"sessions whose telemetry may be downloaded (default {config.SITE_TEL_MAX_FETCH})")
     ap.add_argument("--history-only", action="store_true", help="only write history/ (keeps the rest)")
+    ap.add_argument("--profiles-only", action="store_true",
+                    help="only write profiles.json (the driver and circuit pop-ups) from the session files in --out")
     args = ap.parse_args()
     config.DATA_SOURCE = args.source
 
@@ -52,6 +55,9 @@ def main() -> None:
     config.FASTF1_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     fastf1.Cache.enable_cache(str(config.FASTF1_CACHE_DIR))
     fastf1.set_log_level("ERROR")
+    if args.profiles_only:
+        export_profiles(args.out, args.year)
+        return
 
     shutil.rmtree(args.out, ignore_errors=True)        # no stale race files from a calendar change
     started = time.time()
@@ -61,8 +67,21 @@ def main() -> None:
     meta = site_export.export_season(args.year, args.out, telemetry=not args.no_telemetry_download)
     print(f"Done in {time.time() - started:.0f} s: {len(meta['sessions'])} sessions, "
           f"{len(meta['forecasts'])} forecasts, pending {meta['pending'] or 'none'}.")
+    export_profiles(args.out, args.year)
     if not args.no_history:
         export_history(args.out, args.year)
+
+
+def export_profiles(out: Path, year: int) -> None:
+    """The driver and circuit pop-ups. A failure leaves them showing what the other files have."""
+    started = time.time()
+    try:
+        done = profiles.export(year, out, site_export.calendar(year))
+    except Exception as e:
+        print(f"Profiles export failed: {type(e).__name__}: {e}")
+        return
+    print(f"Profiles in {time.time() - started:.0f} s: {len(done['drivers'])} drivers, "
+          f"{sum(1 for c in done['circuits'] if c.get('x'))} of {len(done['circuits'])} circuits mapped.")
 
 
 def export_history(out: Path, year: int) -> None:

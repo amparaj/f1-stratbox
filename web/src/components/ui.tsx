@@ -129,11 +129,13 @@ export const usePhone = () => useMedia(PHONE);
 
 /** A panel over the page: slides up from the bottom on a phone, a centred box on a wide screen.
  * The native <dialog> gives Escape to close, focus kept inside and the dimmed backdrop. */
-export function Sheet({ open, onClose, title, children }: {
+export function Sheet({ open, onClose, title, children, wide }: {
   open: boolean;
   onClose: () => void;
   title: ReactNode;
   children: ReactNode;
+  /** A wider box on a wide screen (the driver and circuit pop-ups). */
+  wide?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -143,7 +145,7 @@ export function Sheet({ open, onClose, title, children }: {
     if (!open && d.open) d.close();
   }, [open]);
   return (
-    <dialog ref={ref} className="sheet" onClose={onClose}
+    <dialog ref={ref} className={wide ? "sheet sheet-wide" : "sheet"} onClose={onClose}
             onClick={(e) => { if (e.target === ref.current) onClose(); }}>   {/* a tap on the backdrop */}
       {open && (
         <div className="sheet-inner">
