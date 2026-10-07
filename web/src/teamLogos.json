@@ -5,23 +5,33 @@
     "that lists it and whose 'years' hold the season. A logo shows for seasons in its since/until; otherwise the badge is",
     "the team colour with 'short' (or letters from the name). Logos are freely licensed files from Wikimedia Commons:",
     "'source' is the file's title there; scripts/fetch_team_logos.py downloads them to web/public/logos/ and fills in",
-    "licence, author and url. Add a logo by adding its source and file, then run that script. No free file exists for",
-    "Ferrari, Racing Bulls (Toro Rosso, AlphaTauri) or Cadillac: they keep the badge."
+    "licence, author and url. Add a logo by adding its source and file, then run that script. A logo with no 'source'",
+    "was supplied by hand (Ferrari, Racing Bulls, Toro Rosso, ...): its original is kept in 'archive' (archive/logos/), which the script copies",
+    "back if the file is missing. Teams with no logo keep the badge. A hand-supplied logo's 'page' is the URL it came from; one that was cropped or converted has the download as is in archive/logos/original/."
   ],
   "teams": [
     {"key": "mercedes", "name": "Mercedes", "names": ["mercedes", "mercedes-amg petronas f1 team", "mercedes gp"], "short": "MER", "logos": [
       {"file": "mercedes.svg", "source": "Mercedes-Benz Star (1969-1986, 2025-).svg", "licence": "Public domain", "author": "Mercedes-Benz", "page": "https://commons.wikimedia.org/wiki/File:Mercedes-Benz_Star_(1969-1986,_2025-).svg"}
     ]},
-    {"key": "ferrari", "name": "Ferrari", "names": ["ferrari", "scuderia ferrari"], "short": "FER", "logos": []},
+    {"key": "ferrari", "name": "Ferrari", "names": ["ferrari", "scuderia ferrari"], "short": "FER", "logos": [
+      {"file": "ferrari.png", "archive": "archive/logos/ferrari.png", "licence": "supplied by hand, not freely licensed", "author": "Scuderia Ferrari"}
+    ]},
     {"key": "mclaren", "name": "McLaren", "names": ["mclaren"], "short": "MCL", "logos": [
+      {"file": "mclaren_kiwi.png", "since": 1971, "until": 1996, "archive": "archive/logos/mclaren_kiwi.png", "page": "https://supercarblondie.com/wp-content/uploads/McLaren-Kiwi-logo-1970s.jpg", "licence": "supplied by hand, not freely licensed", "author": "McLaren"},
       {"file": "mclaren.svg", "since": 1997, "source": "McLaren Speedmark.svg", "licence": "Public domain", "author": "Ved havet", "page": "https://commons.wikimedia.org/wiki/File:McLaren_Speedmark.svg"}
     ]},
     {"key": "red_bull", "name": "Red Bull Racing", "names": ["red bull racing", "red bull"], "short": "RBR", "logos": [
       {"file": "red_bull.png", "source": "Red Bull Racing - 2005 Logo.png", "licence": "Public domain", "author": "Unknown author", "page": "https://commons.wikimedia.org/wiki/File:Red_Bull_Racing_-_2005_Logo.png"}
     ]},
-    {"key": "racing_bulls", "name": "Racing Bulls", "names": ["racing bulls", "rb", "rb f1 team", "visa cash app rb", "visa cash app racing bulls"], "short": "RB", "logos": []},
-    {"key": "alphatauri", "name": "AlphaTauri", "names": ["alphatauri", "scuderia alphatauri"], "short": "AT", "logos": []},
-    {"key": "toro_rosso", "name": "Toro Rosso", "names": ["toro rosso", "scuderia toro rosso"], "short": "STR", "logos": []},
+    {"key": "racing_bulls", "name": "Racing Bulls", "names": ["racing bulls", "rb", "rb f1 team", "visa cash app rb", "visa cash app racing bulls"], "short": "RB", "logos": [
+      {"file": "racing_bulls.png", "archive": "archive/logos/racing_bulls.png", "licence": "supplied by hand, not freely licensed", "author": "Visa Cash App Racing Bulls F1 Team"}
+    ]},
+    {"key": "alphatauri", "name": "AlphaTauri", "names": ["alphatauri", "scuderia alphatauri"], "short": "AT", "logos": [
+      {"file": "alphatauri.png", "archive": "archive/logos/alphatauri.png", "page": "https://en.wikipedia.org/wiki/File:Scuderia_Alpha-Tauri.svg", "licence": "supplied by hand, not freely licensed", "author": "Scuderia AlphaTauri"}
+    ]},
+    {"key": "toro_rosso", "name": "Toro Rosso", "names": ["toro rosso", "scuderia toro rosso"], "short": "STR", "logos": [
+      {"file": "toro_rosso.png", "archive": "archive/logos/toro_rosso.png", "page": "https://static.wikia.nocookie.net/fanmade_f1/images/f/fe/Toro_Rosso_Logo.png/revision/latest?cb=20200522082100", "licence": "supplied by hand, not freely licensed", "author": "Scuderia Toro Rosso"}
+    ]},
     {"key": "alpine", "name": "Alpine", "names": ["alpine", "alpine f1 team", "bwt alpine f1 team"], "short": "ALP", "logos": [
       {"file": "alpine.svg", "source": "Alpine F1 Team Logo.svg", "licence": "Public domain", "author": "Alpine F1 Team", "page": "https://commons.wikimedia.org/wiki/File:Alpine_F1_Team_Logo.svg"}
     ]},
@@ -32,6 +42,7 @@
       {"file": "audi.svg", "since": 2026, "source": "Audif1.com logo17 (cropped).svg", "licence": "Public domain", "author": "Audi Revolut F1 Team / Sauber Motorsports AG", "page": "https://commons.wikimedia.org/wiki/File:Audif1.com_logo17_(cropped).svg"}
     ]},
     {"key": "alfa", "name": "Alfa Romeo", "names": ["alfa romeo", "alfa romeo racing", "alfa romeo f1 team stake"], "short": "ALF", "logos": [
+      {"file": "alfa_romeo.png", "until": 2018, "archive": "archive/logos/alfa_romeo.png", "page": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTFN24EmK6bcTTT9LG2gRodMZKUhTaZ0V9Nh0r7a-cYO5_zI7ltibVbDv6H&s=10", "licence": "supplied by hand, not freely licensed", "author": "Alfa Romeo"},
       {"file": "alfa.svg", "since": 2019, "source": "Alfa Romeo F1 Team Stake Logo.svg", "licence": "Public domain", "author": "Alfa Romeo - Sauber Group", "page": "https://commons.wikimedia.org/wiki/File:Alfa_Romeo_F1_Team_Stake_Logo.svg"}
     ]},
     {"key": "bmw_sauber", "name": "BMW Sauber", "names": ["bmw sauber", "bmw"], "short": "BMW", "logos": [
@@ -45,9 +56,12 @@
       {"file": "williams.png", "since": 2020, "source": "Williams Racing Monogram.png", "licence": "CC BY-SA 4.0", "author": "DJClements", "page": "https://commons.wikimedia.org/wiki/File:Williams_Racing_Monogram.png"}
     ]},
     {"key": "aston_martin", "name": "Aston Martin", "names": ["aston martin", "aston martin aramco"], "short": "AST", "logos": [
+      {"file": "aston_martin_2021.png", "since": 2021, "until": 2021, "archive": "archive/logos/aston_martin_2021.png", "page": "https://e0.365dm.com/21/01/1600x900/skysports-aston-martin-f1-2021_5226838.jpg", "licence": "supplied by hand, not freely licensed", "author": "Aston Martin F1 Team"},
       {"file": "aston_martin.jpg", "since": 2022, "source": "Aston Martin F1 Team logo 2024.jpg", "licence": "CC BY 4.0", "author": "Unknown author", "page": "https://commons.wikimedia.org/wiki/File:Aston_Martin_F1_Team_logo_2024.jpg"}
     ]},
-    {"key": "cadillac", "name": "Cadillac", "names": ["cadillac", "cadillac f1 team"], "short": "CAD", "logos": []},
+    {"key": "cadillac", "name": "Cadillac", "names": ["cadillac", "cadillac f1 team"], "short": "CAD", "logos": [
+      {"file": "cadillac.png", "source": "Cadillac Formula 1 Team logo.png", "licence": "CC0", "author": "TedNauru", "page": "https://commons.wikimedia.org/wiki/File:Cadillac_Formula_1_Team_logo.png"}
+    ]},
     {"key": "racing_point", "name": "Racing Point", "names": ["racing point", "bwt racing point"], "short": "RP", "logos": [
       {"file": "racing_point.svg", "source": "BWT Racing Point Logo.svg", "licence": "Public domain", "author": "Racing Point UK Limited", "page": "https://commons.wikimedia.org/wiki/File:BWT_Racing_Point_Logo.svg"}
     ]},
@@ -132,11 +146,15 @@
     {"key": "theodore", "name": "Theodore", "names": ["theodore"], "short": "THE", "logos": [
       {"file": "theodore.png", "source": "Theodore logo.png", "licence": "CC BY-SA 4.0", "author": "Cassio96", "page": "https://commons.wikimedia.org/wiki/File:Theodore_logo.png"}
     ]},
-    {"key": "team_lotus", "name": "Team Lotus", "names": ["team lotus", "lotus"], "years": [1950, 1994], "short": "LOT", "logos": []},
+    {"key": "team_lotus", "name": "Team Lotus", "names": ["team lotus", "lotus"], "years": [1950, 1994], "short": "LOT", "logos": [
+      {"file": "lotus.svg", "archive": "archive/logos/lotus.svg", "page": "https://static.wikia.nocookie.net/f1wikia/images/9/92/Lotus_F1_Team_logo.svg/revision/latest?cb=20220223205333", "licence": "supplied by hand, not freely licensed", "author": "Lotus F1 Team"}
+    ]},
     {"key": "lotus_racing", "name": "Lotus Racing", "names": ["lotus", "lotus racing", "team lotus"], "years": [2010, 2011], "short": "LOT", "logos": [
       {"file": "lotus_racing.png", "source": "Mini Free Logo Lotus Racing.png", "licence": "CC0", "author": "MiniPictures", "page": "https://commons.wikimedia.org/wiki/File:Mini_Free_Logo_Lotus_Racing.png"}
     ]},
-    {"key": "lotus_f1", "name": "Lotus F1", "names": ["lotus f1", "lotus f1 team", "lotus"], "years": [2012, 2015], "short": "LOT", "logos": []},
+    {"key": "lotus_f1", "name": "Lotus F1", "names": ["lotus f1", "lotus f1 team", "lotus"], "years": [2012, 2015], "short": "LOT", "logos": [
+      {"file": "lotus.svg", "archive": "archive/logos/lotus.svg", "page": "https://static.wikia.nocookie.net/f1wikia/images/9/92/Lotus_F1_Team_logo.svg/revision/latest?cb=20220223205333", "licence": "supplied by hand, not freely licensed", "author": "Lotus F1 Team"}
+    ]},
     {"key": "caterham", "name": "Caterham", "names": ["caterham"], "short": "CAT", "logos": [
       {"file": "caterham.png", "source": "Mini Free Logo Caterham.png", "licence": "CC0", "author": "MiniPictures", "page": "https://commons.wikimedia.org/wiki/File:Mini_Free_Logo_Caterham.png"}
     ]},
@@ -155,7 +173,9 @@
     {"key": "andrea_moda", "name": "Andrea Moda", "names": ["andrea moda"], "short": "AM", "logos": [
       {"file": "andrea_moda.png", "source": "Mini Free Logo Andrea Moda.png", "licence": "CC0", "author": "MiniPictures", "page": "https://commons.wikimedia.org/wiki/File:Mini_Free_Logo_Andrea_Moda.png"}
     ]},
-    {"key": "brabham", "name": "Brabham", "names": ["brabham"], "short": "BRA", "logos": []},
+    {"key": "brabham", "name": "Brabham", "names": ["brabham"], "short": "BRA", "logos": [
+      {"file": "brabham.png", "archive": "archive/logos/brabham.png", "page": "https://liquipedia.net/commons/images/b/b2/Brabham_1973_allmode.png", "licence": "supplied by hand, not freely licensed", "author": "Brabham"}
+    ]},
     {"key": "jaguar", "name": "Jaguar", "names": ["jaguar"], "short": "JAG", "logos": []},
     {"key": "bar", "name": "BAR", "names": ["bar"], "short": "BAR", "logos": []}
   ]

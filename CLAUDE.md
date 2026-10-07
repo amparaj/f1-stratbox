@@ -212,9 +212,12 @@ web/                       the website (React + TypeScript + Vite, theme copied 
   `ImageColumn`): a freely licensed logo (Wikimedia Commons: public domain, CC0, CC BY/BY-SA; files in
   `web/public/logos/`, credits on About) on a white tile edged in the team colour, else the colour with a short
   code. Matched by name, then the chassis before '-' ("Lotus-Climax"); entries' `years` split teams that shared a
-  name (Lotus), logos' `since`/`until` pick the era (pass the season). No free logo: Ferrari, Racing Bulls/Toro
-  Rosso/AlphaTauri, Cadillac, most pre-1980s teams. Add one: put its Commons title and file in the manifest, run
-  `scripts/fetch_team_logos.py` (refuses non-free licences, fills licence/author/page). Drivers keep their colour
+  name (Lotus), logos' `since`/`until` pick the era (pass the season). No logo: most pre-1980s
+  teams. Add one: put its Commons title and file in the manifest, run
+  `scripts/fetch_team_logos.py` (refuses non-free licences, fills licence/author/page). Exception: logos supplied by the user (not free:
+  Ferrari, Racing Bulls, Toro Rosso, AlphaTauri, Aston Martin 2021, McLaren 1971-96, Lotus, Brabham, Alfa Romeo to 2018)
+  have no `source`; the site file's copy is in `archive/logos/` (manifest `archive`, copied back by the script if the
+  site file is missing), `page` is where it came from, and a cropped/converted one's download is in `archive/logos/original/`. Drivers keep their colour
   chip/dot; badges are for teams. Plotly legends stay colour lines.
 - Avoid uncommon emoji in chart or metric text. Some don't render on Windows (🛞 showed
   as a box), and 🟢 inside `st.metric` renders huge.

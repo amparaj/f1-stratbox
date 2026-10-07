@@ -148,16 +148,17 @@ function Overview() {
       <h3>Team logos</h3>
       <p>
         Team logos are freely licensed files from <a href="https://commons.wikimedia.org/">Wikimedia Commons</a> (public
-        domain, CC0 or Creative Commons), shown only to identify the teams; the logos are trademarks of their owners. A team
-        with no free logo for that era (Ferrari, Racing Bulls, Cadillac and most teams before the 1980s) gets a badge in its
-        colour with a short code instead.
+        domain, CC0 or Creative Commons), apart from those marked "supplied by hand" below (Ferrari, Racing Bulls and
+        some past teams and eras); all are shown only to identify the teams, and the logos are trademarks of their
+        owners. A team with no logo for that era (most teams before the 1980s) gets a badge in its colour with a short
+        code instead.
       </p>
       <details className="logo-credits">
         <summary>Logo credits ({LOGO_CREDITS.length} files)</summary>
         <ul>
           {LOGO_CREDITS.map(({ team, logo }) => (
             <li key={logo.file}>
-              <img src={logoUrl(logo)} alt="" /> {team}: <a href={logo.page}>{logo.source}</a>, {logo.author}, {logo.licence}
+              <img src={logoUrl(logo)} alt="" /> {team}: {logo.page ? <a href={logo.page}>{logo.source ?? logo.file}</a> : logo.file}, {logo.author}, {logo.licence}
             </li>
           ))}
         </ul>
@@ -166,4 +167,5 @@ function Overview() {
   );
 }
 
-const LOGO_CREDITS = TEAMS.flatMap((t) => t.logos.filter((l) => l.page).map((logo) => ({ team: t.name, logo })));
+const LOGO_CREDITS = TEAMS.flatMap((t) => t.logos.filter((l) => l.page || l.archive).map((logo) => ({ team: t.name, logo })))
+  .filter((c, i, all) => all.findIndex((o) => o.logo.file === c.logo.file) === i); // Lotus F1 shares Team Lotus' file

@@ -8,10 +8,14 @@ Each logo's 'source' is a Commons file title. The file goes to web/public/logos/
 author and page url are written back into the manifest (the site's About page credits them from there).
 A file whose licence isn't public domain, CC0 or CC BY(-SA) is refused: Commons also hosts some logos
 under fair use only. Run locally and commit the files; the export doesn't fetch them.
+
+A logo with no 'source' was supplied by hand: its original is kept at its 'archive' path (archive/logos/), and
+is copied back to web/public/logos/ if missing (or with --refresh).
 """
 import argparse
 import json
 import re
+import shutil
 import sys
 import time
 import urllib.parse
@@ -68,8 +72,15 @@ def main() -> None:
 
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     logos = [lg for team in manifest["teams"] for lg in team["logos"]]
-    info = file_info(sorted({lg["source"] for lg in logos}))
     OUT.mkdir(parents=True, exist_ok=True)
+    for lg in logos:
+        if "source" not in lg:
+            path, kept = OUT / lg["file"], ROOT / lg["archive"]
+            if args.refresh or not path.exists():
+                shutil.copyfile(kept, path)
+                print(f"{lg['file']} <- {lg['archive']}")
+    logos = [lg for lg in logos if "source" in lg]
+    info = file_info(sorted({lg["source"] for lg in logos}))
     for lg in logos:
         src = info.get(lg["source"])
         if src is None:

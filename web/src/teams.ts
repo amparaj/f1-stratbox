@@ -3,7 +3,7 @@
 
 import manifest from "./teamLogos.json";
 
-export interface TeamLogo { file: string; since?: number; until?: number; source: string; licence?: string; author?: string; page?: string }
+export interface TeamLogo { file: string; since?: number; until?: number; source?: string; archive?: string; licence?: string; author?: string; page?: string }
 interface TeamEntry { key: string; name: string; names: string[]; years?: number[]; short?: string; logos: TeamLogo[] }
 
 export const TEAMS = manifest.teams as TeamEntry[];
