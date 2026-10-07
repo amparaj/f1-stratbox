@@ -16,6 +16,12 @@ calendar (event, city, country or circuit nicknames). A sentence with a negation
 least NEWS_PLAN_MIN_SOURCES different sites say so within NEWS_PLAN_DAYS, it's a reported plan
 (`news_plans`), which the penalty model counts like config.PU_PLANS: one penalty, at the first of
 its rounds it doesn't slip past, with at least PU_PLAN_HAZARD at each.
+
+A claim is *quoted* (`quoted`) when it comes from the team or the driver: an item's sentence about a
+power-unit penalty that's attributed to them ("Mercedes confirmed", "Wolff said", "Russell told ...")
+or carries their words in quotation marks, with no hedge ("could", "might", "if", "risk").
+One site is enough for a quoted claim, and its plan gets PU_PLAN_HAZARD_QUOTED at that round:
+several sites repeating one briefing isn't more evidence, the team saying it is.
 """
 
 from __future__ import annotations
@@ -49,6 +55,16 @@ TOPICS = {
 PU_PENALTY = re.compile(r"grid (penalty|drop)|engine penalty|back of the grid|pit[ -]lane start|penalt", re.I)
 NEGATION = re.compile(r"\b(won't|will not|not (?:take|get|face|receive|need)|avoid\w*|escape\w*|no (?:grid )?penalty|"
                       r"rule[sd]? out|dodge\w*)\b", re.I)
+# Who is speaking: a team, its boss or a driver (surname / team key / role) next to one of these verbs.
+ATTRIBUTION = re.compile(r"\b(confirm(?:s|ed|ing)?|announc(?:e|es|ed|ing)|sa(?:id|ys)|told|tells|explain(?:s|ed)|"
+                         r"reveal(?:s|ed)|admit(?:s|ted)|insist(?:s|ed)|statement|according to)\b", re.I)
+ROLE = re.compile(r"\b(team principal|team boss|boss|spokes(?:man|woman|person)|the team|engineer)\b", re.I)
+# Words in double quotes (or ‘…’): four or more. Shorter is a scare quote ('double whammy'); a
+# straight ' is left out, it's mostly an apostrophe.
+QUOTE = re.compile(r"[\"“‘][^\"“”‘’]*?(?:\S+\s+){3,}[^\"“”‘’]*?[\"”’]")
+# Speculation, even in the team's words, isn't a plan.
+HEDGE = re.compile(r"\b(could|might|may|if|risk\w*|possib\w*|potential\w*|consider\w*|expect\w*|likely|set to|"
+                   r"set for|rumou?r\w*|reportedly|understood|believe[sd]?|speculat\w*)\b|\?", re.I)
 # Circuit nicknames -> words in the calendar's event, location or country.
 ROUND_ALIASES = {"austin": "United States", "cota": "United States", "sepang": "Malaysia", "kuala lumpur": "Malaysia",
                  "interlagos": "São Paulo", "brazil": "São Paulo", "vegas": "Las Vegas", "lusail": "Qatar",
@@ -273,6 +289,21 @@ def tag(items: list[dict], drivers: dict[str, str], teams: list[str], events: li
     def drivers_in(text: str) -> list[str]:
         return [c for c, s in surname.items() if re.search(rf"\b{re.escape(s)}\b", text, re.I)]
 
+    def quoted(sents: list[str], d: str, r: int, named: set[str]) -> bool:
+        """A sentence of the item about a power-unit penalty in the team's or the driver's own words,
+        naming round `r` or no round (one about another race doesn't back this one)."""
+        who = [surname[d]] + [k for k, key in TEAM_KEYS if key in named]
+        for s in sents:
+            if not (TOPICS["pu"].search(s) or PU_PENALTY.search(s)) or NEGATION.search(s):
+                continue
+            if rounds_in(s) and r not in rounds_in(s):
+                continue
+            low = config._normalise(s)
+            speaker = any(re.search(rf"\b{re.escape(config._normalise(w))}\b", low) for w in who if w) or ROLE.search(s)
+            if (QUOTE.search(s) and speaker) or (speaker and ATTRIBUTION.search(s) and not HEDGE.search(s)):
+                return True
+        return False
+
     out = []
     for i in items:
         text = i["title"] + " " + i["summary"]
@@ -285,7 +316,7 @@ def tag(items: list[dict], drivers: dict[str, str], teams: list[str], events: li
         out.append({**i, "id": hashlib.sha1(i["link"].encode()).hexdigest()[:12], "topics": topics,
                     "drivers": drivers_in(text), "teams": sorted(t for t in named if t in teams),
                     "rounds": rounds_in(text),
-                    "pu_claims": [{"driver": d, "round": r}
+                    "pu_claims": [{"driver": d, "round": r, "quoted": quoted(_sentences(i), d, r, named)}
                                   for s in _sentences(i) if TOPICS["pu"].search(s) and PU_PENALTY.search(s)
                                   and not NEGATION.search(s)
                                   for d in drivers_in(s) for r in rounds_in(s)]})
@@ -308,7 +339,8 @@ def news_plans(tagged: list[dict], next_round: int | None, now: dt.datetime | No
     """
     Reported power-unit penalties: {driver: [{"rounds": [r], "sources": [...], "links": [...]}]} for
     each (driver, round still to run) at least NEWS_PLAN_MIN_SOURCES sites put in the same sentence as
-    a power-unit penalty within NEWS_PLAN_DAYS.
+    a power-unit penalty within NEWS_PLAN_DAYS, or one site quoting the team or the driver (then
+    "quoted": True and "hazard": PU_PLAN_HAZARD_QUOTED).
     """
     if next_round is None:
         return {}
@@ -321,13 +353,19 @@ def news_plans(tagged: list[dict], next_round: int | None, now: dt.datetime | No
         for c in i["pu_claims"]:
             if c["round"] < next_round:
                 continue
-            s = seen.setdefault((c["driver"], c["round"]), {"sources": set(), "links": []})
+            s = seen.setdefault((c["driver"], c["round"]), {"sources": set(), "links": [], "quoted": set()})
+            if c.get("quoted"):
+                s["quoted"].add(i["source"])
             if i["source"] not in s["sources"]:
                 s["sources"].add(i["source"])
                 s["links"].append({"source": i["source"], "title": i["title"], "link": i["link"], "published": i["published"]})
     out: dict[str, list[dict]] = {}
     for (d, r), s in sorted(seen.items()):
-        if len(s["sources"]) >= config.NEWS_PLAN_MIN_SOURCES:
+        if s["quoted"]:
+            out.setdefault(d, []).append({"rounds": [r], "sources": sorted(s["sources"]), "links": s["links"],
+                                          "quoted": True, "hazard": config.PU_PLAN_HAZARD_QUOTED,
+                                          "note": f"Team or driver quoted by {', '.join(sorted(s['quoted']))}"})
+        elif len(s["sources"]) >= config.NEWS_PLAN_MIN_SOURCES:
             out.setdefault(d, []).append({"rounds": [r], "sources": sorted(s["sources"]), "links": s["links"],
                                           "note": f"Reported by {', '.join(sorted(s['sources']))}"})
     return out

@@ -230,13 +230,6 @@ function RaceView({ round, code }: { round: number; code: "R" | "S" }) {
       </section>
 
       <section>
-        <h3>Tyre Strategy</h3>
-        <Legend items={["S", "M", "H", "I", "W"].filter((k) => stints.some((s) => compoundKey(s.compound) === k)).map((k) => ({ label: COMPOUND[k].name, color: COMPOUND[k].color }))} />
-        <StrategyChart stints={stints} results={results} totalLaps={race.total_laps} neutral={race.neutralised} />
-        <p className="muted">▲ marks a tyre cliff: the lap the stint's pace fell away from its trend (blue when it came with rain, so not the tyres).</p>
-      </section>
-
-      <section>
         <h3>Gap to the Leader</h3>
         <div className="toolbar">
           <Segmented label="Drivers" value={gapScope} onChange={setGapScope}
@@ -244,6 +237,13 @@ function RaceView({ round, code }: { round: number; code: "R" | "S" }) {
         </div>
         <GapChart laps={laps} results={results} neutral={race.neutralised} highlight={highlight}
                   drivers={gapScope === "top" ? topDrivers : results.map((r) => r.driver)} />
+      </section>
+
+      <section>
+        <h3>Tyre Strategy</h3>
+        <Legend items={["S", "M", "H", "I", "W"].filter((k) => stints.some((s) => compoundKey(s.compound) === k)).map((k) => ({ label: COMPOUND[k].name, color: COMPOUND[k].color }))} />
+        <StrategyChart stints={stints} results={results} totalLaps={race.total_laps} neutral={race.neutralised} />
+        <p className="muted">▲ marks a tyre cliff: the lap the stint's pace fell away from its trend (blue when it came with rain, so not the tyres).</p>
       </section>
 
       <WeekendPenaltiesSection code={code} data={race.penalties} round={round} />

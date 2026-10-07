@@ -281,6 +281,13 @@ tr.selected { background: var(--selected) !important; }
 .card-row.selected { background: var(--selected); }
 .card-main { min-width: 0; }
 .card-title { font-weight: 600; font-size: 14.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* A driver's name button is one block to the ellipsis: a few px too wide and the whole of it became
+   "…". Lay the title out in a row instead and cut the name itself, keeping the chip. */
+.card-title:has(> .driver-name) { display: flex; align-items: center; gap: 0.3em; }
+.card-title:has(> .driver-name) > * { flex-shrink: 0; }
+.card-title > .driver-name { display: flex; align-items: center; min-width: 0; flex-shrink: 1; }
+.card-title > .driver-name > .club { flex-shrink: 0; }
+.card-title > .driver-name > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: pre; }
 .card-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; font-size: 12px; color: var(--ink-2); margin-top: 2px; }
 .card-stats { display: flex; gap: 12px; justify-content: flex-end; }
 .card-stat { display: flex; flex-direction: column; align-items: flex-end; min-width: 34px; line-height: 1.2; }
@@ -502,7 +509,7 @@ details.why-details > summary { cursor: pointer; font-weight: 600; font-size: 15
 details.why-details > summary .muted { font-weight: 400; font-size: 13px; }
 details.why-details > .toolbar { margin-top: 10px; }
 table.why-table td { vertical-align: top; }
-table.why-table td:first-child { white-space: normal; }
+table.why-table td:first-child, table.why-table td:last-child, table.why-table th { white-space: normal; }   /* wrap, never scroll */
 .why-raw { font-size: 12px; }
 @media (max-width: 640px) {
   table.why-table th, table.why-table td { padding: 6px 4px; font-size: 13px; }
@@ -693,6 +700,7 @@ nav.report-toc { overflow: visible; margin-top: 0; padding-bottom: 0; }
 .docs-figure { margin: 14px 0; max-width: var(--prose); }
 .docs-figure figcaption { margin-top: 4px; }
 .docs-table { max-width: var(--prose); margin: 8px 0; }
+.docs-table th, .docs-table td { white-space: normal; }   /* long headings wrap rather than scroll */
 
 /* A chain of checks: the test on the left, "no" leading right to what happens instead, "yes" down to the next. */
 .checks { margin: 16px 0 8px; max-width: 760px; --test: 1.2fr; }
@@ -796,6 +804,12 @@ table.pu-grid { width: auto; font-size: 13px; }
 table.pu-grid th, table.pu-grid td { text-align: center; padding: 4px 6px; min-width: 3.2em; }
 table.pu-grid th:first-child, table.pu-grid td:first-child { text-align: left; }
 table.pu-grid td.pu-plan { box-shadow: inset 0 0 0 2px var(--ink-2); }
+@media (max-width: 640px) {
+  /* Fit the phone: fixed columns, small type, no minimum width. */
+  table.pu-grid { width: 100%; table-layout: fixed; font-size: 12px; }
+  table.pu-grid th, table.pu-grid td { padding: 4px 1px; min-width: 0; }
+  table.pu-grid th:first-child, table.pu-grid td:first-child { width: 3.6em; }
+}
 /* News: headlines with source, date and what they name. */
 .news-list { list-style: none; padding: 0; margin: 8px 0; }
 .news-list li { padding: 8px 0; border-bottom: 1px solid var(--grid); }

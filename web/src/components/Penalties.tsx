@@ -6,7 +6,7 @@ import { rows, SESSION_LABEL, type AnySession, type PenaltyRow, type PowerUnitDr
 import { pct, shortEvent } from "../format";
 import { useData, useSite } from "../site";
 import { DriverChip, TeamName } from "./f1";
-import { Note, Segmented, Table } from "./ui";
+import { Note, Segmented, Table, usePhone } from "./ui";
 
 export const ELEMENT_ORDER = ["ICE", "TC", "MGU-H", "MGU-K", "ES", "CE", "EX", "ANC"];
 
@@ -125,6 +125,7 @@ export function PowerUnitOutlook({ round }: { round: number }) {
   const site = useSite();
   const pu = useData<PowerUnits>("power-units.json");
   const [scope, setScope] = useState<"risk" | "all">("risk");
+  const phone = usePhone();
   const drivers = useMemo(() => rows<PowerUnitDriver>(pu?.drivers), [pu]);
   const risk = useMemo(() => rows<{ driver: string; round: number; p: number; p_by: number; plan: boolean }>(pu?.risk), [pu]);
   if (!pu || !drivers.length) return null;
@@ -134,6 +135,14 @@ export function PowerUnitOutlook({ round }: { round: number }) {
   const at = (d: PowerUnitDriver) => pAt.get(`${d.driver}-${round}`);
   const plans = drivers.filter((d) => d.plans?.length);
   const evName = (r: number) => shortEvent(site.event.get(r)?.event ?? `Round ${r}`);
+  // The grid's headings: the race, or on a phone (seven races across 360 px) a three-letter code
+  // that the circuit-factor line under it spells out.
+  const gridName = (r: number) => {
+    const n = evName(r).replace(/ GP$/, "");
+    if (!phone) return n;
+    const w = n.split(/\s+/);
+    return (w.length > 1 ? w.map((x) => x[0]).join("") : n.slice(0, 3)).toUpperCase();
+  };
   return (
     <section>
       <h3>Power-Unit Penalties</h3>
@@ -143,12 +152,13 @@ export function PowerUnitOutlook({ round }: { round: number }) {
         since 2022: how far the driver's use runs ahead of the allocation for the races left, whether they've already gone past it this
         season (a fresh pool makes the next one less likely), how much of the season is left, and how often teams have chosen that circuit
         (overtaking-friendly tracks like Spa, Austin and Monza draw most). Reported plans count on top, each as one more penalty: a team's
-        statement, or a penalty at a named race that at least two of the F1 news sites the site reads report. The race forecasts and title
+        statement, or a penalty at a named race that at least two of the F1 news sites the site reads report (more likely when
+        an article quotes the team or the driver saying so). The race forecasts and title
         odds draw these penalties race by race, and an announced one counts in full.
       </p>
       {plans.flatMap((d) => d.plans.map((g, k) => (
         <Note key={`${d.driver}-${k}`}>
-          <DriverChip code={d.driver} color={d.color} /> {g.kind === "news" ? "Reported in the news" : "Team plan"}
+          <DriverChip code={d.driver} color={d.color} /> {g.kind === "news" ? (g.quoted ? "Team or driver quoted in the news" : "Reported in the news") : "Team plan"}
           {" "}({g.rounds.map(evName).join(" or ")}): {g.note}.{" "}
           {g.links.map((l, i) => <span key={l.link}>{i > 0 && " · "}<a href={l.link} target="_blank" rel="noreferrer">{l.source}{l.title && g.kind === "news" ? `: ${l.title}` : ""}</a></span>)}.
           {" "}Chance there: {g.rounds.map((r, i) => <span key={r}>{i > 0 && ", "}{evName(r)} {pct(pAt.get(`${d.driver}-${r}`)?.p)}</span>)}; at least one
@@ -190,7 +200,7 @@ export function PowerUnitOutlook({ round }: { round: number }) {
           <h4 className="sub">Chance of a Penalty at Each Grand Prix</h4>
           <div className="table-wrap">
             <table className="pu-grid">
-              <thead><tr><th>Driver</th>{rounds.map((r) => <th key={r} title={site.event.get(r)?.event}>{evName(r).replace(/ GP$/, "")}</th>)}</tr></thead>
+              <thead><tr><th>Driver</th>{rounds.map((r) => <th key={r} title={site.event.get(r)?.event}>{gridName(r)}</th>)}</tr></thead>
               <tbody>
                 {shown.map((d) => (
                   <tr key={d.driver}>
@@ -208,7 +218,7 @@ export function PowerUnitOutlook({ round }: { round: number }) {
           </div>
           <p className="muted small">
             Outlined: a reported plan's round. Circuit factors (how much likelier a penalty is there than at the average race, from
-            2020 on): {rounds.map((r, i) => <span key={r}>{i > 0 && ", "}{evName(r).replace(/ GP$/, "")} ×{(pu.circuits[String(r)] ?? 1).toFixed(1)}</span>)}.
+            2020 on): {rounds.map((r, i) => <span key={r}>{i > 0 && ", "}{phone && <b>{gridName(r)}</b>} {evName(r).replace(/ GP$/, "")} ×{(pu.circuits[String(r)] ?? 1).toFixed(1)}</span>)}.
           </p>
         </>
       )}

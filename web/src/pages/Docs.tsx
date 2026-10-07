@@ -42,7 +42,7 @@ const DRIFT_SD = 0.35;
 // Power-unit penalties (config.py "Power-unit penalties", fitted by scripts/calibrate_penalties.py).
 const PEN_GRID = 0.05;
 const PU = {
-  intercept: -4.033, deficit: 1.066, over: -0.91, left: -1.076, circuit: 0.951, prior: 3, plan: 0.6, late: 0.1,
+  intercept: -4.033, deficit: 1.066, over: -0.91, left: -1.076, circuit: 0.951, prior: 3, plan: 0.6, quoted: 0.9, late: 0.1,
   drop: { back: 0.65, 15: 0.05, 10: 0.14, 5: 0.16 },
   loss: { model: 0.1635, circuit: 0.1726, constant: 0.1792 }, rows: 2272, changes: 97,
 };
@@ -919,7 +919,12 @@ function Penalties() {
         Motorsport.com, Formula1.com, BBC Sport, Sky Sports, GPFans) are read on every update. A sentence that names a
         driver, a race still to run and a power-unit penalty (and no "won't", "avoid" or "no penalty") is a claim; when
         two different sites make the same claim within ten days, it counts like a team's plan: at least{" "}
-        {Math.round(PU.plan * 100)}% at that race until the penalty is taken, independent of any other plan. The site
+        {Math.round(PU.plan * 100)}% at that race until the penalty is taken, independent of any other plan. More sites
+        repeating a story don't raise it: they're often passing on the same briefing. What does is the team or the driver
+        saying it: a sentence about the penalty that's attributed to them ("Mercedes confirmed", "Wolff said", "Russell
+        told") or carries their words in quotation marks (four words or more), with no hedge ("could", "might", "if",
+        "risk", "set for", "expected"). One site quoting them is enough, and that race gets {Math.round(PU.quoted * 100)}%:
+        not 100%, since teams still change plans, and the FIA's document settles it on the weekend anyway. The site
         checks the feeds at least hourly (more often over a race weekend) and updates the forecasts as soon
         as a new penalty headline appears. A news plan is used only for forecasts made now, not when past rounds are
         re-forecast.

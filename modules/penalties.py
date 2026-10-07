@@ -618,7 +618,7 @@ def penalty_risk(state: dict[str, dict], limits: dict[str, int], schedule: list[
     Two independent sources of a penalty, combined: the usage model (h_before / h_after: the chance
     at a round if the driver hasn't / has already taken one by then; taking one makes them `over`,
     with one fresh element more) and each reported plan, one penalty at the first of its rounds it
-    doesn't slip past (PU_PLAN_HAZARD at each; plan_p: the plans' chance at that round). A Singapore
+    doesn't slip past (PU_PLAN_HAZARD at each, PU_PLAN_HAZARD_QUOTED in the team's own words; plan_p: the plans' chance at that round). A Singapore
     change after a failure and an upgrade's change two rounds later are two plans: both can happen.
 
     One row per driver and round: h_before, h_after, plan_p, p (the chance of a penalty there), p_by
@@ -636,7 +636,7 @@ def penalty_risk(state: dict[str, dict], limits: dict[str, int], schedule: list[
             left = [r for r in rounds_left if r in g.get("rounds", ())]
             q, none = {}, 1.0
             for r in left:
-                h = config.PU_PLAN_HAZARD
+                h = g.get("hazard") or (config.PU_PLAN_HAZARD_QUOTED if g.get("quoted") else config.PU_PLAN_HAZARD)
                 if r == first and known:
                     h = 1.0 if d in announced else h * config.PU_LATE_SHARE
                 q[r] = none * h

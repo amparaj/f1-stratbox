@@ -994,6 +994,7 @@ class PowerUnits:
                 "announced": r["announced"].iloc[0] if not r.empty else None,
                 # Reported plans: each with its rounds, why, and where it was reported.
                 "plans": [{"rounds": list(g["rounds"]), "kind": g.get("kind"), "note": g.get("note"),
+                           "quoted": bool(g.get("quoted")),
                            "links": g.get("links") or ([{"source": "Team statement", "link": g["source"], "title": g.get("note")}]
                                                        if g.get("source") else [])} for g in plans.get(d, [])],
             })

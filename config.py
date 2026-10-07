@@ -442,6 +442,11 @@ PU_LATE_SHARE = 0.1              # of a round's hazard left once its "New PU ele
 # tables show the driver went past the allocation at one of its rounds. News reports add more
 # (modules/news.py, NEWS_PLAN_MIN_SOURCES below).
 PU_PLAN_HAZARD = 0.6
+# A plan in the team's or the driver's own words (a news item quoting them, or a hand-kept plan with
+# "quoted": True): far stronger than press reports, which often repeat one briefing. Not 1: teams
+# still change plans (a spare in the pool, waiting for an upgrade). The FIA's "New PU elements"
+# document settles the round anyway (1.0 or PU_LATE_SHARE).
+PU_PLAN_HAZARD_QUOTED = 0.9
 # F1 news (modules/news.py): the main sites' RSS feeds, scanned for power-unit penalties, stewards'
 # penalties and upgrades. A (driver, round) power-unit penalty reported by NEWS_PLAN_MIN_SOURCES sites
 # within NEWS_PLAN_DAYS counts as a reported plan (as PU_PLANS). PlanetF1's feed is gone (404) and

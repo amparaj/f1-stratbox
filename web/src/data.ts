@@ -162,8 +162,8 @@ export interface PowerUnitDriver {
   penalties: number; penalty_rounds: number[];
   p_next: number | null; p_season: number | null; likely_round: number | null; likely_p: number | null;
   announced: number | string | null;
-  /** Reported plans: a team's statement (kept by hand) or the news (2+ sites), each one penalty. */
-  plans: { rounds: number[]; kind: "team" | "news" | null; note: string | null; links: { source: string; title?: string | null; link: string; published?: string }[] }[];
+  /** Reported plans: a team's statement (kept by hand) or the news (2+ sites, or one quoting the team or driver), each one penalty. */
+  plans: { rounds: number[]; kind: "team" | "news" | null; note: string | null; quoted?: boolean; links: { source: string; title?: string | null; link: string; published?: string }[] }[];
   [element: string]: unknown;
 }
 export interface PowerUnits {

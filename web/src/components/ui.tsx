@@ -1,7 +1,7 @@
 // Small shared pieces (from xP-FPL): stat tiles, legends, the chart wrapper and the sortable table.
 
 import * as Plot from "@observablehq/plot";
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 
 // ---------------------------------------------------------------- stat tiles
 
@@ -204,7 +204,8 @@ export interface TableProps<T> {
   cardSub?: string[];
   /** Extra content for a row's detail sheet, above its full list of columns ("Why this projection?"). */
   detail?: (r: T) => ReactNode;
-  /** Cards on a phone (default: when the table has more than four columns, or a detail panel). */
+  /** Cards on a phone (default: when the table has more than four columns, or a detail panel; false:
+   * a table there too). At any width, cards whenever the table would need scrolling sideways. */
   cards?: boolean;
 }
 
@@ -241,24 +242,47 @@ export function Table<T>(props: TableProps<T>) {
     else { const c = columns.find((c) => c.key === key); setSort(key); setDesc(!!c?.numeric && !c.rank); }
   };
 
-  // A row with more to show opens it in a sheet: every column on a phone, plus the page's own detail panel.
+  // Wider than its box: cards, as on a phone, rather than a table to scroll sideways. `need` is the
+  // width the table wanted; back to a table once the box is that wide (or the columns change).
+  const boxRef = useRef<HTMLDivElement>(null);
+  const tableRef = useRef<HTMLTableElement>(null);
+  const [need, setNeed] = useState<number | null>(null);
+  const colKey = columns.map((c) => c.key).join(",");
+  useEffect(() => setNeed(null), [colKey]);
+  const asCards = (phone && (props.cards ?? (columns.length > 4 || !!props.detail))) || need !== null;
+  useLayoutEffect(() => {
+    const box = boxRef.current;
+    if (!box) return;
+    const check = () => {
+      const t = tableRef.current;
+      if (t && t.offsetWidth > box.clientWidth + 1) setNeed(t.offsetWidth);
+      else if (!t && need !== null && box.clientWidth >= need) setNeed(null);
+    };
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(box);
+    if (tableRef.current) ro.observe(tableRef.current);   // it widens on its own too (web fonts, data)
+    return () => ro.disconnect();
+  });
+
+  // A row with more to show opens it in a sheet: every column in cards, plus the page's own detail panel.
   const sheet = (
     <Sheet open={open !== null} onClose={() => setOpen(null)} title={open !== null && (props.cardTitle ? props.cardTitle(open) : cell(columns[0], open))}>
       {open !== null && (
         <>
           {props.detail?.(open)}
-          {phone && <RowDetail columns={columns.slice(1)} row={open} />}
+          {asCards && <RowDetail columns={columns.slice(1)} row={open} />}
         </>
       )}
     </Sheet>
   );
   const tap = onRow ?? (props.detail ? setOpen : undefined);
 
-  if (phone && (props.cards ?? (columns.length > 4 || !!props.detail))) {
-    return <>
+  if (asCards) {
+    return <div ref={boxRef}>
       <Cards {...props} shown={shown} sort={sort} desc={desc} sortBy={sortBy} sortable={sortable} setDesc={setDesc} more={more} tap={onRow ?? setOpen} />
       {sheet}
-    </>;
+    </div>;
   }
 
   const runs = columns.some((c) => c.group) ? groupRuns(columns) : null;
@@ -266,8 +290,8 @@ export function Table<T>(props: TableProps<T>) {
   const starts = new Set(runs?.filter((r) => r.group).map((r) => r.start));
   const cls = (c: Column<T>, i: number) => [c.numeric && "num", c.wrap && "wrap", starts.has(i) && "group-start"].filter(Boolean).join(" ") || undefined;
   return (
-    <div className="table-wrap">
-      <table>
+    <div className="table-wrap" ref={boxRef}>
+      <table ref={tableRef}>
         <thead>
           {runs && (
             <tr className="group-row">
