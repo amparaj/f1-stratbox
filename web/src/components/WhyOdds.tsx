@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { rows, SESSION_LABEL, type ForecastWhy, type FormInput, type SessionCode, type SplitTerms } from "../data";
 import { pct, signed } from "../format";
 import { useSite } from "../site";
-import { DriverChip, SessionBadge } from "./f1";
+import { DriverChip, DriverText, SessionBadge } from "./f1";
 import { usePhone } from "./ui";
 
 /** config.FORM_CLIP: a session's pace counts at most this far (%) from the driver's median. */
@@ -125,7 +125,20 @@ export function WhyOdds({ drivers, why, code }: { drivers: WhyDriver[]; why: For
   const cell = (t: Term | undefined) => t
     ? <>{signed(t.value, 2)}%{t.raw && <div className="muted why-raw">{t.raw}</div>}</>
     : "–";
-  const better = (x: number, y: number) => Math.abs(x - y) < 0.005 ? "level" : x < y ? `${a} by ${Math.abs(x - y).toFixed(2)}%` : `${b} by ${Math.abs(x - y).toFixed(2)}%`;
+  const colors = new Map(drivers.map((d) => [d.driver, d.color]));
+  // The biggest gap in the breakdown sets the bars' scale.
+  const widest = Math.max(0.01, Math.abs(da.pace - db.pace), ...keys.map((k) => Math.abs((termOf(ta, k)?.value ?? 0) - (termOf(tb, k)?.value ?? 0))));
+  const better = (x: number, y: number) => {
+    const gap = Math.abs(x - y);
+    if (gap < 0.005) return <span className="muted">level</span>;
+    const d = x < y ? da : db;
+    return (
+      <span className="why-favours">
+        <DriverChip code={d.driver} color={d.color} /> by {gap.toFixed(2)}%
+        <span className="why-bar" style={{ width: `${(gap / widest) * 100}%`, background: d.color }} aria-hidden />
+      </span>
+    );
+  };
 
   // Sessions behind either driver's form, most recent first.
   const sessions = [...new Set(inputs.filter((f) => f.driver === a || f.driver === b).map((f) => f.session))]
@@ -158,8 +171,10 @@ export function WhyOdds({ drivers, why, code }: { drivers: WhyDriver[]; why: For
         {pick(b, setB, "against")}
       </div>
       <ul className="insights">
-        {explain(da, db, ta, tb, race, inputs, sessionName).map((s, i) => <li key={i}>{s}</li>)}
+        {explain(da, db, ta, tb, race, inputs, sessionName).map((s, i) => <li key={i}><DriverText text={s} colors={colors} /></li>)}
       </ul>
+      <div className="why-grid">
+      <div>
       <div className="table-wrap">
         <table className="compact why-table">
           <thead>
@@ -193,15 +208,16 @@ export function WhyOdds({ drivers, why, code }: { drivers: WhyDriver[]; why: For
                 <td>Retirement chance</td>
                 <td className="num">{pct(da.p_dnf)}</td>
                 <td className="num">{pct(db.p_dnf)}</td>
-                {!phone && <td>{Math.abs(da.p_dnf - db.p_dnf) < 0.005 ? "level" : da.p_dnf < db.p_dnf ? a : b}</td>}
+                {!phone && <td>{Math.abs(da.p_dnf - db.p_dnf) < 0.005 ? <span className="muted">level</span> : <DriverChip code={da.p_dnf < db.p_dnf ? a : b} color={colors.get(da.p_dnf < db.p_dnf ? a : b)} />}</td>}
               </tr>
             )}
           </tbody>
         </table>
       </div>
       {race && why.grid_source && <p className="muted">Grid from {GRID_SOURCE[why.grid_source]}.</p>}
+      </div>
       {sessions.length > 0 && (
-        <>
+        <div>
           <h4 className="sub">The sessions behind their form</h4>
           <div className="table-wrap">
             <table className="compact why-table">
@@ -230,8 +246,9 @@ export function WhyOdds({ drivers, why, code }: { drivers: WhyDriver[]; why: For
             {race ? " Race form is Grands Prix and sprints, qualifying form Qualifying and Sprint Qualifying." : ""}
             {da.form_car != null && " Here form is split into the car (both of the team's cars, this season, recent rounds counting most), the driver's pace against their teammates (since the start of last season, following them across teams) and their streak: how far their own recent sessions are from those two, which carries on but fades, half of it a round."}
           </p>
-        </>
+        </div>
       )}
+      </div>
     </details>
   );
 }

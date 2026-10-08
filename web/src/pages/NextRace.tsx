@@ -1,7 +1,7 @@
 import * as Plot from "@observablehq/plot";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { color } from "../colors";
-import { ChanceBars, DriverChip, Plan, SessionBadge, TeamName } from "../components/f1";
+import { ChanceBars, DriverChip, DriverText, Plan, SessionBadge, TeamName } from "../components/f1";
 import { PowerUnitOutlook } from "../components/Penalties";
 import { CircuitLink } from "../components/Profiles";
 import { NewsFeed, UpgradeTracker } from "../components/Upgrades";
@@ -275,7 +275,7 @@ function QualiPlan({ qs, code }: { qs: QualiStrategy; code: "Q" | "SQ" }) {
         { label: "Q2 cut-off", value: ref?.q2_cut_pct != null ? `+${ref.q2_cut_pct.toFixed(2)}%` : "–", note: ref?.q2_cut_pct != null ? `≈ ${(ref.pole * ref.q2_cut_pct / 100).toFixed(2)} s off pole · pole ${lapTime(ref.pole)}` : undefined },
         { label: "Chance of rain", value: rain === null ? "–" : pct(rain), note: qs.rain ? (qs.rain.source === "ensemble" ? "weather forecast" : "the climate") : undefined },
       ]} />
-      {tips.length > 0 && <ul className="insights">{tips.map((t, i) => <li key={i}>{t}</li>)}</ul>}
+      {tips.length > 0 && <ul className="insights">{tips.map((t, i) => <li key={i}><DriverText text={t} /></li>)}</ul>}
       <p className="muted">
         Track evolution is how much quicker the same drivers went from one segment to the next in last
         season's {code === "SQ" ? "Grand Prix qualifying (sprint qualifying runs the same format, shorter)" : "qualifying"} here;

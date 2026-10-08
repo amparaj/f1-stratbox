@@ -1,7 +1,7 @@
 import * as Plot from "@observablehq/plot";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { color } from "../colors";
-import { COMPOUND, compoundKey, DriverChip, DriverPicker, GapChart, Plan, PositionChart, SessionBadge, StrategyChart, TeamName, Tyre } from "../components/f1";
+import { COMPOUND, compoundKey, DriverChip, DriverPicker, DriverText, GapChart, Plan, PositionChart, SessionBadge, StrategyChart, TeamName, Tyre } from "../components/f1";
 import { dropText, WeekendPenaltiesSection } from "../components/Penalties";
 import { PracticeBody } from "../components/Practice";
 import { CircuitAnalysis, CircuitLink, DriverName } from "../components/Profiles";
@@ -171,7 +171,7 @@ function RaceView({ round, code }: { round: number; code: "R" | "S" }) {
 
       <Tiles tiles={[
         { label: "Winner", value: <><DriverName code={winner.driver} color={winner.color} name={winner.name ?? winner.driver} /></>, note: winner.grid ? `${winner.team} · from P${winner.grid}` : winner.team },
-        { label: "Fastest lap", value: race.fastest ? lapTime(race.fastest.time) : "–", note: race.fastest ? `${race.fastest.driver}, lap ${race.fastest.lap}` : undefined },
+        { label: "Fastest lap", value: race.fastest ? lapTime(race.fastest.time) : "–", note: race.fastest ? <><DriverChip code={race.fastest.driver} color={results.find((r) => r.driver === race.fastest!.driver)?.color} />, lap {race.fastest.lap}</> : undefined },
         { label: "Neutralised", value: neutralCount ? `${neutralCount} laps` : "None", note: [race.neutralised.SC.length && "Safety Car", race.neutralised.VSC.length && "VSC", race.neutralised.RED.length && "Red flag"].filter(Boolean).join(" · ") || "Green all race" },
         { label: "Weather", value: race.weather.rain ? "Rain" : "Dry", note: race.weather.track ? `Track ${race.weather.track[0].toFixed(0)}–${race.weather.track[1].toFixed(0)} °C · Air ${race.weather.air![0].toFixed(0)}–${race.weather.air![1].toFixed(0)} °C` : undefined },
       ]} />
@@ -179,7 +179,7 @@ function RaceView({ round, code }: { round: number; code: "R" | "S" }) {
       <section>
         <h3>The Story</h3>
         <ul className="insights">
-          {race.insights.map((t, k) => <li key={k}>{t}</li>)}
+          {race.insights.map((t, k) => <li key={k}><DriverText text={t} colors={new Map(results.map((r) => [r.driver, r.color]))} /></li>)}
         </ul>
       </section>
 
@@ -332,8 +332,8 @@ function ForecastCheck({ forecast, code, results }: { forecast: Forecast; code: 
       {toggle}
       <Tiles tiles={[
         { label: "Favourite", value: <><DriverChip code={favourite.driver} color={favourite.color} /> {pct(favourite.p_win)}</>, note: `finished ${pos.get(favourite.driver)?.classified ? `P${pos.get(favourite.driver)!.position}` : "DNF"}` },
-        { label: "Winner's chance", value: wf ? pct(wf.p_win) : "–", note: wf ? `${winner.driver} was ranked ${fc.indexOf(wf) + 1} of ${fc.length}` : "no form figure" },
-        { label: "Podium picks", value: `${hits} of 3`, note: predictedPodium.map((f) => f.driver).join(", ") },
+        { label: "Winner's chance", value: wf ? pct(wf.p_win) : "–", note: wf ? <><DriverChip code={winner.driver} color={winner.color} /> was ranked {fc.indexOf(wf) + 1} of {fc.length}</> : "no form figure" },
+        { label: "Podium picks", value: `${hits} of 3`, note: <>{predictedPodium.map((f, i) => <span key={f.driver}>{i > 0 && " "}<DriverChip code={f.driver} color={f.color} /></span>)}</> },
       ]} />
       <Table<ForecastDriver>
         data={fc}
@@ -461,7 +461,7 @@ function QualiView({ round, code }: { round: number; code: "Q" | "SQ" }) {
 
       <Tiles tiles={[
         { label: "Pole", value: pole ? <><DriverChip code={pole.driver} color={pole.color} /> {lapTime(pole.best)}</> : "–", note: pole ? `${pole.name ?? pole.driver} · ${pole.team}` : undefined },
-        { label: "Margin", value: second?.best && pole?.best ? `${(second.best - pole.best).toFixed(3)} s` : "–", note: second ? `to ${second.driver} in P2` : undefined },
+        { label: "Margin", value: second?.best && pole?.best ? `${(second.best - pole.best).toFixed(3)} s` : "–", note: second ? <>to <DriverChip code={second.driver} color={second.color} /> in P2</> : undefined },
         { label: "Track evolution", value: evo.Q1_Q2 !== null ? `${signed(evo.Q1_Q2 + (evo.Q2_Q3 ?? 0), 3)} s` : "–", note: evo.Q1_Q2 !== null ? `Q1→Q2 ${signed(evo.Q1_Q2, 3)}${evo.Q2_Q3 !== null ? ` · Q2→Q3 ${signed(evo.Q2_Q3, 3)}` : ""} (same drivers, median)` : "not enough drivers in both" },
         { label: "Within Q1", value: q.gain?.Q1 != null ? `${signed(q.gain.Q1, 3)} s/min` : "–", note: "track gain: each driver's laps against their own, by the minute" },
         { label: "Weather", value: q.weather.rain ? "Rain" : "Dry", note: q.weather.track ? `Track ${q.weather.track[0].toFixed(0)}–${q.weather.track[1].toFixed(0)} °C` : undefined },
@@ -469,7 +469,7 @@ function QualiView({ round, code }: { round: number; code: "Q" | "SQ" }) {
 
       <section>
         <h3>The Story</h3>
-        <ul className="insights">{q.insights.map((t, k) => <li key={k}>{t}</li>)}</ul>
+        <ul className="insights">{q.insights.map((t, k) => <li key={k}><DriverText text={t} colors={new Map(results.map((r) => [r.driver, r.color]))} /></li>)}</ul>
       </section>
 
       <section>
@@ -653,7 +653,7 @@ function QualiForecastCheck({ forecast, code, results }: { forecast: Forecast; c
       {toggle}
       <Tiles tiles={[
         { label: "Favourite", value: <><DriverChip code={favourite.driver} color={favourite.color} /> {pct(favourite.p_pole)}</>, note: `qualified P${pos.get(favourite.driver)?.position ?? "–"}` },
-        { label: "Pole sitter's chance", value: pf ? pct(pf.p_pole) : "–", note: pf ? `${poleSitter.driver} was ranked ${fc.indexOf(pf) + 1} of ${fc.length}` : "no form figure" },
+        { label: "Pole sitter's chance", value: pf ? pct(pf.p_pole) : "–", note: pf ? <><DriverChip code={poleSitter.driver} color={poleSitter.color} /> was ranked {fc.indexOf(pf) + 1} of {fc.length}</> : "no form figure" },
         { label: "Q3 picks", value: `${hits} of 10`, note: "the ten most likely to reach Q3" },
       ]} />
       <Table<QualiForecastDriver>

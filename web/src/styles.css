@@ -517,6 +517,12 @@ table.why-table td:first-child, table.why-table td:last-child, table.why-table t
   .why-raw { font-size: 11px; }
   table.why-table .session-badge { display: block; width: fit-content; margin-bottom: 2px; }
 }
+/* The breakdown and the sessions behind it: side by side on a wide screen, each table its column's width. */
+.why-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 460px), 1fr)); gap: 4px 32px; align-items: start; margin-top: 6px; }
+.why-grid table.why-table { width: 100%; }
+.why-grid .muted:is(p) { font-size: 13px; }
+.why-favours { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 150px; }
+.why-bar { display: block; flex-basis: 100%; height: 4px; border-radius: 2px; min-width: 2px; opacity: 0.85; }
 tr.why-total td { font-weight: 600; border-top: 2px solid var(--grid); }
 .fixture-cells { flex-wrap: wrap; }
 
@@ -673,7 +679,8 @@ pre.code {
 .plan-stint { display: inline-flex; gap: 2px; align-items: center; font-variant-numeric: tabular-nums; font-size: 13px; }
 .plan-cell { display: inline-flex; align-items: center; }
 .insights { margin: 4px 0 0; padding-left: 20px; max-width: var(--prose); }
-.insights li { margin: 3px 0; }
+.insights li { margin: 3px 0; line-height: 1.6; }
+.insights .club { font-size: 11.5px; padding: 0 5px; min-width: 0; vertical-align: 1px; }
 h4.sub { margin: 0 0 4px; font-size: 13px; font-weight: 600; color: var(--ink-2); }
 .driver-picker { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 8px; }
 .driver-picker button {
@@ -919,3 +926,4 @@ main h3 { scroll-margin-top: calc(var(--pinned, 0px) + 12px); }
 .page-jump-top { margin-top: 10px; }
 /* Room under the page's last lines so the buttons never sit on them. */
 main { padding-bottom: 88px; }
+.tile-note .club { font-size: 11px; padding: 0 5px; min-width: 0; }

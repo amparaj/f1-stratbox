@@ -433,6 +433,9 @@ and emoji). This is a Windows PowerShell 5.1 / Git Bash environment.
 - Circuits are matched across seasons by `circuit_key(location)` (via the pit-loss table),
   never by event name: the 2026 "Bahrain Grand Prix" was in Kuala Lumpur.
 - Pages must render at phone width (`usePhone`, cards via `Table`). Screenshot both widths.
+- Driver codes in text are chips: render generated sentences (insights, tips, "Why these odds?") through
+  `DriverText` (`components/f1.tsx`; codes and full names of this season's drivers, colours from the session when
+  given, else the standings). Not on History (codes repeat across eras).
 - **Page navigation** (`components/PageJump.tsx`, mounted once in `App.tsx`): floating "Sections" (3+ headings) and
   "Top" (after scrolling most of a screen) buttons. Sections are every visible `h3` in `<main>` (not in a dialog),
   found by a MutationObserver, so a new section needs no wiring: give it an `h3`. Jumps land under the pinned header

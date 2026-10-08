@@ -5,7 +5,7 @@ import { useCallback, useMemo, useState } from "react";
 import { color } from "../colors";
 import { rows, type Practice, type PracticeRow, type RunRow } from "../data";
 import { dec, lapTime, signed } from "../format";
-import { DriverChip, DriverPicker, TeamName, Tyre } from "./f1";
+import { DriverChip, DriverPicker, DriverText, TeamName, Tyre } from "./f1";
 import { DriverName } from "./Profiles";
 import { Chart, Loading, Note, plotDefaults, Table, Tiles } from "./ui";
 
@@ -34,7 +34,7 @@ export function PracticeBody({ p }: { p: Practice }) {
       </Note>
       <section>
         <h3>The Story</h3>
-        <ul className="insights">{p.insights.map((t, k) => <li key={k}>{t}</li>)}</ul>
+        <ul className="insights">{p.insights.map((t, k) => <li key={k}><DriverText text={t} colors={colorOf} /></li>)}</ul>
       </section>
       <section>
         <h3>Timesheet</h3>

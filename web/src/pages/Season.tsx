@@ -111,7 +111,7 @@ export default function Season() {
             { key: "format", label: "Format", value: (e) => (e.sprint_utc ? "Sprint" : ""), render: (e) => (e.sprint_utc ? <SessionBadge code="S" short /> : "") },
             { key: "pole", label: "Pole", title: "Pole position in Qualifying", value: (e) => e.pole ?? "", render: (e) => (e.pole ? <DriverChip code={e.pole} color={e.pole_color} /> : "") },
             { key: "sprint_winner", label: "Sprint", title: "Sprint winner", value: (e) => e.sprint_winner ?? "", render: (e) => (e.sprint_winner ? <DriverChip code={e.sprint_winner} color={e.sprint_winner_color} /> : "") },
-            { key: "winner", label: "Winner", title: "Grand Prix winner", value: (e) => e.winner ?? "", render: (e) => (e.winner ? <DriverChip code={e.winner} color={e.winner_color} /> : e.round === meta.next_round ? <span className="tag warn">Next</span> : "") },
+            { key: "winner", label: "Winner", title: "Grand Prix winner", value: (e) => e.winner ?? "", render: (e) => (e.winner ? <DriverChip code={e.winner} color={e.winner_color} /> : "") },
           ]}
         />
         {meta.pending.length > 0 && (

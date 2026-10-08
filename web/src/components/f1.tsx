@@ -3,10 +3,11 @@
 // so the second driver's line is dashed), Pirelli colours for compounds.
 
 import * as Plot from "@observablehq/plot";
-import { useCallback } from "react";
+import { useCallback, useContext, type ReactNode } from "react";
 import { color } from "../colors";
 import { SESSION_LABEL, SESSION_SHORT, type AnySession, type LapRow, type ResultRow, type StintRow } from "../data";
 import { useProfiles, type ProfileTarget } from "../profiles";
+import { SiteContext } from "../site";
 import { logoUrl, teamLogo, teamShort } from "../teams";
 import { Chart, plotDefaults } from "./ui";
 
@@ -48,6 +49,32 @@ export function DriverChip({ code, color: bg, title, historyRef, plain }: {
       {code}
     </button>
   );
+}
+
+/** A sentence with this season's drivers shown as their chips: a code ("VER") becomes the chip, a full name
+ * ("Max Verstappen") gets the chip in front. `colors` gives the session's own team colours (a driver who
+ * changed team); any other code is looked up in the standings, and a three-letter word that isn't a driver
+ * ("DNF", "VSC") stays text. Not for History (codes repeat across eras). */
+export function DriverText({ text, colors }: { text: string; colors?: Map<string, string> | Record<string, string> }) {
+  const site = useContext(SiteContext);
+  const colorOf = (c: string) => (colors instanceof Map ? colors.get(c) : colors?.[c]) ?? site?.driver.get(c)?.color;
+  const byName = new Map((site?.drivers ?? []).map((d) => [d.name, d.driver]));
+  const names = [...byName.keys()].sort((x, y) => y.length - x.length).map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const pattern = new RegExp(`${names.map((n) => `${n}|`).join("")}\\b[A-Z]{3}\\b`, "g");
+  const parts: ReactNode[] = [];
+  let last = 0;
+  for (const m of text.matchAll(pattern)) {
+    const code = byName.get(m[0]) ?? m[0];
+    const col = colorOf(code);
+    if (!col) continue;
+    if (m.index! > last) parts.push(text.slice(last, m.index));
+    parts.push(<DriverChip key={m.index} code={code} color={col} />);
+    if (code !== m[0]) parts.push(` ${m[0]}`);
+    last = m.index! + m[0].length;
+  }
+  if (!parts.length) return <>{text}</>;
+  parts.push(text.slice(last));
+  return <>{parts}</>;
 }
 
 /** Which kind of session: Grand Prix, Sprint, Qualifying, Sprint Qualifying (text and a tint, never colour alone). */

@@ -384,7 +384,7 @@ function CircuitProfile({ round, prof }: { round: number; prof: Profiles | null 
         { label: "Grands Prix held", value: (hc?.races ?? 0) + (ev.done_R ? 1 : 0), title: ev.done_R ? `including ${site.meta.season}` : undefined },
         { label: "Fastest race lap", value: hc?.record ? lapTime(hc.record) : "–", title: hc?.record ? `${hc.record_by}, ${hc.record_year} (current layout, laps timed since 1996)` : undefined },
       ]} />
-      {hc?.record && <p className="note">Fastest race lap on this layout: {lapTime(hc.record)} by {hc.record_by} in {hc.record_year}{a?.fastest && a.fastest.time < hc.record ? <>; beaten in {site.meta.season} by {a.fastest.driver} ({lapTime(a.fastest.time)})</> : null}.</p>}
+      {hc?.record && <p className="note">Fastest race lap on this layout: {lapTime(hc.record)} by {hc.record_by} in {hc.record_year}{a?.fastest && a.fastest.time < hc.record ? <>; beaten in {site.meta.season} by <DriverChip code={a.fastest.driver} color={site.driver.get(a.fastest.driver)?.color} /> ({lapTime(a.fastest.time)})</> : null}.</p>}
 
       {!ev.done_R && <Weekend ev={ev} forecast={forecast} />}
 
