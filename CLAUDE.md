@@ -74,6 +74,10 @@ web/                       the website (React + TypeScript + Vite, theme copied 
   (the sessions with forecasts): loaded, analysed and shown, never forecast. A sprint weekend has FP1 only. The
   picker lists them in the order they ran; race/quali pages redirect a practice pick, the Practice page a
   competitive one (`page_session(..., "practice")`). The export keeps them in `practice_recs`, apart from `exported`.
+  **Long runs** follow the usual analysts' definition (F1/FIA publish none; the user wants the norm, not our own
+  rule): a stint on one set of tyres with ≥ 5 laps once in/out laps and slow laps (> 3.5 % off the stint's best)
+  are left out; a lap past F1's 107 % (`OUTLIER_LAP_FACTOR`) is a cool-down and ends the run (push/cool-down/push
+  stints are qualifying runs). Laps in a run needn't be consecutive. FP3 usually has few or none: it's quali prep.
 - **Session codes** (config.SESSION_NAMES / SESSION_LABELS): `R` Grand Prix, `S` Sprint, `Q`
   Qualifying, `SQ` Sprint Qualifying ("Sprint Shootout" in 2023: `config.session_names`). A sprint
   weekend runs SQ, S, Q, R. Race pages call `de.page_session(active, "race")` (Q→R, SQ→S) and the
@@ -293,10 +297,13 @@ and emoji). This is a Windows PowerShell 5.1 / Git Bash environment.
   the result against naive baselines (equal odds, last session's order, standings, grid) on the same targets;
   `--report-only` skips the search):
   - race pace = median fuel-corrected clean lap / field median on that compound, in %; quali pace
-    as above. Race form (R + S, a sprint `SPRINT_FORM_WEIGHT`) and quali form (Q + SQ) = decayed
-    mean over the last 6 rounds, each session's pace first held to ±`FORM_CLIP` (0.25 %) of the
+    as above. Race form (R + S, a sprint `SPRINT_FORM_WEIGHT`) and quali form (Q + SQ) = mean over the
+    last `FORM_MAX_RACES` (12) rounds weighted `FORM_DECAY` per round back (1.0 since the Oct 2026 re-fit:
+    all equal), each session's pace first held to ±`FORM_CLIP` (0.15 %) of the
     driver's median over the window (`forecast.form_inputs`): without it one bad session (2026 Baku Q:
-    ANT +0.38 %) flipped every race left. Improved every session kind in the replays
+    ANT +0.38 %) flipped every race left. Improved every session kind in the replays.
+    The user wants calibrate_forecast.py's fitted values applied as they come out (no hand-picking ties);
+    they're copied in `Docs.tsx` and `WhyOdds.tsx` (`FORM_CLIP`, the streak and recency wording)
   - **car + driver form** (`forecast.split_form`, sessions in `config.SPLIT_FORM`: Q, SQ, S): team form
     (this season, `FORM_DECAY`) + the driver's rating against teammates (ridge on teammate gaps since the
     start of last season, `TEAMMATE_*`; `last_season()["form"]` feeds it) + streak (own form less those)

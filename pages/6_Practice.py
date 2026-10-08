@@ -72,9 +72,9 @@ m[1].metric("Laps run", int(B["laps"].groupby("Driver")["LapNumber"].max().sum()
 m[2].metric("Long runs", len(runs))
 m[3].metric("Red flags", len(info["neutralised"]["RED"]) and "Yes" or "None")
 st.caption("Practice times hide fuel loads and engine modes, so read them as a guide. One-lap pace is each "
-           "driver's best clean lap; a long run is at least "
-           f"{config.PRACTICE_LONG_RUN_LAPS} consecutive laps within {config.PRACTICE_RUN_TOL:.1%} of the run's best, "
-           "fuel corrected and compared on the same tyres.")
+           "driver's best clean lap; a long run (the usual definition: F1 publishes none) is a stint of at least "
+           f"{config.PRACTICE_LONG_RUN_LAPS} laps on one set of tyres, in/out laps and laps over {config.PRACTICE_RUN_TOL:.1%} off "
+           "the stint's best left out, a cool-down past 107% ending it; fuel corrected and compared on the same tyres.")
 
 tab_sheet, tab_map, tab_runs, tab_weekend = st.tabs(["📋 Timesheet", "🏎️ Pace Map", "📉 Long Runs", "🧮 Weekend"])
 

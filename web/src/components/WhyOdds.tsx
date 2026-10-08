@@ -8,7 +8,7 @@ import { DriverChip, DriverText, SessionBadge } from "./f1";
 import { usePhone } from "./ui";
 
 /** config.FORM_CLIP: a session's pace counts at most this far (%) from the driver's median. */
-export const FORM_CLIP = 0.25;
+export const FORM_CLIP = 0.15;
 /** A cap this big (%) is named in the explanation; smaller ones are only marked in the table. */
 const BIG_CAP = 0.1;
 
@@ -240,11 +240,11 @@ export function WhyOdds({ drivers, why, code }: { drivers: WhyDriver[]; why: For
             </table>
           </div>
           <p className="muted">
-            Each session's pace against the field median{phone ? "" : ", and its share of that driver's form"} (recent rounds count most).
+            Each session's pace against the field median{phone ? "" : ", and its share of that driver's form"} (the last 12 rounds, each counting the same).
             An arrow marks an outlier: a session more than {FORM_CLIP}% off the driver's median over these rounds counts
             as if it were {FORM_CLIP}% off, so one crash, failure or scrappy lap can't swing the forecast.
             {race ? " Race form is Grands Prix and sprints, qualifying form Qualifying and Sprint Qualifying." : ""}
-            {da.form_car != null && " Here form is split into the car (both of the team's cars, this season, recent rounds counting most), the driver's pace against their teammates (since the start of last season, following them across teams) and their streak: how far their own recent sessions are from those two, which carries on but fades, half of it a round."}
+            {da.form_car != null && " Here form is split into the car (both of the team's cars, this season), the driver's pace against their teammates (since the start of last season, following them across teams) and their streak: how far their own recent sessions are from those two, which carries on but fades: 30% of it is left one round on."}
           </p>
         </div>
       )}

@@ -21,17 +21,17 @@ const PRESETS = {
   M: { offset: 0.45, deg: 0.065, cliffAge: 30, cliffRate: 0.2 },
   H: { offset: 0.9, deg: 0.04, cliffAge: 42, cliffRate: 0.15 },
 } as const;
-const FORM_DECAY = 0.65;
+const FORM_DECAY = 1.0;
 const FORM_RACES = 12;
-const FORM_CLIP = 0.25;
+const FORM_CLIP = 0.15;
 // Car + driver form (config.py SPLIT_FORM ... TEAMMATE_CLIP).
-const SPLIT = { persist: 0.5, decay: 0.9, carry: 0.5, prior: 0.25, clip: 0.15 };
+const SPLIT = { persist: 0.3, decay: 0.9, carry: 0.5, prior: 0.25, clip: 0.1 };
 // Practice and upgrades (config.py, fitted by calibrate_forecast.py).
-const PRACTICE = { blend: 0.2, clip: 1.0, runLaps: 6, tol: 3.5 };
+const PRACTICE = { blend: 0.2, raceBlend: 0.2, fp1: 0.25, clip: 1.0, runLaps: 5, tol: 3.5 };
 const UPGRADE = { effect: -0.05, max: 4 };
 // Session forecasts (config.py "Session forecasts", fitted by scripts/calibrate_forecast.py).
-const SD = { R: 0.35, S: 0.6, Q: 0.35 };
-const SD_GRID = { R: 0.2, S: 0.45 };
+const SD = { R: 0.35, S: 0.45, Q: 0.35 };
+const SD_GRID = { R: 0.15, S: 0.45 };
 const BLEND = 0.75;
 const BLEND_WEEKEND = 0.85;
 const GRID = { R: 0.02, S: 0.2 };
@@ -199,7 +199,7 @@ function Architecture() {
           { title: "Penalties", text: "grid drops announced; each driver's chance of a power-unit penalty at every race left", kind: "model", section: "penalties" },
         ] },
         { label: "Form", join: "fed into three simulations", nodes: [
-          { title: "Driver form", text: `race form (Grands Prix and sprints) and qualifying form, this season's last ${FORM_RACES} rounds, the latest counting most, plus each driver's DNF rate`, kind: "key", section: "form" },
+          { title: "Driver form", text: `race form (Grands Prix and sprints) and qualifying form, this season's last ${FORM_RACES} rounds, each counting the same, plus each driver's DNF rate`, kind: "key", section: "form" },
         ] },
         { label: "Forecast", join: "", nodes: [
           { title: "Session odds", text: "10,000 runs of each Qualifying, Sprint and Grand Prix; grid penalties applied, a likely one drawn in or out", kind: "model", section: "race" },
@@ -617,10 +617,10 @@ function Form() {
     <Section id="form">
       <p>
         Form is a weighted average of a driver's paces over this season's last {FORM_RACES} rounds (never last season's:
-        another car, often other rules). The most recent round counts fully and each earlier one {FORM_DECAY} times the
-        one after it, so the last three rounds carry about three-quarters of the weight: form follows a car that's
-        improving without being thrown by one bad afternoon. There are two: <b>race form</b> from Grand Prix and Sprint race pace (a
-        sprint counts 0.75 of a Grand Prix: the replays could barely tell weights from 0 to 1 apart), and
+        another car, often other rules), each round counting the same: the replays scored that as well as any fading
+        of older rounds (below), and a long window keeps one bad afternoon from moving form much. There are two:
+        <b>race form</b> from Grand Prix and Sprint race pace (a sprint counts 0.25 of a Grand Prix: the replays
+        couldn't tell weights from 0 to 1 apart), and
         <b>qualifying form</b> from Qualifying and Sprint Qualifying pace. Sessions a driver has no pace figure for
         (a DNF, too few clean laps) are left out and the weights re-normalised. Before averaging, each pace is held to
         within {FORM_CLIP}% of the driver's median <M t="m_d" /> over those rounds, so one crash, failure or scrappy
@@ -629,20 +629,21 @@ function Form() {
       <M block t={String.raw`f_d = \frac{\sum_{k=0}^{${FORM_RACES - 1}} w_k\, \tilde p_{d,R-k}}{\sum_{k=0}^{${FORM_RACES - 1}} w_k}, \qquad w_k = ${FORM_DECAY}^{\,k}, \qquad \tilde p = \operatorname{clip}\!\left(p,\ m_d - ${FORM_CLIP},\ m_d + ${FORM_CLIP}\right)`} />
       <p>
         Without the cap a single session moved form a long way. At Baku in 2026 Antonelli set only a Q1 banker lap
-        (+0.38%, against a median of −0.58%), and as the second most recent round it took his qualifying form from
-        −0.53% to −0.39%: enough to turn the championship leader from a favourite into an outsider for every race left.
-        Capped, it counts as −0.33%. The cap scored better for every kind of session when 2025 and 2026 were replayed
+        (+0.38%, against a median of −0.58%), and with the latest rounds counting most (as form did then) it took his
+        qualifying form from −0.53% to −0.39%: enough to turn the championship leader from a favourite into an outsider
+        for every race left. Capped, it counts as {(-0.58 + FORM_CLIP).toFixed(2).replace("-", "−")}%. The cap scored better for every kind of session when 2025 and 2026 were replayed
         (see Checking the forecasts). Each forecast's "Why these odds?" panel lists the sessions behind two drivers'
         form and marks the capped ones.
       </p>
       <p>
-        <b>How much recency?</b> Recent races should count most: teams bring parts every few weeks, so March says little
-        about September. But a short window is worse, not better: one session's pace is noisy, and replaying 2025 and
-        2026 scored forecasts from only the last 2 rounds at −3.07, the last 3 at −2.93, 4 at −2.84, 6 at −2.77 and 12
-        (with the latest counting most) at −2.75 (higher is better; see Checking the forecasts). How fast older rounds
-        fade barely mattered (a weight of 0.4 to 1.0 per round back all within 0.012). What separates a good forecast
-        from a poor one is qualifying more than recency: one-lap pace gets three-quarters of a race's expected pace, and
-        once the grid is set the score jumps from −2.53 to −1.72, by far the biggest step in the model.
+        <b>How much recency?</b> Teams bring parts every few weeks, so you'd expect recent races to count most. But a
+        short window is worse, not better: one session's pace is noisy, and replaying 2025 and 2026 scored forecasts
+        from only the last 2 rounds at −3.00, the last 3 at −2.88, 4 at −2.82, 6 at −2.75, 8 at −2.74 and 12 at −2.73
+        (higher is better; see Checking the forecasts). How fast older rounds fade barely mattered: a weight of 0.4 to
+        1.0 per round back all scored within 0.02, and 1.0 (every round the same) came out best by 0.001. What
+        separates a good forecast from a poor one is qualifying more than recency: one-lap pace gets three-quarters of
+        a race's expected pace, and once the grid is set the score jumps from −2.54 to −1.71, by far the biggest step in
+        the model.
       </p>
       <Figure caption={`How much each of the last ${FORM_RACES} rounds counts towards form.`}>
         <Chart make={make} height={220} ariaLabel={`The weight of each of the last ${FORM_RACES} rounds in the form figure`} />
@@ -657,7 +658,7 @@ function Form() {
         since the start of last season. Older rounds fade {SPLIT.decay} a round, last season's count {SPLIT.carry} on
         top, and every rating is pulled towards 0 as if by {SPLIT.prior} of a session. Gaps chain across pairings, so a
         driver who changes team keeps their rating. Last, a <b>streak</b>: how far the driver's own form (above) is
-        from car + rating, of which {SPLIT.persist * 100}% is left one round on, {SPLIT.persist ** 2 * 100}% two rounds on:
+        from car + rating, of which {Math.round(SPLIT.persist * 100)}% is left one round on, {Math.round(SPLIT.persist ** 2 * 100)}% two rounds on:
       </p>
       <M block t={String.raw`f_d = c_{t(d)} + r_d + ${SPLIT.persist}^{\,h}\big(f^{\text{own}}_d - c_{t(d)} - r_d\big), \qquad \min_r \sum_s w_s \big(g_{ab,s} - (r_a - r_b)\big)^2 + ${SPLIT.prior} \sum_d r_d^2`} />
       <p>
@@ -672,10 +673,11 @@ function Form() {
         <b>This weekend's practice.</b> Once a weekend's practice is in, each driver's best clean lap (against the
         field) moves their qualifying form {PRACTICE.blend * 100}% of the way towards it, but by no more than{" "}
         {PRACTICE.clip}% of pace: a crash or an aborted programme leaves a driver 5–10% off, and unclipped even a tenth
-        of that made the forecasts worse. Replayed, qualifying forecasts made after practice scored −2.71 against −2.80
-        without it, and races and sprints −2.59 against −2.65 (through qualifying form). Long runs (six or more laps in
-        a row, fuel corrected, tyres allowed for) added nothing to the race forecasts at any weight, so they're shown on
-        the practice pages but not used: fuel loads and programmes differ too much between teams.
+        of that made the forecasts worse. Replayed, qualifying forecasts made after practice scored −2.67 against −2.78
+        without it. FP1 counts {PRACTICE.fp1} of FP2 or FP3 (0.25, 0.5 and 1 within 0.003; none at all was worse). Long runs (the usual definition, as F1 publishes none: a stint of {PRACTICE.runLaps} or more laps on one set of tyres, in and
+        out laps and slow laps (over {PRACTICE.tol}% off the stint's best) left out, a cool-down past 107% ending it; fuel corrected, tyres allowed for) move race form {PRACTICE.raceBlend * 100}% of the way towards them, as the replays
+        fitted. That's a tie with leaving them out (−2.465 against −2.466): fuel loads and programmes differ too much
+        between teams for long runs to say much the race form doesn't.
       </p>
       <p>
         <b>Upgrades.</b> On the Thursday the FIA publishes every team's updated parts with the reason (performance,
@@ -684,8 +686,8 @@ function Form() {
         −2.706 with none), but a single team's pace after one moves either way. Next Race shows each team's record.
       </p>
       <Example>
-        Paces of −0.5%, −0.2% and −0.4% in the last three races (most recent first) give
-        <M t={String.raw`\;f = \frac{-0.5 - 0.65 \times 0.2 - 0.4225 \times 0.4}{1 + 0.65 + 0.4225} = -0.39\%`} />.
+        Paces of −0.5%, −0.2% and −0.4% in the last three races give
+        <M t={String.raw`\;f = \frac{-0.5 - 0.2 - 0.4}{3} = -0.37\%`} />, each counting the same.
       </Example>
     </Section>
   );
@@ -721,7 +723,7 @@ function RaceForecast() {
       </p>
       <Flow label="One simulated race" stages={[
         { label: "In", join: "for each driver", nodes: [
-          { title: "Form", text: "race and qualifying form, this season, the latest rounds counting most", kind: "source", section: "form" },
+          { title: "Form", text: `race and qualifying form, this season's last ${FORM_RACES} rounds`, kind: "source", section: "form" },
           { title: "Weekend", text: "this race's qualifying pace and grid, once they're in", kind: "source", section: "qualifying" },
           { title: "DNF rate", text: "their retirements, shrunk to the field's", kind: "source" },
         ] },
@@ -1160,12 +1162,12 @@ function Checking() {
       </p>
       <M block t={String.raw`\sum_{\text{sessions}} \Big[\ln P(\text{win}_{\text{winner}}) + \tfrac13 \sum_{d \in \text{top 3}} \ln P(\text{top 3}_d)\Big]`} />
       <p>
-        What came out: the weekend's own qualifying and grid are worth the most (the Grand Prix score goes from −2.57
-        before the weekend to −1.74 after qualifying, the Sprint's from −3.18 to −1.56); qualifying form is worth more
+        What came out: the weekend's own qualifying and grid are worth the most (the Grand Prix score goes from −2.54
+        before the weekend to −1.71 after qualifying, the Sprint's from −2.94 to −1.51); qualifying form is worth more
         than race form for the next race; the circuit term doesn't help (0 and 0.25 tie, so it's off), and the horizon
-        drift is small. The latest re-fit (with practice and upgrades) also tested recency: a longer form window with the
-        latest rounds counting most beat the last two or three rounds alone (Form), this weekend's practice one-lap pace
-        improved qualifying forecasts (−2.80 → −2.71) and through them races (−2.65 → −2.59), long runs didn't, and the
+        drift is small. The latest re-fit (with practice and upgrades) also tested recency: a longer form window (12 rounds,
+        each counting the same) beat the last two or three rounds alone (Form), this weekend's practice one-lap pace
+        improved qualifying forecasts (−2.78 → −2.67), long runs tied with leaving them out (−2.466 → −2.465), and the
         FIA's upgrade lists helped a little (−2.706 → −2.684). Capping outlier sessions in form ({FORM_CLIP}%) helped every kind: on the
         same sessions, the Grand Prix before the weekend −2.574 → −2.558, after qualifying −1.807 → −1.799, the Sprint
         −3.159 → −3.141, Qualifying −2.818 → −2.754 and Sprint Qualifying −3.403 → −3.318. The title-odds drift (0.35%) comes from how far form really moved over

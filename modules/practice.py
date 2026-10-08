@@ -6,9 +6,10 @@ Teams run two kinds of programme, and the analysis splits them:
 * **One-lap pace** (the qualifying simulations): each driver's best clean lap (green track, not
   deleted, not an in or out lap), as a % against the field median of best laps. Fuel loads and
   engine modes are unknown, so it's noisy, most of all in FP1.
-* **Long runs** (the race simulations): runs of at least PRACTICE_LONG_RUN_LAPS consecutive laps
-  within PRACTICE_RUN_TOL of the run's best lap, on one set of tyres (cool-down and traffic laps
-  end a run). Each lap is fuel corrected (+FUEL_EFFECT_PER_LAP per lap into the run: the fuel burnt).
+* **Long runs** (the race simulations), as analysts usually define them (F1 publishes no definition):
+  a stint on one set of tyres with at least PRACTICE_LONG_RUN_LAPS laps once in and out laps and slow
+  laps (past PRACTICE_RUN_TOL of the stint's best: traffic, yellows) are left out; a cool-down lap (past F1's
+  107%, OUTLIER_LAP_FACTOR) ends the run, as a qualifying-style programme. Each lap is fuel corrected (+FUEL_EFFECT_PER_LAP per lap into the run: the fuel burnt).
   Lap time = driver effect + compound effect, fitted together by alternating medians (few drivers
   run the Soft long, so a per-compound median alone would flatter them); a driver's long-run pace is
   their effect as a % of the median lap. Deg is the slope of fuel-corrected time against tyre age.
@@ -61,14 +62,18 @@ def long_runs(laps: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
         good = (_clean(g)["LapTime"]).reindex(g.index)
         if good.notna().sum() < config.PRACTICE_LONG_RUN_LAPS:
             continue
-        limit = good.min() * (1 + config.PRACTICE_RUN_TOL)
-        ok = good.notna() & (good <= limit)
-        # Consecutive stretches of run laps: anything else (cool-down, traffic, pit) breaks them.
-        block = (~ok).cumsum()
-        for _, b in g[ok].groupby(block[ok]):
+        # The usual long-run definition (there's no official one): a stint on one set of tyres with at
+        # least PRACTICE_LONG_RUN_LAPS laps once in/out laps and slow laps are taken out. Slow = past
+        # PRACTICE_RUN_TOL of the stint's best (traffic, yellows, a deleted lap): left out of the figures.
+        # A lap past F1's 107% (OUTLIER_LAP_FACTOR) of the best is a cool-down: a qualifying-style
+        # programme (push, cool-down, push), so it ends the run.
+        best = good.min()
+        ok = good.notna() & (good <= best * (1 + config.PRACTICE_RUN_TOL))
+        cool = g["LapTime"] > best * config.OUTLIER_LAP_FACTOR
+        for _, b in g[ok].groupby(cool.cumsum()[ok]):
             if len(b) >= config.PRACTICE_LONG_RUN_LAPS:
                 b = b.copy()
-                b["run_lap"] = np.arange(len(b))
+                b["run_lap"] = (b["LapNumber"] - b["LapNumber"].iloc[0]).astype(int).to_numpy()   # fuel burnt, slow laps too
                 b["run_id"] = f"{drv}-{int(stint) if pd.notna(stint) else 0}-{int(b['LapNumber'].iloc[0])}"
                 keep.append(b)
     if not keep:

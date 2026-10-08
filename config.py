@@ -306,11 +306,14 @@ MC_SC_PIT_WINDOW = 8             # pit early under SC if a stop was due within N
 RACE_POINTS = (25, 18, 15, 12, 10, 8, 6, 4, 2, 1)
 SPRINT_POINTS = (8, 7, 6, 5, 4, 3, 2, 1)
 FORM_MIN_CLEAN_LAPS = 8          # clean laps a driver needs for a race-pace figure
-# Free practice (modules/practice.py). A long run: at least PRACTICE_LONG_RUN_LAPS consecutive laps
-# within PRACTICE_RUN_TOL of the run's best. A weekend's sessions count PRACTICE_SESSION_WEIGHT each.
-PRACTICE_LONG_RUN_LAPS = 6
+# Free practice (modules/practice.py). A long run, as analysts usually define it (F1 and the FIA publish
+# no definition): a stint on one set of tyres with at least PRACTICE_LONG_RUN_LAPS laps once in/out laps
+# and slow laps (past PRACTICE_RUN_TOL of the stint's best) are left out; a cool-down (past 107%,
+# OUTLIER_LAP_FACTOR) ends the run. A weekend's sessions count
+# PRACTICE_SESSION_WEIGHT each.
+PRACTICE_LONG_RUN_LAPS = 5
 PRACTICE_RUN_TOL = 0.035
-PRACTICE_SESSION_WEIGHT = {"FP1": 1.0, "FP2": 1.0, "FP3": 1.0}   # FP1 at 0.25, 0.5 or 1: within 0.004
+PRACTICE_SESSION_WEIGHT = {"FP1": 0.25, "FP2": 1.0, "FP3": 1.0}   # FP1 0 -2.622, 0.25 -2.579, 0.5 -2.582, 1 -2.581
 # Share of practice in the expected pace once a weekend's practice is in (forecast.expected_pace):
 # one-lap pace into qualifying form, long-run pace into race form, each moving a driver at most
 # PRACTICE_CLIP (%) from their form (a crash or an aborted programme puts a driver 5-10% off: unclipped,
@@ -318,22 +321,28 @@ PRACTICE_SESSION_WEIGHT = {"FP1": 1.0, "FP2": 1.0, "FP3": 1.0}   # FP1 at 0.25, 
 # (calibrate_forecast.py): qualifying -2.803 without practice, -2.711 with one-lap at 0.2 clipped at 1%
 # (0.15-0.25 and clips 0.75-1.5 within 0.01); races and sprints -2.649 -> -2.590 (through qualifying
 # form). Long runs added nothing at any share or clip (0 best, 0.1-0.3 within 0.01), so they stay out.
+# Re-fit 8 Oct 2026 with the usual long-run definition (5+ laps a stint, 2025-26, two passes): qualifying
+# after practice -2.667 (0 practice: -2.777); long runs into race form 0 -2.466, 0.1 -2.467, 0.2 -2.465,
+# 0.3 -2.471, 0.45 -2.484: 0.2 best by 0.001, applied as fitted.
 PRACTICE_QUALI_BLEND = 0.2
-PRACTICE_RACE_BLEND = 0.0
+PRACTICE_RACE_BLEND = 0.2
 PRACTICE_CLIP = 1.0
 # Recency. Form counts the last FORM_MAX_RACES rounds of this season only (never last season), each round
 # back weighted FORM_DECAY. Replays of 2025-26 (races + qualifying, 1-2 rounds ahead) by window: last 2
 # rounds -3.066, 3 -2.931, 4 -2.844, 6 -2.771, 8 -2.768, 12 -2.748; decay 0.4-1.0 within 0.012 (0.65
 # best). A short window is worse: one session is noisy, so more rounds help as long as recent ones count
 # most (with 0.65, the last three rounds carry about three-quarters of the weight).
-FORM_DECAY = 0.65                # weight of each earlier race vs the next one (most recent = 1)
+# Re-fit 8 Oct 2026: window 2 -3.001, 3 -2.878, 4 -2.815, 6 -2.752, 8 -2.743, 12 -2.727; decay 0.4 -2.743,
+# 0.55 -2.735, 0.65 -2.727, 0.75 -2.729, 0.85 -2.729, 1.0 -2.726: 1.0 (every round the same) best by 0.001.
+FORM_DECAY = 1.0                 # weight of each earlier race vs the next one (most recent = 1)
 FORM_MAX_RACES = 12              # rounds that count towards form
 # % of lap time: a session's pace counts at most this far from the driver's median pace over the form
 # window, so one crash, failure or scrappy lap (2026 Baku Q: ANT set only a Q1 banker, +0.38% against
 # a -0.6% norm) can't swing form. None = no limit. Replays (calibrate_forecast.py, scores as below):
 # 0.15 -2.774, 0.2 -2.775, 0.25 -2.777, 0.35 -2.790, 0.5 -2.809, none -2.821 (races + quali, 1-2 ahead):
 # 0.15-0.25 tie, 0.25 kept (best summed over every session kind and the after-qualifying forecasts).
-FORM_CLIP = 0.25
+# Re-fit 8 Oct 2026: 0.15 -2.727, 0.2 -2.736, 0.25 -2.744, 0.35 -2.760, 0.5 -2.773, none -2.806.
+FORM_CLIP = 0.15
 # Car + driver form (forecast.split_form). A session's pace = the car's level that round + the driver's rating
 # against teammates + noise. The car's form fades FORM_DECAY a round, this season only (upgrades move it fast);
 # the rating is a ridge regression on teammate gaps since the start of last season, fading TEAMMATE_DECAY a
@@ -346,11 +355,11 @@ FORM_CLIP = 0.25
 #   the Grand Prix keeps it. Without the streak (persist 0) Q next round fell to -2.769: a driver's run of form
 #   does carry into the next session, then fades. Teammate gaps unclipped: SQ -3.087 (clip 0.15: -2.932).
 SPLIT_FORM: tuple[str, ...] = ("Q", "SQ", "S")   # the sessions whose forecasts use it
-STREAK_PERSIST = 0.5             # share of a streak left one round on (0.5-0.7 tie for Q; SQ, S prefer 0)
+STREAK_PERSIST = 0.3             # share of a streak left one round on (re-fit Oct 2026: 0 -2.802, 0.3 -2.801, 0.5 -2.804)
 TEAMMATE_DECAY = 0.9             # weight of each earlier round's teammate gap vs the next one (0.8-0.97 tie)
 TEAMMATE_CARRY = 0.5             # weight on last season's gaps, on top of the decay (0: Q 3 ahead -2.898)
 TEAMMATE_PRIOR = 0.25            # ratings pulled towards 0 with this many sessions' weight (0.1-0.5 tie)
-TEAMMATE_CLIP = 0.15             # % a session's teammate gap counts at most from the pair's median gap
+TEAMMATE_CLIP = 0.1              # % a session's teammate gap counts at most from the pair's median gap (0.1 -2.800, 0.15 -2.803)
 TEAMMATE_MAX_ROUNDS = 40         # rounds back that count (this season and last)
 FORECAST_SIMS = 10_000          # simulated races per forecast / simulated seasons for title odds
 FORM_DRIFT_SD = 0.35             # % of lap time: how far a driver's form moves over the rest of a season, one
@@ -367,9 +376,13 @@ DNF_PRIOR_STARTS = 10            # shrink each driver's DNF rate to the field's,
 # (-2.818); sprint qualifying -3.318 (-3.403). The re-run also found RACE_QUALI_BLEND 0.6 and 0.75 tied
 # (-2.627 each), SPRINT_FORM_WEIGHT flat, CIRCUIT_WEIGHT[R] 0 vs 0.25 within 0.006, DRIFT_PER_ROUND
 # 0.15 vs 0.1 within 0.005: all kept.
-SESSION_SD = {"R": 0.35, "S": 0.6, "Q": 0.35, "SQ": 0.35}   # % of lap time: spread on the day (pre-grid)
-SESSION_SD_GRID = {"R": 0.2, "S": 0.45}   # ... of a race once its grid (qualifying) is known
-SPRINT_FORM_WEIGHT = 0.75        # a sprint's race pace counts this much of a Grand Prix's (0-1 all within 0.01)
+# Re-fit 8 Oct 2026 (long runs re-defined, everything applied as fitted): race before the weekend -2.544,
+# after qualifying -1.714; sprint -2.944 / -1.512; qualifying -2.723; sprint qualifying -2.965.
+# SESSION_SD[S] 0.45 -2.956 (0.6 -2.963), SESSION_SD_GRID[R] 0.15 -1.704 (0.2 -1.721), SPRINT_FORM_WEIGHT flat
+# (0-1 all -2.626/-2.627, 0.25 first best).
+SESSION_SD = {"R": 0.35, "S": 0.45, "Q": 0.35, "SQ": 0.35}   # % of lap time: spread on the day (pre-grid)
+SESSION_SD_GRID = {"R": 0.15, "S": 0.45}   # ... of a race once its grid (qualifying) is known
+SPRINT_FORM_WEIGHT = 0.25        # a sprint's race pace counts this much of a Grand Prix's (0-1 all within 0.01)
 RACE_QUALI_BLEND = 0.75          # share of qualifying form in a race's expected pace
 RACE_QUALI_BLEND_WEEKEND = 0.85  # ... of the pace in the race's own qualifying, once it's done
 GRID_WEIGHT = {"R": 0.02, "S": 0.2}    # % per grid place: track position (a sprint is mostly decided by it)

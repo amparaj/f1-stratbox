@@ -57,7 +57,7 @@ function RaceList() {
         onRow={(e) => { window.location.hash = `races/${e.round}`; }}
         cardTitle={(e) => `${e.round}. ${shortEvent(e.event)}`}
         cardSub={["date", "sessions"]}
-        cardStats={["pole", ...(sprints ? ["sprint"] : []), "winner"]}
+        cardStats={[...(sprints ? ["sprint_pole", "sprint"] : []), "pole", "winner"]}
         columns={[
           { key: "round", label: "Round", value: (e) => e.round, numeric: true, rank: true },
           { key: "event", label: "Grand Prix", value: (e) => e.event, render: (e) => <a href={`#races/${e.round}`}>{e.event}</a> },
@@ -70,11 +70,15 @@ function RaceList() {
                 ))}
               </span>
             ) },
-          { key: "pole", label: "Pole", title: "Pole position in Qualifying (the Grand Prix grid)", value: (e) => e.pole ?? "",
+          ...(sprints ? [
+            { key: "sprint_pole", label: "Sprint Quali Pole", short: "SQ pole", title: "Pole position in Sprint Qualifying (the Sprint grid)", value: (e: CalendarEvent) => e.sprint_pole ?? "",
+              render: (e: CalendarEvent) => (e.sprint_pole ? <DriverChip code={e.sprint_pole} color={e.sprint_pole_color} /> : e.sprint_utc ? "–" : "") },
+            { key: "sprint", label: "Sprint Winner", short: "Sprint", title: "Sprint winner", value: (e: CalendarEvent) => e.sprint_winner ?? "",
+              render: (e: CalendarEvent) => (e.sprint_winner ? <DriverChip code={e.sprint_winner} color={e.sprint_winner_color} /> : e.sprint_utc ? "–" : "") },
+          ] : []),
+          { key: "pole", label: "Quali Pole", short: "Pole", title: "Pole position in Qualifying (the Grand Prix grid)", value: (e) => e.pole ?? "",
             render: (e) => (e.pole ? <DriverChip code={e.pole} color={e.pole_color} /> : "–") },
-          ...(sprints ? [{ key: "sprint", label: "Sprint", title: "Sprint winner", value: (e: CalendarEvent) => e.sprint_winner ?? "",
-            render: (e: CalendarEvent) => (e.sprint_winner ? <DriverChip code={e.sprint_winner} color={e.sprint_winner_color} /> : e.sprint_utc ? "–" : "") }] : []),
-          { key: "winner", label: "Winner", title: "Grand Prix winner", value: (e) => e.winner ?? "",
+          { key: "winner", label: "Race Winner", short: "Winner", title: "Grand Prix winner", value: (e) => e.winner ?? "",
             render: (e) => (e.winner ? <DriverChip code={e.winner} color={e.winner_color} /> : "–") },
         ]}
       />

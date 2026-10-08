@@ -29,7 +29,7 @@ export function PracticeBody({ p }: { p: Practice }) {
       ]} />
       <Note>
         Practice hides fuel loads and engine modes, so these are a guide, not a ranking. One-lap pace is each driver's best clean lap;
-        a long run is six or more laps in a row near the run's best, fuel corrected and compared on the same tyres. This weekend's
+        a long run is the usual definition (F1 publishes none): five or more laps on one set of tyres, in and out laps and slow laps left out, a cool-down lap ending it; fuel corrected and compared on the same tyres. This weekend's
         practice feeds the forecasts once it's in, at the weight the replays of 2025-26 support.
       </Note>
       <section>
