@@ -17,10 +17,12 @@ Prints "yes" or "no" (and writes `update=true|false` to $GITHUB_OUTPUT when set)
     data not out yet), and the last export is REFRESH_MINUTES old;
   * the next race is within WEATHER_DAYS and its weather forecast (Open-Meteo, in the
     strategy forecast) is WEATHER_REFRESH_HOURS old;
-  * the penalty sources changed since the export, checked once it's PENALTY_CHECK_MINUTES old:
-    f1penalties.com's rows for the season (it catches up on the FIA days to weeks late) or the
-    FIA's power-unit documents of its latest event (a "New PU elements" document is an announced
-    grid penalty; modules/penalties.py);
+  * the FIA's documents of its latest event have a new power-unit document (a "New PU elements"
+    document is an announced grid penalty) or stewards' decision (a grid drop or pit-lane start
+    moves the forecasts at once: a penalty between practice and qualifying is in the qualifying-
+    based race odds), checked once the export is FIA_CHECK_MINUTES old; modules/penalties.py;
+  * f1penalties.com's rows for the season changed (it catches up on the FIA days to weeks late),
+    checked once the export is PENALTY_CHECK_MINUTES old;
   * a news feed has a power-unit penalty headline from the last NEWS_PLAN_DAYS that the export
     didn't have (meta.json "news"; a reported penalty moves the forecasts), checked once the export
     is NEWS_CHECK_MINUTES old; and in any case once it's NEWS_REFRESH_HOURS old (the rest of the news);
@@ -76,6 +78,7 @@ OPENF1 = "https://api.openf1.org/v1/"
 # Copies of modules/penalties.py's (keep them in step): f1penalties.com's CSV export, the FIA's
 # documents page (it lists the latest event's) and the power-unit documents' file names.
 PENALTY_CHECK_MINUTES = 60
+FIA_CHECK_MINUTES = 15
 F1PEN_URL = "https://www.f1penalties.com/_dash-update-component"
 F1PEN_EXPORT = {"output": "download-csv.data", "outputs": {"id": "download-csv", "property": "data"},
                 "inputs": [{"id": "btn-export-csv", "property": "n_clicks", "value": 1}],
@@ -83,6 +86,7 @@ F1PEN_EXPORT = {"output": "download-csv.data", "outputs": {"id": "download-csv",
 FIA_ROOT = "https://www.fia.com"
 FIA_F1 = FIA_ROOT + "/documents/championships/fia-formula-one-world-championship-14"
 PU_DOC = re.compile(r"(pu[ _]elements[ _]used|new[ _]pu[ _]elements)", re.I)
+STEWARDS_DOC = re.compile(r"(infringement|decision|offence)[^/]*?car[ _-]*\d", re.I)
 HEADERS = {"User-Agent": "Mozilla/5.0 (f1-stratbox; +https://amparaj.github.io/f1-stratbox/)"}
 
 
@@ -138,7 +142,7 @@ def stewards_fingerprint(year: int) -> str | None:
 
 
 def fia_pu_docs() -> set[str] | None:
-    """The power-unit documents on the FIA's page (its latest event's), as full URLs."""
+    """The power-unit documents and stewards' decisions on the FIA's page (its latest event's), as full URLs."""
     try:
         with urllib.request.urlopen(urllib.request.Request(FIA_F1, headers=HEADERS), timeout=60) as r:
             html = r.read().decode("utf-8", "replace")
@@ -146,21 +150,25 @@ def fia_pu_docs() -> set[str] | None:
         print(f"  (fia.com: {exc})")
         return None
     hrefs = re.findall(r'href="([^"]+\.pdf)"', html)
-    return {FIA_ROOT + h if h.startswith("/") else h for h in hrefs if PU_DOC.search(h)}
+    return {FIA_ROOT + h if h.startswith("/") else h for h in hrefs
+            if PU_DOC.search(h) or STEWARDS_DOC.search(h.rsplit("/", 1)[-1])}
 
 
-def penalty_reasons(meta: dict, now: dt.datetime) -> list[str]:
+def penalty_reasons(meta: dict, now: dt.datetime, f1penalties: bool = True) -> list[str]:
+    """New FIA documents (power-unit or stewards' decisions) and, if `f1penalties`, changed
+    f1penalties.com rows."""
     seen = meta.get("penalties")
     if not seen:
         return []
     out = []
-    fp = stewards_fingerprint(meta["season"])
-    if fp and fp != seen.get("stewards"):
-        out.append("f1penalties.com has new or changed decisions this season")
+    if f1penalties:
+        fp = stewards_fingerprint(meta["season"])
+        if fp and fp != seen.get("stewards"):
+            out.append("f1penalties.com has new or changed decisions this season")
     docs = fia_pu_docs()
     new = sorted(docs - set(seen.get("fia_docs", []))) if docs else []
     if new:
-        out.append(f"{len(new)} new FIA power-unit document(s): {new[0].rsplit('/', 1)[-1]}")
+        out.append(f"{len(new)} new FIA document(s) (power units, stewards): {new[0].rsplit('/', 1)[-1]}")
     return out
 
 
@@ -246,8 +254,8 @@ def reasons(meta: dict | None, now: dt.datetime) -> list[str]:
         out.append(f"the news is {age.total_seconds() / 3600:.0f} h old")
     if not out and age > dt.timedelta(minutes=NEWS_CHECK_MINUTES):
         out += news_reasons(meta, now)
-    if not out and age > dt.timedelta(minutes=PENALTY_CHECK_MINUTES):
-        out += penalty_reasons(meta, now)
+    if not out and age > dt.timedelta(minutes=FIA_CHECK_MINUTES):
+        out += penalty_reasons(meta, now, f1penalties=age > dt.timedelta(minutes=PENALTY_CHECK_MINUTES))
     return out
 
 

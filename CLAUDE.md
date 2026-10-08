@@ -311,7 +311,7 @@ and emoji). This is a Windows PowerShell 5.1 / Git Bash environment.
     Prix got no better at any setting, so it keeps plain form. The "why" rows are `form_car/driver/streak/practice`
   - grid: official once the race is in, else OpenF1 `starting_grid` (keyed on the qualifying session;
     has grid penalties, misses only late pit-lane starts: checked on 2025-26), else the qualifying order
-    with `config.GRID_PENALTIES` (hand-kept, Grand Prix only). Before qualifying an announced penalty
+    with the announced penalties (`penalties_for`: stewards' decisions + PU documents, `GRID_PENALTIES` hand overrides). Before qualifying an announced penalty
     adds `GRID_WEIGHT` × places expected to be lost (`forecast.session_terms`), in title odds too
   - forecast files carry the breakdown (race_form, quali_form, quali_share, circuit/grid/penalty terms,
     summing to `pace`) and `sessions[code].why` (the sessions behind each driver's form, used vs raw
@@ -391,6 +391,17 @@ and emoji). This is a Windows PowerShell 5.1 / Git Bash environment.
     0.1792 constant. `PU_PLANS` (hand-kept, from team statements, with the source) puts at least `PU_PLAN_HAZARD` on each
     named round until the penalty is taken. Once a round's "New PU elements" is out, an over-allocation element there is
     an announced penalty (`PowerUnits.announced`, merged into `penalties_for`) and everyone else keeps `PU_LATE_SHARE`.
+  - **Stewards' grid penalties, live** (`penalties.grid_season` → `PowerUnits.stewards_grid` → `penalties_for`): every
+    "Infringement/Decision/Offence - Car N" PDF on the FIA event page, parsed from its Decision line ("Drop of N grid
+    positions for the next Race/Sprint/Race ...", "Required to start the Race/Sprint from the pit lane"; suspended ones
+    skipped). `grid_targets` puts "next Race" on the first Grand Prix starting after the decision's publication (so a
+    Sunday race penalty carries to the next round), "next Sprint/Race" on the first of either. A stewards' PU decision
+    replaces `announced`'s figure for that driver; others add (`combine_grid`: pit > back > places summed). Event page
+    re-fetched every `STEWARDS_PAGE_FRESH_MINUTES` while a weekend runs (grid_season runs before pu_season, which reads the
+    same page); `needs_update.py` (own `STEWARDS_DOC` copy) rebuilds on a new decision PDF, checked every
+    `FIA_CHECK_MINUTES` (15). Past forecasts only count decisions published before them (`known_before`: the weekend's
+    first session for "pre", the session's start for "latest"). Archive `archive/fia/<year>/rNN-grid.json.gz` 4 days
+    after the race. A 2026 cold backfill took ~4 min.
   - A place lost to a penalty costs `PENALTY_GRID_WEIGHT` (0.05%), not `GRID_WEIGHT` (0.02%, fitted on ordinary grids):
     94 PU penalty starts 2020-25 finished 0.237 places worse per grid place dropped. Applied to announced penalties and
     the risk before the grid, and to a slot behind the qualifying position after it (`session_terms(quali_order=)`).

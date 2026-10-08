@@ -412,7 +412,8 @@ TEAM_LINEAGE = {
 CLASSIFIED_FRACTION = 0.9        # share of the winner's laps needed to be classified (FIA rule)
 # Grid penalties announced before a race's grid is out (power-unit or gearbox changes, carried-over
 # penalties): {season: {round: {driver: places back, or "back" (back of the grid) / "pit" (pit lane)}}}.
-# Kept by hand from the stewards' documents: no free feed has them before qualifying. Once
+# Hand overrides only (an entry replaces what was read for that driver): the stewards' grid penalties
+# are read from the FIA's decision documents as they're published (penalties.grid_season). Once
 # qualifying is done the forecast takes the grid from OpenF1's starting_grid (penalties applied) and
 # these only fill in until it's out; after the race the official grid is used.
 GRID_PENALTIES: dict[int, dict[int, dict[str, int | str]]] = {}
@@ -423,6 +424,7 @@ GRID_PENALTIES: dict[int, dict[int, dict[str, int | str]]] = {}
 # ---------------------------------------------------------------------------
 PENALTY_FRESH_HOURS = 6          # f1penalties.com's export is fetched again after this
 FIA_PAGE_FRESH_HOURS = 3         # an FIA event page (its document list) is fetched again after this
+STEWARDS_PAGE_FRESH_MINUTES = 5  # ... while its weekend runs: a stewards' grid penalty reaches the next export
 # Each element's allocation per season, where the FIA's documents haven't stated it yet (they do
 # once someone goes past it: "the fifth (5th) of the four (4) ... allowed").
 PU_LIMITS = {

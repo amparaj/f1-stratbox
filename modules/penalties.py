@@ -451,6 +451,164 @@ def pu_season(year: int, now: dt.datetime | None = None) -> dict[int, dict]:
 
 
 # ---------------------------------------------------------------------------
+# Stewards' grid penalties (the FIA's decision documents, as soon as they're published)
+# ---------------------------------------------------------------------------
+# A stewards' decision document, by its title or file name: "Infringement - Car 87 - ...",
+# "Decision - Car 55 - ...", "Offence - Car 1 - ..." (scripts/needs_update.py keeps a copy).
+STEWARDS_DOC = re.compile(r"(infringement|decision|offence)[^/]*?car[ _-]*\d", re.I)
+_NUMBER_WORDS = {w: i for i, w in enumerate(
+    "zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen "
+    "eighteen nineteen twenty".split())}
+
+
+def grid_archive_path(year: int, rnd: int) -> Path:
+    return FIA_ARCHIVE / str(year) / f"r{rnd:02d}-grid.json.gz"
+
+
+def parse_grid_decision(text: str, title: str = "") -> dict | None:
+    """
+    A stewards' decision that moves a car on the grid: {"car", "driver", "session", "grid"
+    (places, "pit" or "back"), "target", "pu"}, else None. The FIA words them the same way every
+    time: "Drop of 3 grid positions for the next Race in which the driver participates", "... for
+    the next Sprint/Race ...", "Required to start the Race (Sprint) from the pit lane".
+    `target`: "R"/"S" (this event's Grand Prix / Sprint), "next R" (the next Grand Prix after the
+    decision), "next" (the next Sprint or Grand Prix). `pu`: a power-unit element change (the FIA's
+    "New PU elements" documents have it too). A suspended penalty doesn't count.
+    """
+    t = re.sub(r"\s+", " ", text)
+    who = re.search(r"No / Driver (\d{1,2})\s*-\s*(.*?) Competitor", t)
+    dec = re.search(r" Decision (.*?) Reason ", t)
+    if not who or not dec:
+        return None
+    d = dec.group(1)
+    if re.search(r"suspend", d, re.I):
+        return None
+    grid: int | str | None = None
+    if re.search(r"pit ?lane", d, re.I) and re.search(r"\bstart", d, re.I):
+        grid = "pit"
+    elif re.search(r"back of the (starting )?grid", d, re.I):
+        grid = "back"
+    else:
+        m = (re.search(r"(\d+|[a-z]+)\s*-?\s*grid\s*(?:place|position)s?", d, re.I)
+             or re.search(r"(\d+|[a-z]+)\s*-?\s*place\s*grid", d, re.I))
+        n = m and (int(m.group(1)) if m.group(1).isdigit() else _NUMBER_WORDS.get(m.group(1).lower()))
+        grid = n or None
+    if grid is None:
+        return None
+    if re.search(r"next (Sprint\s*/\s*Race|Race\s*/\s*Sprint|Sprint or Race|Race or Sprint)", d, re.I):
+        target = "next"
+    elif re.search(r"next (Race|Grand Prix)", d, re.I):
+        target = "next R"
+    elif re.search(r"\bSprint\b", d):
+        target = "S"
+    else:
+        target = "R"
+    session = re.search(r" Session (.*?) Fact ", t)
+    infringement = re.search(r" Infringement (.*?) Decision ", t)
+    pu = bool(re.search(r"\bPU\b|power unit", f"{title} {infringement.group(1) if infringement else ''}", re.I))
+    return {"car": int(who.group(1)), "driver": who.group(2).strip(), "session": session.group(1).strip() if session else None,
+            "grid": grid, "target": target, "pu": pu, "decision": d.strip()}
+
+
+def _event_grid(docs: list[dict]) -> dict:
+    """An event's stewards' decisions that move a car on the grid, and every decision document read."""
+    out = {"decisions": [], "sources": []}
+    for doc in sorted(docs, key=lambda d: (d["published"] or dt.datetime.min.replace(tzinfo=dt.timezone.utc))):
+        if not STEWARDS_DOC.search(doc["title"]):
+            continue
+        out["sources"].append(doc["url"])
+        p = parse_grid_decision(_pdf_text(doc["url"]), doc["title"])
+        if p:
+            out["decisions"].append({**p, "title": doc["title"], "url": doc["url"],
+                                     "published": doc["published"].isoformat() if doc["published"] else None})
+    return out
+
+
+def grid_season(year: int, now: dt.datetime | None = None) -> dict[int, dict]:
+    """
+    Every round's stewards' grid decisions for `year` ({round: {"event", "decisions", "sources"}}):
+    archived rounds from archive/fia/<year>/rNN-grid.json.gz, the rest from fia.com. A round still
+    running has its event page fetched again once it's STEWARDS_PAGE_FRESH_MINUTES old, so a
+    decision published between practice and qualifying is in the next export. Call it before
+    pu_season: that reads the same (now fresh) event page.
+    """
+    now = now or dt.datetime.now(dt.timezone.utc)
+    out = {}
+    for p in sorted((FIA_ARCHIVE / str(year)).glob("r*-grid.json.gz")):
+        out[int(p.name[1:3])] = json.loads(gzip.decompress(p.read_bytes()))
+    sched = _schedule(year)
+    due = sched[(sched["start"] - pd.Timedelta(days=2) <= now) & ~sched["round"].isin(out)]
+    if due.empty:
+        return out
+    fresh = dt.timedelta(hours=config.FIA_PAGE_FRESH_HOURS)
+    live = dt.timedelta(minutes=config.STEWARDS_PAGE_FRESH_MINUTES)
+    try:
+        season_url = _season_pages(fresh).get(year)
+        if season_url is None:
+            return out
+        final_season = now > sched["race"].max() + pd.Timedelta(days=FIA_FINAL_DAYS)
+        # The season page lists a new event when its weekend starts: fetched often while one runs.
+        running = ((due["start"] - pd.Timedelta(days=1) <= now) & (now <= due["race"] + pd.Timedelta(days=1))).any()
+        events = _events(season_url, None if final_season else live if running else fresh)
+    except Exception as exc:  # noqa: BLE001 — FIA site down: what's archived
+        print(f"  fia.com: {str(exc)[:120]}", flush=True)
+        return out
+    for name, url in events.items():
+        try:
+            docs = _documents(url, None)
+            rnd = _round_of(docs, sched)
+            if rnd is None and not final_season:
+                docs = _documents(url, live)
+                rnd = _round_of(docs, sched)
+            if rnd is None or rnd in out or rnd not in set(due["round"]):
+                continue
+            race = sched.loc[sched["round"] == rnd, "race"].iloc[0]
+            final = now > race + pd.Timedelta(days=FIA_FINAL_DAYS)
+            if not final:
+                docs = _documents(url, live)
+            rec = {"year": year, "round": rnd, "event": name, **_event_grid(docs)}
+            out[rnd] = rec
+            if final:
+                _write_gz(grid_archive_path(year, rnd), json.dumps(rec, sort_keys=True, separators=(",", ":")).encode())
+        except Exception as exc:  # noqa: BLE001 — one bad document: skip the event, keep the rest
+            print(f"  fia.com {year} {name}: {str(exc)[:120]}", flush=True)
+    return dict(sorted(out.items()))
+
+
+def grid_targets(records: dict[int, dict], sessions: list[tuple[int, str, str]]) -> list[dict]:
+    """
+    Each grid decision with the session it's served in: `sessions` = [(round, "R"/"S", start
+    UTC ISO)]. "next R" = the first Grand Prix starting after the decision, "next" the first
+    Sprint or Grand Prix; "R"/"S" this event's. Returns the decisions with "round" and "code"
+    added (None when the season has no such session left).
+    """
+    order = sorted((pd.Timestamp(s), r, c) for r, c, s in sessions if s)
+    out = []
+    for rnd, rec in records.items():
+        for d in rec.get("decisions", []):
+            pub = pd.Timestamp(d["published"]) if d.get("published") else pd.Timestamp.min.tz_localize("UTC")
+            if d["target"] in ("R", "S"):
+                hit = (rnd, d["target"]) if any(r == rnd and c == d["target"] for _, r, c in order) else None
+            else:
+                codes = ("R",) if d["target"] == "next R" else ("R", "S")
+                hit = next(((r, c) for s, r, c in order if c in codes and s > pub and r >= rnd), None)
+            out.append({**d, "from_round": rnd, "round": hit[0] if hit else None, "code": hit[1] if hit else None})
+    return out
+
+
+def combine_grid(a: int | str | None, b: int | str | None) -> int | str | None:
+    """Two grid penalties for one driver: a pit-lane start beats the back of the grid beats places
+    (which add up)."""
+    if a is None or b is None:
+        return b if a is None else a
+    if "pit" in (a, b):
+        return "pit"
+    if "back" in (a, b):
+        return "back"
+    return int(a) + int(b)
+
+
+# ---------------------------------------------------------------------------
 # Power-unit usage, round by round
 # ---------------------------------------------------------------------------
 def circuit_key(location: str) -> str:

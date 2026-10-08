@@ -776,14 +776,27 @@ def archive_forecast(year: int, out_dir: Path, meta: dict, now: dt.datetime) -> 
     return written
 
 
-def penalties_for(year: int, rnd: int, code: str = "R") -> dict[str, int | str]:
-    """Grid penalties announced for a round's Grand Prix: config.GRID_PENALTIES and, once the FIA's
-    "New PU elements" document is out, power-unit penalties (PowerUnits.announced). None for other
-    sessions (a power-unit penalty is served in the Grand Prix)."""
-    if code != "R":
+def penalties_for(year: int, rnd: int, code: str = "R", known_before: str | None = None) -> dict[str, int | str]:
+    """
+    Grid penalties announced for a round's Grand Prix or Sprint: the stewards' decisions (the FIA's
+    documents, read as they're published: PowerUnits.stewards_grid), power-unit penalties once the
+    FIA's "New PU elements" is out (PowerUnits.announced; Grand Prix only) and config.GRID_PENALTIES
+    (hand overrides). A stewards' power-unit decision replaces the "New PU elements" figure for that
+    driver (it's the official one); other penalties add up. `known_before` (UTC ISO): only decisions
+    published before then, so a past forecast uses what was known when it was made.
+    """
+    if code not in ("R", "S"):
         return {}
-    out = dict(_PU.announced(rnd) or {}) if _PU is not None and _PU.year == year else {}
-    out.update(config.GRID_PENALTIES.get(year, {}).get(rnd, {}))
+    out: dict[str, int | str] = {}
+    if _PU is not None and _PU.year == year:
+        if code == "R":
+            out = dict(_PU.announced(rnd) or {})
+        stewards, pu_drivers = _PU.stewards_grid(rnd, code, known_before)
+        for d in pu_drivers:
+            out.pop(d, None)
+        for d, g in stewards.items():
+            out[d] = pn.combine_grid(out.get(d), g)
+    out.update(config.GRID_PENALTIES.get(year, {}).get(rnd, {}) if code == "R" else {})
     return out
 
 
@@ -831,6 +844,18 @@ class PowerUnits:
         self.names = {d: pn.name_key(n) for d, n in zip(last["driver"], last["name"]) if isinstance(n, str)}
         self.by_number = {int(n): d for d, n in zip(res["driver"], res["number"]) if pd.notna(n) and str(n).isdigit()}
         self._risk: dict[int, pd.DataFrame] = {}
+        # The stewards' grid decisions first: their event page is fetched fresh while a weekend runs,
+        # and pu_season then reads the same page.
+        try:
+            grid_records = pn.grid_season(year, now)
+        except Exception as exc:  # noqa: BLE001 — no FIA documents: no stewards' grid penalties
+            print(f"  stewards' grid decisions: {str(exc)[:160]}", flush=True)
+            grid_records = {}
+        self.grid_records = grid_records
+        sessions = [(e["round"], c, e.get(UTC_KEY[c])) for e in events for c in ("R", "S") if e.get(UTC_KEY[c])]
+        self.grid_decisions = pn.grid_targets(grid_records, sessions)
+        for g in self.grid_decisions:
+            g["code_driver"] = self.by_number.get(int(g["car"])) or _match_code(pn.name_key(g["driver"]), self.names)
         try:
             self.records = pn.pu_season(year, now)
         except Exception as exc:  # noqa: BLE001 — no FIA documents: no usage, no model
@@ -899,6 +924,24 @@ class PowerUnits:
         rows = self._rows(rnd)
         return {d: drop for d, drop in zip(rows["driver"], rows["drop"]) if drop is not None}
 
+    def stewards_grid(self, rnd: int, code: str, known_before: str | None = None) -> tuple[dict[str, int | str], set[str]]:
+        """The stewards' grid penalties served at round `rnd`'s Grand Prix or Sprint (driver -> places,
+        "pit" or "back", several added up), published before `known_before` if given; and the drivers
+        whose penalty there is for a power-unit change."""
+        cut = pd.Timestamp(known_before) if known_before else None
+        out: dict[str, int | str] = {}
+        pu: set[str] = set()
+        for g in self.grid_decisions:
+            d = g.get("code_driver")
+            if d is None or g["round"] != rnd or g["code"] != code:
+                continue
+            if cut is not None and (not g.get("published") or pd.Timestamp(g["published"]) >= cut):
+                continue
+            out[d] = pn.combine_grid(out.get(d), g["grid"])
+            if g["pu"]:
+                pu.add(d)
+        return out, pu
+
     def plans(self, start: int) -> dict[str, list[dict]]:
         """Reported plans live before round `start`: the hand-kept ones (config.PU_PLANS) and, for a
         forecast made now, the news's; less any already served (the driver went past the
@@ -964,7 +1007,10 @@ class PowerUnits:
         """The f1penalties.com rows of this season (a hash) and the FIA power-unit documents of the
         last two rounds the export read: scripts/needs_update.py rebuilds when either changes."""
         last = sorted(self.records)[-2:]
-        docs = sorted({u for r in last for u in self.records[r].get("sources", []) if pn.PU_DOC.search(u)})
+        docs = {u for r in last for u in self.records[r].get("sources", []) if pn.PU_DOC.search(u)}
+        # The stewards' decision documents of the last two events too: a new one may be a grid penalty.
+        docs |= {u for r in sorted(self.grid_records)[-2:] for u in self.grid_records[r].get("sources", [])}
+        docs = sorted(docs)
         return {"stewards": pn.stewards_fingerprint(self.year), "stewards_round": self.stewards_round, "fia_docs": docs}
 
     def export(self, next_round: int | None, color_of: pd.Series, team_of: pd.Series) -> dict:
@@ -1043,8 +1089,15 @@ def _grid(year: int, ev: dict, code: str, recs: list[dict],
     return fc.penalised_grid(order, penalties_for(year, rnd, code)), "qualifying"
 
 
+def weekend_start(ev: dict) -> str | None:
+    """The start (UTC ISO) of a round's first session."""
+    starts = [ev[k] for k in UTC_KEY.values() if ev.get(k)]
+    return min(starts, key=pd.Timestamp) if starts else None
+
+
 def session_forecast(year: int, ev: dict, code: str, before: list[dict], last: dict, rounds_ahead: int,
-                     exported: dict[tuple[int, str], dict], practice: dict | None = None) -> dict | None:
+                     exported: dict[tuple[int, str], dict], practice: dict | None = None,
+                     known_before: str | None = None) -> dict | None:
     """
     The forecast for one session from the sessions in `before` (oldest first): expected
     pace, last season's circuit term, this weekend's qualifying and grid when they're in, or
@@ -1077,7 +1130,7 @@ def session_forecast(year: int, ev: dict, code: str, before: list[dict], last: d
     circuit = (last["race"] if code in config.RACE_CODES else last["quali"]).get(key)
     if not config.CIRCUIT_WEIGHT[code]:
         circuit = None                    # not used: don't show it either
-    pen = penalties_for(year, ev["round"], code)
+    pen = penalties_for(year, ev["round"], code, known_before)
     risk = None
     if code == "R" and _PU is not None and _PU.year == year:
         # As seen after the last Grand Prix in `before`: this round's own state for a past round.
@@ -1338,7 +1391,7 @@ def export_season(year: int, out_dir: Path, now: dt.datetime | None = None, tele
         ahead = max(1, ev["round"] - latest_round)
         sessions = {}
         for code in weekend_codes(ev):
-            pre = session_forecast(year, ev, code, prior, last, ahead, by_key)
+            pre = session_forecast(year, ev, code, prior, last, ahead, by_key, known_before=weekend_start(ev))
             if pre is None:
                 continue
             entry = {"pre": decorate(pre["odds"]), "latest": None, "latest_after": [],
@@ -1349,7 +1402,8 @@ def export_season(year: int, out_dir: Path, now: dt.datetime | None = None, tele
                        and (r["start_utc"] or "") < (ev.get(UTC_KEY[code]) or "9")]
             fp = pr.weekend_practice({r["code"]: r["_practice"] for r in fp_recs}) if fp_recs else None
             if this_weekend or fp:
-                latest = session_forecast(year, ev, code, prior + this_weekend, last, 1, by_key, practice=fp)
+                latest = session_forecast(year, ev, code, prior + this_weekend, last, 1, by_key, practice=fp,
+                                          known_before=ev.get(UTC_KEY[code]))
                 if latest is not None:
                     entry["latest"] = decorate(latest["odds"])
                     entry["latest_after"] = [r["id"] for r in fp_recs + this_weekend]
@@ -1381,13 +1435,15 @@ def export_season(year: int, out_dir: Path, now: dt.datetime | None = None, tele
             standing = standing.reindex(standing.index.union(line_up["driver"]), fill_value=0.0)
             cur_teams = line_up.set_index("driver")["team"]
             forms = {c: _forms(prior, c, last, cur_teams, 1)[:2] for c in ("S", "R")}
+            # Penalties known then: before this round's weekend for a past one, everything for now.
+            known = None if ev is next_ev else weekend_start(ev)
             left = [(e, c) for e in events if e["round"] >= ev["round"] for c in ("S", "R")
                     if e.get(UTC_KEY[c]) and (e["round"], c) not in done_keys]
             plan = []
             for e, c in left:
                 pace = fc.expected_pace(c, *forms[c])
                 pace = pace[pace.index.isin(line_up["driver"])]
-                pen = penalties_for(year, e["round"], c)
+                pen = penalties_for(year, e["round"], c, known)
                 mean = fc.session_mean(c, pace, last["race"].get(circuit_key(e["location"])), cur_teams, penalties=pen)
                 at = _PU.at(ev["round"], e["round"]) if c == "R" else pd.DataFrame()
                 if at.empty:
@@ -1400,7 +1456,7 @@ def export_season(year: int, out_dir: Path, now: dt.datetime | None = None, tele
                 plan.append((c, mean, pu, e["round"]))
             # Reported plans, less any driver whose penalty there is already announced (in the mean).
             groups = [(d, q) for d, q in _PU.risk(ev["round"]).attrs.get("groups", [])
-                      if d not in penalties_for(year, ev["round"], "R") or ev["round"] not in q]
+                      if d not in penalties_for(year, ev["round"], "R", known) or ev["round"] not in q]
             td, tc = fc.title_odds(standing, team_of.reindex(standing.index).fillna(cur_teams).fillna("?"), plan,
                                    _dnf(prior), seed=ev["round"], pu_groups=groups)
             title_hist += [{"after": max(r["round"] for r in prior), "driver": d, "p_title": p}

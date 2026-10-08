@@ -754,9 +754,13 @@ function RaceForecast() {
         penalties; against every 2025–26 race it matched the official grid but for late pit-lane starts). Until that's
         out it's the qualifying order with any announced penalties applied. Before qualifying, an announced penalty costs
         the places it is expected to lose, <M t="n_d" />: its size, but no further than the back from where the driver's
-        pace puts them (all the way for a back-of-the-grid or pit-lane start). Power-unit penalties are announced by the
-        FIA's "New PU elements" document on the Friday, read automatically; others are kept by hand (config.py{" "}
-        <code>GRID_PENALTIES</code>). A place lost to a penalty counts {PEN_GRID}% rather than <M t="\gamma" />, before
+        pace puts them (all the way for a back-of-the-grid or pit-lane start). Every grid penalty is read from the
+        FIA's documents as soon as they're published, checked every 15 minutes: the stewards' decisions ("Drop of 3 grid
+        positions for the next Race in which the driver participates", "Required to start the Race from the pit lane")
+        and, for power units, the "New PU elements" document on the Friday. A drop "for the next Race" lands on the next
+        Grand Prix after the decision (this weekend's, or the next round's if the race has run), "for the next
+        Sprint/Race" on whichever comes first. So a penalty handed out between practice and qualifying is in the odds
+        before qualifying starts. A past forecast counts only the decisions published before it was made. A place lost to a penalty counts {PEN_GRID}% rather than <M t="\gamma" />, before
         the grid and after it (a slot behind where the driver qualified): <M t="\gamma" /> is fitted on ordinary grids,
         where the slot and the pace go together, and undervalues a penalised car, which is faster than its slot. In 94
         power-unit penalty starts (2020–25) drivers finished 0.237 places worse per grid place dropped; {PEN_GRID}% gives
@@ -853,10 +857,10 @@ function Penalties() {
           over from causing a collision in the race before, one handed out in qualifying (impeding, ignoring a red
           flag), or a pit-lane start for changing the car under parc fermé. They move the driver back on the grid
           before the race is played, at {PEN_GRID}% of pace a place (<a href="#about/docs/race">Session forecasts</a>,
-          Grid penalties). Before qualifying they come from the FIA's "New PU elements" document (power units, read
-          automatically) or are kept by hand (config.py <code>GRID_PENALTIES</code>: no free feed has the stewards'
-          decisions that fast); after qualifying, from OpenF1's published starting grid, which has them all applied;
-          after the race, the official grid.</li>
+          Grid penalties). Until the grid is out they come from the FIA's documents, read as soon as they're published:
+          the stewards' decisions and the "New PU elements" document (a stewards' power-unit decision replaces that
+          document's figure for the driver; other penalties add up); after qualifying, from OpenF1's published
+          starting grid, which has them all applied; after the race, the official grid.</li>
         <li><b>Power-unit penalties nobody has announced yet</b>: a chance at every Grand Prix left, from each driver's
           elements, the circuit, the team's word and the news (below).</li>
         <li><b>Penalties in a race</b> (time penalties, drive-throughs, stop-and-gos, disqualification): a finished
@@ -1198,8 +1202,8 @@ function Limits() {
           practice one-lap pace, the grid once it's set, the teams' declared upgrades (on average), grid penalties once
           announced and the chance of a power-unit penalty from each driver's elements and from the news; not last season,
           other penalties nobody has announced yet (an incident in a race ahead, a time penalty) or weather (which only
-          enters the strategy forecast). Grid drops other than power units are kept by hand until OpenF1's starting
-          grid has them, so one the stewards hand out between races can be missing for a day or two. The power-unit
+          enters the strategy forecast). Grid penalties are read from the stewards' decisions within about 15 to 40
+          minutes of the FIA publishing them (the site checks every 15 minutes, then rebuilds). The power-unit
           model can't see an engine's mileage or damage (a failure that forces a change comes as a surprise until it's
           reported). News is read from headlines and the feeds' summaries: a penalty counts only when two sites name the
           driver and the race. Even with all of it, much of a race (Safety Cars, retirements, a slow stop, the weather on

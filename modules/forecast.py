@@ -334,8 +334,8 @@ def session_terms(code: str, pace: pd.Series, circuit: pd.Series | None = None,
     """
     Expected performance (%) for the simulation and what makes it: columns pace, circuit_term,
     grid_term, penalty_places, penalty_term, pu_risk, pu_places, pu_term and mean (their sum).
-    `penalties` (announced grid penalties for this round: config.GRID_PENALTIES and the FIA's
-    power-unit documents) and `pu_risk` (driver -> chance of a power-unit penalty here that isn't
+    `penalties` (announced grid penalties for this round: the stewards' decisions and power-unit
+    documents from the FIA, config.GRID_PENALTIES overrides) and `pu_risk` (driver -> chance of a power-unit penalty here that isn't
     announced yet; Grand Prix only) count only while the grid isn't known: once it is, they're in
     it. pu_term is the expected cost, pu_risk × PENALTY_GRID_WEIGHT × pu_places (places lost if it
     happens). Places lost to a penalty count PENALTY_GRID_WEIGHT each: with the grid known, a slot
