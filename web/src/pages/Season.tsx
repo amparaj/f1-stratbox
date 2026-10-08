@@ -102,16 +102,17 @@ export default function Season() {
           onRow={(e) => { window.location.hash = e.done_R ? `races/${e.round}` : `next/${e.round}`; }}
           cardTitle={(e) => `${e.round}. ${shortEvent(e.event)}`}
           cardSub={["date", "location"]}
-          cardStats={["pole", "sprint_winner", "winner"]}
+          cardStats={["sprint_pole", "sprint_winner", "pole", "winner"]}
           columns={[
             { key: "round", label: "Round", value: (e) => e.round, numeric: true, rank: true },
             { key: "event", label: "Grand Prix", value: (e) => e.event, render: (e) => <a href={e.done_R ? `#races/${e.round}` : `#next/${e.round}`}>{e.event}</a> },
             { key: "location", label: "Circuit", value: (e) => `${e.location}, ${e.country}`, render: (e) => <CircuitLink round={e.round}>{e.location}, {e.country}</CircuitLink> },
             { key: "date", label: "Date", value: (e) => day(e.race_utc) },
             { key: "format", label: "Format", value: (e) => (e.sprint_utc ? "Sprint" : ""), render: (e) => (e.sprint_utc ? <SessionBadge code="S" short /> : "") },
-            { key: "pole", label: "Pole", title: "Pole position in Qualifying", value: (e) => e.pole ?? "", render: (e) => (e.pole ? <DriverChip code={e.pole} color={e.pole_color} /> : "") },
-            { key: "sprint_winner", label: "Sprint", title: "Sprint winner", value: (e) => e.sprint_winner ?? "", render: (e) => (e.sprint_winner ? <DriverChip code={e.sprint_winner} color={e.sprint_winner_color} /> : "") },
-            { key: "winner", label: "Winner", title: "Grand Prix winner", value: (e) => e.winner ?? "", render: (e) => (e.winner ? <DriverChip code={e.winner} color={e.winner_color} /> : "") },
+            { key: "sprint_pole", label: "Sprint Quali Pole", short: "SQ pole", title: "Pole position in Sprint Qualifying (the Sprint grid)", value: (e) => e.sprint_pole ?? "", render: (e) => (e.sprint_pole ? <DriverChip code={e.sprint_pole} color={e.sprint_pole_color} /> : "") },
+            { key: "sprint_winner", label: "Sprint Winner", short: "Sprint", title: "Sprint winner", value: (e) => e.sprint_winner ?? "", render: (e) => (e.sprint_winner ? <DriverChip code={e.sprint_winner} color={e.sprint_winner_color} /> : "") },
+            { key: "pole", label: "Quali Pole", short: "Pole", title: "Pole position in Qualifying (the Grand Prix grid)", value: (e) => e.pole ?? "", render: (e) => (e.pole ? <DriverChip code={e.pole} color={e.pole_color} /> : "") },
+            { key: "winner", label: "Race Winner", short: "Winner", title: "Grand Prix winner", value: (e) => e.winner ?? "", render: (e) => (e.winner ? <DriverChip code={e.winner} color={e.winner_color} /> : "") },
           ]}
         />
         {meta.pending.length > 0 && (
