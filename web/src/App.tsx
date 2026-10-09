@@ -72,7 +72,7 @@ export default function App() {
               </a>
               <span>F1 Stratbox<span className="brand-sub">: Race Results, Analysis & Forecasts</span></span>
             </h1>
-            <span className="byline">Created by Ayush Parajuli</span>
+            <span className="byline">Created by Ash Parajuli</span>
           </div>
           {site && <Status site={site} />}
           <nav aria-label="Pages" ref={nav}>
