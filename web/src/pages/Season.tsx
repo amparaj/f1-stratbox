@@ -28,11 +28,11 @@ export default function Season() {
         rest of the season, and every round's winner. Pick a race for its full analysis.
       </p>
       <Tiles tiles={[
-        { label: "Leader", value: lead ? <><DriverChip code={lead.driver} color={lead.color} /> {int(lead.points)} pts</> : "–", note: lead?.team },
-        { label: "Lead", value: lead && second ? `${int(lead.points - second.points)} pts` : "–", note: second ? `over ${second.name ?? second.driver}` : undefined },
+        { label: "Leader", value: lead ? <><DriverChip code={lead.driver} color={lead.color} /> {int(lead.points)} pts</> : "–", note: <TeamName team={lead?.team} color={lead?.color} year={meta.season} /> },
+        { label: "Lead", value: lead && second ? `${int(lead.points - second.points)} pts` : "–", note: second ? <>over <DriverName code={second.driver} color={second.color} name={second.name} /></> : undefined },
         { label: "Rounds left", value: left, note: `${meta.calendar.filter((e) => !e.done_R && e.sprint_utc).length} with a sprint · ${int(maxLeft(meta.calendar))} pts still available` },
         ...(lead && oddsD.get(lead.driver) ? [{ label: "Leader's title chance", value: pct(oddsD.get(lead.driver)!.p_title), note: "from 10,000 simulated seasons" }] : []),
-        ...(next ? [{ label: "Next race", value: shortEvent(next.event), note: `Round ${next.round} · ${day(next.race_utc)}` }] : []),
+        ...(next ? [{ label: "Next race", value: <a href={`#next/${next.round}`}>{shortEvent(next.event)}</a>, note: `Round ${next.round} · ${day(next.race_utc)}` }] : []),
       ]} />
 
       {meta.title_odds && <TitleOddsSection />}
