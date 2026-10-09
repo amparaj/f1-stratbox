@@ -4,7 +4,7 @@ Download a flag for every country in web/src/countries.json into web/public/flag
     .venv\\Scripts\\python scripts\\fetch_flags.py            # missing files only
     .venv\\Scripts\\python scripts\\fetch_flags.py --refresh  # every file again
 
-The flags are flag-icons' 4x3 SVGs (https://github.com/lipis/flag-icons, MIT licence; credited on About).
+The flags are flag-icons' 4x3 SVGs (https://github.com/lipis/flag-icons, MIT licence).
 Images, not emoji: Windows has no flag emoji and shows two letters instead. Run locally and commit the files.
 """
 import argparse

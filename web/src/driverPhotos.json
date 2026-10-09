@@ -1,7 +1,7 @@
 {
   "_doc": [
     "Driver photos (scripts/fetch_driver_photos.py): History driver ref -> the file in web/public/drivers/,",
-    "its Commons title, licence, author and page (credited on About). Free licences only."
+    "its Commons title, licence, author and page. Free licences only."
   ],
   "drivers": {
     "albon": {"file": "albon.jpg", "source": "Alex_Albon_at_the_Melbourne_Walk_during_the_2026_Australian_Grand_Prix_(028A8626)_(cropped).jpg", "licence": "CC BY-SA 4.0", "author": "Yu Chu Chin", "page": "https://commons.wikimedia.org/wiki/File:Alex_Albon_at_the_Melbourne_Walk_during_the_2026_Australian_Grand_Prix_(028A8626)_(cropped).jpg"},

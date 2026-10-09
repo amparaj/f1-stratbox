@@ -217,7 +217,7 @@ web/                       the website (React + TypeScript + Vite, theme copied 
 - **Team badges** (`web/src/teamLogos.json`, one manifest for both sides; site `TeamBadge`/`TeamName` in
   `components/f1.tsx` + `teams.ts`, dashboard `modules/teams.py` → `with_badges` + `badge_column()` as an
   `ImageColumn`): a freely licensed logo (Wikimedia Commons: public domain, CC0, CC BY/BY-SA; files in
-  `web/public/logos/`, credits on About) on a white tile edged in the team colour, else the colour with a short
+  `web/public/logos/`) on a white tile edged in the team colour, else the colour with a short
   code. Matched by name, then the chassis before '-' ("Lotus-Climax"); entries' `years` split teams that shared a
   name (Lotus), logos' `since`/`until` pick the era (pass the season). No logo: most pre-1980s
   teams. Add one: put its Commons title and file in the manifest, run
@@ -444,7 +444,7 @@ and emoji). This is a Windows PowerShell 5.1 / Git Bash environment.
   changes count) is ranked client-side against the season. History `circuits.json` carries each race's fastest lap and the
   winner's grid; a circuit's `record` = fastest race lap on today's layout (same scheduled laps as the latest race, ≥ 90 %
   of its fastest lap: Silverstone 1:27.097 VER 2020, not 2005's old layout). Photos: Commons lead image of the
-  driver's Wikipedia article, free licences only (OGL counts; F1's headshots don't), credited on About; none = car number.
+  driver's Wikipedia article, free licences only (OGL counts; F1's headshots don't); none = car number.
   Flags are images (Windows has no flag emoji). A new driver: run `scripts/fetch_driver_photos.py` after an export.
 - Local preview: Vite's dev server refuses every file here (the path contains `.git`, which its default `fs.deny`
   matches), so `npm run build` then `npx vite preview`.

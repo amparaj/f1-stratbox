@@ -3,8 +3,6 @@ import { Flow } from "../components/Flow";
 import { Loading, Segmented } from "../components/ui";
 import { dayYear } from "../format";
 import { useHash, useSite } from "../site";
-import { PHOTOS } from "../profiles";
-import { logoUrl, TEAMS } from "../teams";
 
 // The maths needs KaTeX, so the technical documentation loads as its own chunk.
 const Docs = lazy(() => import("./Docs"));
@@ -142,52 +140,10 @@ function Overview() {
         <a href="https://github.com/jolpica/jolpica-f1">Jolpica</a>'s database, licensed{" "}
         <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a>: results, grids and
         standings for every season, lap times from 1996, fastest laps from 2004 and pit stops from 2011.
+        Track maps come from MultiViewer's circuit data, as FastF1 reads it.
         Pit-lane losses are approximate public figures. The code is at{" "}
         <a href="https://github.com/amparaj/f1-stratbox">github.com/amparaj/f1-stratbox</a>.
       </p>
-
-      <h3>Team logos</h3>
-      <p>
-        Team logos are freely licensed files from <a href="https://commons.wikimedia.org/">Wikimedia Commons</a> (public
-        domain, CC0 or Creative Commons), apart from those marked "supplied by hand" below (Ferrari, Racing Bulls and
-        some past teams and eras); all are shown only to identify the teams, and the logos are trademarks of their
-        owners. A team with no logo for that era (most teams before the 1980s) gets a badge in its colour with a short
-        code instead.
-      </p>
-      <details className="logo-credits">
-        <summary>Logo credits ({LOGO_CREDITS.length} files)</summary>
-        <ul>
-          {LOGO_CREDITS.map(({ team, logo }) => (
-            <li key={logo.file}>
-              <img src={logoUrl(logo)} alt="" /> {team}: {logo.page ? <a href={logo.page}>{logo.source ?? logo.file}</a> : logo.file}, {logo.author}, {logo.licence}
-            </li>
-          ))}
-        </ul>
-      </details>
-
-      <h3>Driver photos and flags</h3>
-      <p>
-        Click any driver's name or code, or a circuit's name, for their profile or circuit guide. Driver photos are
-        the lead images of their Wikipedia articles, freely licensed files from{" "}
-        <a href="https://commons.wikimedia.org/">Wikimedia Commons</a> (credited below); a driver without one shows
-        their car number. Flags are from <a href="https://github.com/lipis/flag-icons">flag-icons</a> (MIT licence).
-        Track maps come from MultiViewer's circuit data, as FastF1 reads it.
-      </p>
-      <details className="logo-credits">
-        <summary>Photo credits ({PHOTO_CREDITS.length} files)</summary>
-        <ul>
-          {PHOTO_CREDITS.map(([ref, p]) => (
-            <li key={ref}>
-              <a href={p.page}>{p.source.replace(/_/g, " ")}</a>, {p.author}, {p.licence}
-            </li>
-          ))}
-        </ul>
-      </details>
     </>
   );
 }
-
-const PHOTO_CREDITS = Object.entries(PHOTOS).sort(([a], [b]) => a.localeCompare(b));
-
-const LOGO_CREDITS = TEAMS.flatMap((t) => t.logos.filter((l) => l.page || l.archive).map((logo) => ({ team: t.name, logo })))
-  .filter((c, i, all) => all.findIndex((o) => o.logo.file === c.logo.file) === i); // Lotus F1 shares Team Lotus' file

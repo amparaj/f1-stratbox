@@ -126,7 +126,7 @@ def main() -> None:
         time.sleep(1)
     manifest["_doc"] = [
         "Driver photos (scripts/fetch_driver_photos.py): History driver ref -> the file in web/public/drivers/,",
-        "its Commons title, licence, author and page (credited on About). Free licences only.",
+        "its Commons title, licence, author and page. Free licences only.",
     ]
     rows = ",\n".join(f"    {json.dumps(k)}: {json.dumps(v, ensure_ascii=False)}" for k, v in sorted(photos.items()))
     MANIFEST.write_text("{\n  \"_doc\": " + json.dumps(manifest["_doc"], indent=4).replace("\n]", "\n  ]")
