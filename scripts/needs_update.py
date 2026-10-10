@@ -127,6 +127,19 @@ def finished(code: str, start: dt.datetime, now: dt.datetime) -> bool:
     return flag is not None and now >= flag + dt.timedelta(minutes=FINISH_SETTLE_MIN)
 
 
+def sessions(meta: dict):
+    """(session id, event, code, start) of every session on the calendar."""
+    for ev in meta["calendar"]:
+        for code, key in UTC_KEY.items():
+            if ev.get(key):
+                yield f"r{ev['round']:02d}-{code}", ev["event"], code, dt.datetime.fromisoformat(ev[key])
+
+
+def checkable(code: str, start: dt.datetime, now: dt.datetime) -> bool:
+    """From EARLIEST_FINISH_MIN after the start (it can't have finished before) until RETRY_DAYS."""
+    return start + dt.timedelta(minutes=EARLIEST_FINISH_MIN[code]) < now < start + dt.timedelta(days=RETRY_DAYS)
+
+
 def stewards_fingerprint(year: int) -> str | None:
     """penalties.stewards_fingerprint, from a fresh export of f1penalties.com."""
     req = urllib.request.Request(F1PEN_URL, data=json.dumps(F1PEN_EXPORT).encode(),
@@ -226,21 +239,16 @@ def reasons(meta: dict | None, now: dt.datetime) -> list[str]:
     published = {s["id"]: s for s in meta["sessions"]}
     age = now - dt.datetime.fromisoformat(meta["generated"])
     refresh = age > dt.timedelta(minutes=REFRESH_MINUTES)
-    for ev in meta["calendar"]:
-        for code, key in UTC_KEY.items():
-            if not ev.get(key):
-                continue
-            start = dt.datetime.fromisoformat(ev[key])
-            sid = f"r{ev['round']:02d}-{code}"
-            if not start + dt.timedelta(minutes=EARLIEST_FINISH_MIN[code]) < now < start + dt.timedelta(days=RETRY_DAYS):
-                continue
-            if sid not in published:
-                if finished(code, start, now):
-                    out.append(f"{sid} {ev['event']} finished but isn't published")
-                else:
-                    print(f"  {sid} {ev['event']} hasn't finished yet")
-            elif not published[sid]["complete"] and refresh:
-                out.append(f"{sid} {ev['event']} is still provisional")
+    for sid, event, code, start in sessions(meta):
+        if not checkable(code, start, now):
+            continue
+        if sid not in published:
+            if finished(code, start, now):
+                out.append(f"{sid} {event} finished but isn't published")
+            else:
+                print(f"  {sid} {event} hasn't finished yet")
+        elif not published[sid]["complete"] and refresh:
+            out.append(f"{sid} {event} is still provisional")
     if meta.get("pending") and refresh:
         out.append(f"{len(meta['pending'])} sessions still to download: {', '.join(meta['pending'][:5])}")
     upcoming = [dt.datetime.fromisoformat(e["race_utc"]) for e in meta["calendar"]

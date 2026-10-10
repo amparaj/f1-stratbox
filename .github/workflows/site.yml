@@ -3,8 +3,8 @@
 # Scheduled runs first ask scripts/needs_update.py (standard library only, a few seconds) whether
 # anything is due: a session (qualifying, sprint, race) whose chequered flag is out (OpenF1) but isn't on the site, a
 # provisional result whose official classification may now be out (hourly at most), or data more
-# than a week old. Checking every 10 minutes over the weekend puts a race on the site about
-# 15-40 minutes after the flag (GitHub often starts scheduled runs late).
+# than a week old. They're hourly; on a race weekend the watch below puts each session up within
+# minutes of its flag.
 # Only then do they export the data (scripts/export_site.py), build the site and publish it.
 # A push to main that touches the code, or Run workflow by hand, always rebuilds.
 #
@@ -22,13 +22,21 @@
 # 1950) are rebuilt each run from archive/jolpica/, one file per finished season; Jolpica's dump
 # (cached in .jolpica/) is downloaded only for a season not archived yet, which is then committed.
 #
+# GitHub starts scheduled runs late or drops them when it's busy (2026 Singapore: every 10 minutes
+# asked, four runs on the Friday; FP1 went up two hours after the flag), so over a race weekend one
+# "watch" run is always going (scripts/watch_sessions.py): every 5 minutes it asks needs_update.py's
+# question (finished sessions, stewards' decisions, power-unit documents and news, provisional results)
+# and rebuilds as soon as something is new. The chain job then starts the next watch (workflow_dispatch, which the workflow's own token may
+# fire). A watch hands over after 5.5 h (jobs stop at 6). Any run starts one if a weekend is on (from
+# 12 h before its first session) and none is going, so the hourly schedule restarts a broken chain.
+#
 # Scheduled workflows only run from the default branch.
 name: Update site
 
 on:
   schedule:
-    - cron: "*/10 * * * 5,6,0"  # every 10 minutes Friday to Sunday (UTC): qualifying, sprints, races
-    - cron: "20 * * * 1-4"      # hourly otherwise: provisional results, late grids, penalty news
+    # Hourly: provisional results, late grids, penalties, news, weather (sessions themselves: the watch).
+    - cron: "20 * * * *"
   push:
     branches: [main]
     paths:
@@ -39,21 +47,52 @@ on:
       - "pyproject.toml"
       - ".github/workflows/site.yml"
   workflow_dispatch:
+    inputs:
+      watch:
+        description: "Wait for the next session to finish, then rebuild (the workflow starts these itself)"
+        type: boolean
+        default: false
+      since:
+        description: "When the export that started this watch began (ISO, UTC)"
+        type: string
+        default: ""
 
 permissions:
   contents: write
-
-concurrency:
-  group: site
-  cancel-in-progress: false
 
 env:
   SITE_URL: https://amparaj.github.io/f1-stratbox/
 
 jobs:
+  watch:
+    if: inputs.watch
+    runs-on: ubuntu-latest
+    timeout-minutes: 345
+    # One watch at a time: a newer one replaces a waiting one.
+    concurrency:
+      group: watch
+      cancel-in-progress: true
+    outputs:
+      update: ${{ steps.wait.outputs.update }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: scripts
+
+      - name: Wait for a session to finish
+        id: wait
+        run: python3 scripts/watch_sessions.py "${SITE_URL}data/meta.json" --since "${{ inputs.since }}"
+
   update:
+    needs: watch
+    if: ${{ !cancelled() && (needs.watch.result == 'skipped' || needs.watch.outputs.update == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    concurrency:
+      group: site
+      cancel-in-progress: false
+    outputs:
+      since: ${{ steps.began.outputs.since }}
     steps:
       - uses: actions/checkout@v5
 
@@ -89,8 +128,11 @@ jobs:
           pip install --quiet -e .
 
       - name: Export data
+        id: began
         if: github.event_name != 'schedule' || steps.check.outputs.update == 'true'
-        run: python scripts/export_site.py
+        run: |
+          echo "since=$(date -u +%Y-%m-%dT%H:%M:%S+00:00)" >> "$GITHUB_OUTPUT"
+          python scripts/export_site.py
 
       # Finished sessions (modules/openf1.py) and seasons (modules/history.py) go into archive/
       # and are never fetched again.
@@ -152,3 +194,34 @@ jobs:
           git commit --quiet -m "Site $(date -u +%Y-%m-%dT%H:%MZ) from ${GITHUB_SHA::7}"
           git push --quiet --force "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" gh-pages
           echo "Published to ${SITE_URL}"
+
+  # Keeps a watch going over a race weekend. Not after a failure: a broken export would loop.
+  chain:
+    needs: [watch, update]
+    if: ${{ !cancelled() && needs.watch.result != 'failure' && needs.watch.result != 'cancelled' && needs.update.result != 'failure' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: scripts
+
+      - name: Race weekend on?
+        id: weekend
+        run: python3 scripts/watch_sessions.py "${SITE_URL}data/meta.json" --chain
+
+      - name: Start the next watch
+        if: steps.weekend.outputs.watch == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SINCE: ${{ needs.update.outputs.since || inputs.since }}
+        run: |
+          # Another dispatched run (a watch, or Run workflow by hand) still going starts one when it ends.
+          others=$(gh run list --workflow site.yml --event workflow_dispatch --limit 20 --json databaseId,status -q "[.[] | select(.status != \"completed\" and .databaseId != ${GITHUB_RUN_ID})] | length")
+          if [ "$others" != "0" ]; then echo "A dispatched run is already going."; exit 0; fi
+          gh workflow run site.yml --ref "${GITHUB_REF_NAME}" -f watch=true -f since="${SINCE}"
+          echo "Started the next watch."
