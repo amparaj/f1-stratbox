@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "f1-stratbox"
+version = "0.1.0"
+description = "F1 race strategy: Streamlit dashboard and a self-updating results & forecast website"
+readme = "README.md"
+authors = [{ name = "Ash Parajuli" }]
+requires-python = ">=3.12"
+dependencies = [
+    "fastf1>=3.8",
+    "streamlit>=1.50",
+    "plotly>=6.0",
+    "pandas>=2.2",
+    "numpy>=2.0",
+    "scipy>=1.14",
+    "openpyxl>=3.1",
+    "pypdf>=5.0",
+    "requests>=2.31",
+]
+
+[project.urls]
+Homepage = "https://amparaj.github.io/f1-stratbox/"
+
+# Not a library: installed editable (`pip install -e .`) so `config` and `modules` import from
+# anywhere. pages/, scripts/ and web/ stay out of the package.
+[tool.setuptools]
+py-modules = ["config"]
+packages = ["modules"]
+
+[tool.setuptools.package-data]
+modules = ["replay_player.html"]

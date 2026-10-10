@@ -12,7 +12,9 @@ race: see "Website" below and README.md.
 .venv\Scripts\streamlit run app.py
 ```
 
-- Windows, Python 3.14, venv in `.venv/` (deps in `requirements.txt`). If the folder is
+- Windows, Python 3.12+, venv in `.venv/`. Deps and package config are in `pyproject.toml`; set up with
+  `py -3.12 -m venv .venv` then `.venv\Scripts\pip install -e .` (editable: `config` and `modules`
+  import from anywhere; `pages/`, `scripts/`, `web/` aren't packaged). If the folder is
   moved, rebuild the venv: its launcher `.exe`s hard-code the old path.
 - First load of a session downloads from the F1 timing API (30–90 s). After that it
   comes from `.fastf1/` (FastF1 disk cache, git-ignored) plus Streamlit's memory cache.
