@@ -1,4 +1,6 @@
 .venv/
+*.egg-info/
+build/
 __pycache__/
 .fastf1/*
 !.fastf1/.gitkeep

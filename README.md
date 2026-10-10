@@ -85,8 +85,8 @@ npm run dev                                      # http://localhost:5173
 ## Dashboard
 
 ```
-python -m venv .venv
-.venv\Scripts\pip install -r requirements.txt
+py -3.12 -m venv .venv
+.venv\Scripts\pip install -e .                  # dependencies from pyproject.toml
 .venv\Scripts\streamlit run app.py
 ```
 

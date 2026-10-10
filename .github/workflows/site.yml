@@ -36,7 +36,7 @@ on:
       - "modules/**"
       - "scripts/**"
       - "config.py"
-      - "requirements.txt"
+      - "pyproject.toml"
       - ".github/workflows/site.yml"
   workflow_dispatch:
 
@@ -86,7 +86,7 @@ jobs:
       - name: Install
         if: github.event_name != 'schedule' || steps.check.outputs.update == 'true'
         run: |
-          pip install --quiet -r requirements.txt
+          pip install --quiet -e .
 
       - name: Export data
         if: github.event_name != 'schedule' || steps.check.outputs.update == 'true'
