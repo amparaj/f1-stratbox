@@ -221,7 +221,7 @@ def _simulate_core(stints: list[Stint], total_laps: int, models: dict[str, dict]
     Lap-by-lap race. Returns (total_time, rows) where rows is a list of per-lap
     dicts when detail=True, else None (fast path for Monte Carlo). `start_age` is the
     first stint's tyre age before lap 1; race_start=False runs the rest of a race from
-    the current lap (Live Race Tracker): no free change to wet tyres if lap 1 is wet.
+    the current lap (Lap by Lap rain call): no free change to wet tyres if lap 1 is wet.
     """
     rain_lap, dry_lap, intensity = rain_spell(weather, total_laps)
     prof = config.RAIN_PROFILES[intensity]

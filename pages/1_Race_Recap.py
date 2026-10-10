@@ -5,6 +5,9 @@ Tabs
 ----
 🎬 Race Replay      track replay from car telemetry (modules/replay_player.html), and
                    the lap-by-lap gap-to-leader chart (Plotly frames)
+⏯️ Lap by Lap       the race replayed lap by lap: battle map with pit-window shadows, pit rejoin
+                   forecast, undercut threats and the rain call (modules/race_tracker.py; the
+                   Live Race Tracker shows the same panels on F1's live feed)
 📝 Post-Mortem      tyre-strategy chart + rule-based report naming each cliff lap
 📉 Degradation      fuel-corrected lap time vs tyre age with fitted deg lines
 🌦️ Weather          track sensors lap by lap, and what the forecast said (Open-Meteo)
@@ -30,6 +33,7 @@ import config
 from modules import analytics as an
 from modules import data_engine as de
 from modules import penalties as pn
+from modules import race_tracker as rt
 from modules import teams
 from modules import telemetry as tm
 from modules import weather as wx
@@ -326,8 +330,9 @@ m[2].metric("SC / VSC laps", f"{len(info['neutralised']['SC'])} / {len(info['neu
 m[3].metric("Tyre cliffs found", len(tyre_cliffs))
 m[4].metric("Retirements", int(drivers["DNF"].sum()))
 
-tab_replay, tab_pm, tab_deg, tab_wx, tab_pen, tab_export = st.tabs(
-    ["🎬 Race Replay", "📝 Post-Mortem", "📉 Degradation", "🌦️ Weather", "🚩 Penalties", "⬇️ Export"])
+tab_replay, tab_laps, tab_pm, tab_deg, tab_wx, tab_pen, tab_export = st.tabs(
+    ["🎬 Race Replay", "⏯️ Lap by Lap", "📝 Post-Mortem", "📉 Degradation", "🌦️ Weather", "🚩 Penalties",
+     "⬇️ Export"])
 
 # --- Replay -----------------------------------------------------------------
 with tab_replay:
@@ -370,6 +375,10 @@ with tab_replay:
                 st.plotly_chart(fig, width="stretch", theme="streamlit")
             else:
                 st.info("Select at least one driver.")
+
+# --- Lap by lap -------------------------------------------------------------------
+with tab_laps:
+    rt.render_lap_by_lap(active, info)
 
 # --- Post-mortem --------------------------------------------------------------
 with tab_pm:

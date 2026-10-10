@@ -29,21 +29,21 @@ def home() -> None:
     """Landing page: what each tool is for and the modelling assumptions in force."""
     st.title("🏁 F1 Stratbox")
     st.caption("Post-race review · qualifying analysis · telemetry head-to-head · "
-               "live second-screen tactics · future-race planning")
+               "live timing and tactics · future-race planning")
 
     c1, c2, c3 = st.columns(3)
     c4, c5, c6 = st.columns(3)
     with c1, st.container(border=True):
         st.markdown("#### 📝 Race Recap")
-        st.markdown("Track replay of every car from its telemetry, fuel-corrected tyre degradation per "
-                    "driver/compound, and a rule-based post-mortem that names the exact "
-                    "lap each stint fell off the cliff.")
+        st.markdown("Track replay of every car from its telemetry, the race lap by lap with pit-window "
+                    "shadows and undercut threats, fuel-corrected tyre degradation per driver/compound, "
+                    "and a rule-based post-mortem that names the exact lap each stint fell off the cliff.")
         st.page_link("pages/1_Race_Recap.py", label="Open Race Recap", icon="➡️")
     with c2, st.container(border=True):
         st.markdown("#### 📡 Live Race Tracker")
-        st.markdown("Battle map of gaps to the leader with a pit-window shadow behind "
-                    "every car: see who rejoins in traffic and which pairs are open to "
-                    "the undercut, lap by lap.")
+        st.markdown("F1's live timing for the session on now, to follow beside the TV: timing tower, "
+                    "tyres, race control, the knockout line in qualifying, long runs in practice, and in "
+                    "a race who rejoins in traffic and which pairs are open to the undercut.")
         st.page_link("pages/2_Live_Race_Tracker.py", label="Open Live Race Tracker", icon="➡️")
     with c3, st.container(border=True):
         st.markdown("#### 🧪 Future Sandbox")

@@ -1,8 +1,8 @@
 # F1 Stratbox
 
-Streamlit prototype for an F1 team's strategy workflow: post-race review (with a track replay),
-qualifying analysis, lap telemetry head-to-head, a lap-by-lap race tracker, and a future-race
-strategy sandbox. Built on FastF1 lap timing. Plus a public
+Streamlit prototype for an F1 team's strategy workflow: post-race review (with a track replay and a
+lap-by-lap tracker), qualifying analysis, lap telemetry head-to-head, live timing for the session on TV,
+and a future-race strategy sandbox. Built on FastF1 lap timing. Plus a public
 website (https://amparaj.github.io/f1-stratbox/) that a GitHub Action rebuilds after every
 race: see "Website" below and README.md.
 
@@ -32,8 +32,10 @@ config.py                  ALL tunable constants and model assumptions
 modules/data_engine.py     FastF1 loading, cleaning, timeline; shared sidebar session picker
 modules/analytics.py       deg fits, cliff detector, undercut maths, post-mortem text
 modules/simulator.py       deterministic + Monte Carlo race simulator
-pages/1_Race_Recap.py      track replay, tyre-strategy chart, post-mortem, deg plots, export
-pages/2_Live_Race_Tracker.py  battle map, pit-rejoin forecast, undercut threats
+pages/1_Race_Recap.py      track replay, lap by lap, tyre-strategy chart, post-mortem, deg plots, export
+pages/2_Live_Race_Tracker.py  F1 live timing (no login): timing tower, race control, tyres; race strategy panels
+modules/live.py            live-timing feed (SignalR thread), F1's static archive for replays, Board state + laps
+modules/race_tracker.py    battle map, pit-rejoin forecast, undercut threats, rain call (Lap by Lap tab + live page)
 pages/3_Future_Sandbox.py  scenario controls, strategy comparison, Monte Carlo (Grand Prix or Sprint)
 pages/4_Qualifying.py      Q/SQ result, cut-off margins, sectors & ideal lap, evolution, run plan
 pages/5_Telemetry.py       two laps head to head: traces, delta, corner zones, faster-where map
@@ -173,8 +175,8 @@ web/                       the website (React + TypeScript + Vite, theme copied 
     `cause="weather"`, not a tyre cliff
 - Undercut (`assess_undercut`): car B (behind) pits onto a fresh compound. A (ahead) is
   "Vulnerable to Undercut" if the gap A→B is smaller than B's lap-time gain, summed over
-  the laps before A can respond. Fuel and pit losses cancel. On the Live Race Tracker the
-  models are fitted **only on laps up to the selected lap** (no future leakage).
+  the laps before A can respond. Fuel and pit losses cancel. In Race Recap's Lap by Lap tab the
+  models are fitted **only on laps up to the selected lap** (no future leakage); live, on the laps seen so far.
 - "Best tyre management" headlines only rank fits with at least 8 laps and deg ≥ 0.
 
 ## Simulator (`modules/simulator.py`)
@@ -192,7 +194,7 @@ web/                       the website (React + TypeScript + Vite, theme copied 
   dry, a car on wets pits for `slick_for(laps left)` unless staying out costs less than a stop.
   If it stays out in the rain, its planned stops still happen. Teams know when rain stops.
 - `_simulate_core(start_age=, race_start=False)` runs the rest of a race from the current lap
-  (Live Race Tracker rain call): no free wet-tyre change on lap 1.
+  (Lap by Lap rain call): no free wet-tyre change on lap 1.
 - `run_sandbox_simulation(base_pace, degradation_rate, total_laps, upgrade_modifier,
   weather_modifier, ...)` keeps the spec's signature. `base_pace` and `degradation_rate`
   accept either a float (expanded across compounds using the presets) or a dict per
@@ -484,11 +486,37 @@ and emoji). This is a Windows PowerShell 5.1 / Git Bash environment.
   them when the model changes. Table columns that are an order (Pos, Round, Grid) set `rank: true`.
 - Publishing needs GitHub Pages set to "Deploy from a branch: gh-pages".
 
+## Live timing (`modules/live.py`, `pages/2_Live_Race_Tracker.py`)
+
+- F1's own live-timing stream (SignalR Core, `wss://livetiming.formula1.com/signalrcore`), **no login**:
+  `live.TOPICS` (timing, timing app/stats, driver list, race control, track/session status, session
+  info/data, weather, lap count, clock). Checked live on 2026 Singapore Q. FastF1's `SignalRClient` can't
+  connect without a login (`no_auth` passes `access_token_factory=None`, signalrcore raises), so
+  `LiveFeed` uses signalrcore directly. Local only (GitHub's runners can't reach F1's server).
+- `LiveFeed` (`st.cache_resource`, one per server) runs the connection in a daemon thread, reconnects
+  with backoff and stops `LIVE_IDLE_STOP_S` (10 min) after the page last polled it. Events are
+  `(t epoch, topic, data, snapshot)`; each session's go to `.live/<session key>.jsonl` (git-ignored) and
+  are loaded back when the same session reconnects within 6 h (lap history survives an app restart).
+  A new session or a reload bumps `generation`, which makes every `BoardCursor` rebuild.
+- `Board`: snapshot replaces a topic, updates deep-merge (a dict of "index": value updates a list). Lap
+  history from TimingData: a lap is recorded when `LastLapTime.Value` arrives (it always comes with
+  `NumberOfLaps`, except race lap 1, which has no time); in-lap = InPit seen during the lap, out-lap =
+  started in the pit lane or PitOut seen. FastF1 column names, so `analytics` deg fits (`live.clean_laps`,
+  data_engine's rules) and `practice.long_runs` run unchanged. Checked on 2024 Silverstone: final order,
+  pit counts and HAM's stops match.
+- **Delay** (sidebar): the board is built up to now − delay, to match the TV picture.
+- **Replay**: `archive_events` reads the same topics from F1's static archive
+  (`livetiming.formula1.com/static/<year>/Index.json` → session `Path` → `<Topic>.jsonStream`, lines
+  `HH:MM:SS.mmm{json}`), put on the epoch clock from Heartbeat UTCs, cached in `.live/archive/`. Played on a
+  virtual clock (1-60×, jump, pause). The sidebar picker supplies the session.
+- Qualifying sends `SessionStatus: Finished` after each segment: only the last ends the session
+  (`session_end` = last chequered flag). Cut line from `TimingData.NoEntries` ([22, 16, 10]).
+
 ## Weather (`modules/weather.py`)
 
 - Free only: track sensors from the session data; Open-Meteo (no key, non-commercial, credit
   "Weather data by Open-Meteo.com" on every page that shows it). OpenF1's *live* feed is paid,
-  so nothing reads weather during a running session; the Live Tracker's rain call takes the
+  so nothing reads weather during a running session (the live board shows F1's track sensors); the Lap by Lap rain call takes the
   forecast or a hand-set outlook. Requests cached in `.openmeteo/` (past: for good; forecasts
   `FORECAST_FRESH_HOURS`); the Action caches the folder.
 - `outlook()` → rain scenarios from the ensemble (ICON ≤7 days, GFS ≤16) or, further out, the
@@ -499,7 +527,7 @@ and emoji). This is a Windows PowerShell 5.1 / Git Bash environment.
   temp delta for the simulator is **like-for-like**: the same estimate from the same source for the
   reference race (archived forecast, or its climate); ERA5 alone is ~13 °C cold at Mexico City.
   Displayed absolute = reference race's sensors + delta.
-- Live Tracker: archived 15-minute forecast at the lap's UTC (a model, not radar: it missed the
+- Lap by Lap (Race Recap): archived 15-minute forecast at the lap's UTC (a model, not radar: it missed the
   2024 Silverstone rain). If the sensor reads rain, the next laps are wet regardless. The rain
   call compares stay out / pit for wets / pit for slicks, each with its best continuation (≤1
   more stop onto a slick), so tyre age doesn't masquerade as a rain call.
@@ -514,16 +542,9 @@ and emoji). This is a Windows PowerShell 5.1 / Git Bash environment.
 
 ## Known limitations / next steps
 
-- **Live Race Tracker replays a finished session** lap by lap (optionally auto-advancing
-  via `st.fragment(run_every=...)`). FastF1's live-timing client is not wired in yet.
-- **Bookmarked: live strategy screen** (like RaceOS F1: live track map, timing, strategy sim during a
-  session). OpenF1's real-time tier is paid. F1's own live-timing stream (FastF1 `livetiming`,
-  unofficial) is still free for timing (positions, gaps, laps, sectors), tyres, race control, track
-  status and weather; since the 2025 Dutch GP the driver tracker (car positions), DRS, pit-stop times
-  and championship tables need an F1 TV login (FastF1's client supports one). So a free version gets
-  the leaderboard and strategy calls but no live track map. Needs a recorder process during the
-  session (Streamlit can't hold the connection); local only (GitHub's runners can't reach F1's
-  server). The replay player could take a live payload unchanged. Not started.
+- **Live track map / car data**: the live board (`modules/live.py`) has no car positions, car data,
+  DRS or pit-stop times: since the 2025 Dutch GP those topics need an F1 TV login (FastF1's client supports
+  one; the user has none). The replay player could take a live payload unchanged if that changes.
 - **Pit losses** in `config.TRACK_PIT_LOSS`: Silverstone, Monaco, Spa and Monza come from
   the original spec. The rest are approximate public figures. Replace them with team
   data. Lookup goes through `config.get_pit_loss` (FastF1 location or event name, with

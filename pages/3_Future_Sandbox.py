@@ -106,7 +106,7 @@ with st.sidebar:
     sprint = race_type == "S"
     sources = ["Generic compound presets"] + (["Calibrate from loaded session"] if active else [])
     source = st.radio("Pace & degradation source", sources,
-                      help="Load a session on Race Recap or Live Race Tracker to enable calibration.")
+                      help="Load a session on Race Recap to enable calibration.")
 
 calib = None
 if source.startswith("Calibrate"):
