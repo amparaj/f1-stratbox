@@ -9,7 +9,7 @@ Two free sources:
   * Open-Meteo (no key, non-commercial use; credit CREDIT, CC BY 4.0):
       forecast             hourly air temperature, sunshine, rain amount and probability
       ensemble             every member's own hourly rain (ICON 7 days, GFS 16 days ahead)
-      historical forecast  what the forecast said for a past time (Live Race Tracker replays)
+      historical forecast  what the forecast said for a past time (Race Recap lap by lap)
       archive (ERA5)       the climate: the race window on the same dates in past years
     Requests are cached in config.OPEN_METEO_CACHE_DIR: anything about the past for good,
     forecasts for FORECAST_FRESH_HOURS.

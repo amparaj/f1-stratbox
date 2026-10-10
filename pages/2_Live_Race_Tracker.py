@@ -1,33 +1,35 @@
 """
-pages/2_Live_Race_Tracker.py — Live second-screen tactical tool.
+pages/2_Live_Race_Tracker.py — the live timing board, for following a session on TV.
 
-Battle Map: every car's gap to the leader as a horizontal bar, with a
-translucent "pit window shadow" stretching pit-loss seconds behind it — the
-stretch of track the car would fall back through if it pitted now.
+Live        F1's live-timing feed (modules/live.py), no login: a timing tower for whatever session is on
+            (practice, qualifying, sprint qualifying, sprint, Grand Prix), track status, race control,
+            weather and the clock, refreshed every couple of seconds. The connection runs in a thread of
+            the Streamlit server, starts when this page is open and stops ten minutes after it was last
+            looked at. A delay holds the board back to match the TV picture (the timing usually runs
+            a few seconds to half a minute ahead of the broadcast).
+Race        battle map with pit-window shadows, pit rejoin forecast and undercut threats
+            (modules/race_tracker.py) from the laps seen so far, plus the tyre strategies.
+Qualifying  segment times, the knockout line and each car's margin to it.
+Practice    best laps, the tyres each car has run and long runs as they build up (modules/practice.py).
+Replay      any finished session from F1's archive on a virtual clock (1-60x): the same board, for
+            checking the page between race weekends.
 
-Shadow status (icon + label, never colour alone):
-    🔴 Traffic   — rejoin point lands within the clean-air threshold of another car
-    🟠 Loses places — other cars sit inside the shadow, but the rejoin is in clean air
-    🟢 Free stop — nobody inside the shadow
-
-Weather & rain call: the track sensors at the selected lap, a rain outlook (Open-Meteo's
-15-minute forecast for that moment, archived for replays, or set by hand) and, for every
-car, the time over the rest of the race of staying out, pitting now for wet tyres or for
-new slicks, from the simulator's lap loop.
-
-Prototype note: the lap selector replays a completed session lap by lap
-(optionally auto-advancing). The undercut models only use laps up to the
-selected lap, so nothing leaks from the future. Wiring in FastF1's live-timing
-client is the step that turns this into a true race-day feed.
+No car positions (the track map needs an F1 TV login). Race Recap's "Lap by Lap" tab has the old
+lap-by-lap replay of a finished race from FastF1's timing.
 """
 
 from __future__ import annotations
 
 import sys
+import time
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # allow `import config`
 
+import logging
+
+import fastf1
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -36,350 +38,470 @@ import streamlit as st
 import config
 from modules import analytics as an
 from modules import data_engine as de
-from modules import simulator as sim
-from modules import weather as wx
+from modules import live
+from modules import practice as pr
+from modules import race_tracker as rt
 
-STATUS = {
-    "critical": ("🔴", "Traffic"),
-    "warning": ("🟠", "Loses places"),
-    "good": ("🟢", "Free stop"),
-}
+CURSOR_KEY = "live_cursor"
+REPLAY_KEY = "live_replay"          # the replay clock: {"id", "anchor_wall", "anchor_t", "speed", "playing"}
+LIVE_REFRESH_S = 2
+REPLAY_REFRESH_S = 1
 
-
-def _hex_to_rgba(hex_color: str, alpha: float) -> str:
-    h = hex_color.lstrip("#")
-    r, g, b = (int(h[i:i + 2], 16) for i in (0, 2, 4))
-    return f"rgba({r},{g},{b},{alpha})"
-
-
-# ---------------------------------------------------------------------------
-# Analysis
-# ---------------------------------------------------------------------------
-def pit_rejoin_analysis(snap: pd.DataFrame, pit_loss: float) -> pd.DataFrame:
-    """
-    For every car: where it would rejoin if it pitted now, which cars sit inside
-    its pit window shadow (they'd pass it), and whether it rejoins in traffic.
-    """
-    snap = snap.sort_values("RunningPosition").reset_index(drop=True)
-    rows = []
-    for _, car in snap.iterrows():
-        gap, rejoin = float(car["GapToLeader"]), float(car["GapToLeader"]) + pit_loss
-        others = snap[snap["Driver"] != car["Driver"]]
-        inside = others[(others["GapToLeader"] > gap) & (others["GapToLeader"] <= rejoin)]
-        ahead = others[others["GapToLeader"] <= rejoin]
-        behind = others[others["GapToLeader"] > rejoin]
-        gap_ahead = rejoin - ahead["GapToLeader"].max() if not ahead.empty else float("inf")
-        gap_behind = behind["GapToLeader"].min() - rejoin if not behind.empty else float("inf")
-        car_ahead = ahead.loc[ahead["GapToLeader"].idxmax(), "Driver"] if not ahead.empty else "—"
-        if gap_ahead <= config.CLEAN_AIR_THRESHOLD_S and not inside.empty:
-            status = "critical"
-        elif not inside.empty:
-            status = "warning"
-        else:
-            status = "good"
-        rows.append({
-            "Pos": int(car["RunningPosition"]), "Driver": car["Driver"], "Gap": gap,
-            "Tyre": f'{config.COMPOUND_SHORT.get(car["Compound"], "?")}{int(car["TyreLife"]) if pd.notna(car["TyreLife"]) else ""}',
-            "Rejoin gap": rejoin, "Rejoin pos": int(len(ahead) + 1),
-            "Cars in shadow": int(len(inside)), "Inside": ", ".join(inside["Driver"]),
-            "Rejoins behind": car_ahead, "Air ahead (s)": gap_ahead, "Air behind (s)": gap_behind,
-            "status": status,
-        })
-    return pd.DataFrame(rows)
+PURPLE, GREEN = "#a855f7", "#22c55e"
+FLAG_BANNER = {"1": ("green", "GREEN FLAG"), "2": ("orange", "YELLOW FLAG"), "4": ("orange", "SAFETY CAR"),
+               "5": ("red", "RED FLAG"), "6": ("orange", "VIRTUAL SAFETY CAR"), "7": ("orange", "VSC ENDING")}
+FINISHED = ("Finished", "Finalised", "Ends")
 
 
-@st.cache_data(show_spinner=False, max_entries=64)
-def models_up_to_lap(year: int, event: str, stype: str, lap: int):
-    """Degradation models fitted only on laps already completed (no future leakage)."""
-    clean = de.get_cleaned_laps(year, event, stype)
-    deg = an.calculate_tyre_degradation(clean[clean["LapNumber"] <= lap])
-    return deg, an.field_compound_model(deg)
+@st.cache_resource(show_spinner=False)
+def live_feed() -> live.LiveFeed:
+    return live.LiveFeed()
 
 
-@st.cache_data(show_spinner=False, max_entries=64, ttl=900)
-def cached_nowcast(lat: float, lon: float, at_utc: pd.Timestamp):
-    try:
-        return wx.nowcast(lat, lon, at_utc), None
-    except wx.WeatherUnavailable as exc:
-        return None, str(exc)
+@st.cache_resource(show_spinner=False, max_entries=2)
+def replay_events(year: int, event: str, code: str) -> list:
+    return live.archive_events(year, event, code)
 
 
-def rain_call(snap: pd.DataFrame, models: dict, weather: dict | None, laps_left: int,
-              pit_loss: float) -> pd.DataFrame:
-    """
-    For every car, the time over the rest of the race of three calls now: stay out, pit
-    for the rain tyre, or pit for the best new slick. Each call then takes its best
-    continuation: no more stops, or one more onto any slick at the best lap (the simulator
-    also reacts to the rain by itself). Weather laps count from the next lap.
-    """
-    wet_tyre = config.RAIN_PROFILES[(weather or {}).get("intensity") or "Light rain"]["compound"]
-    n = laps_left
-
-    def best(first: str, age: int) -> tuple[float, str]:
-        plans = [[(first, n)]] + [[(first, k), (c, n - k)] for k in range(1, n) for c in config.DRY_COMPOUNDS]
-        times = [sim._simulate_core(p, n, models, pit_loss, 0.0, weather, detail=False,
-                                    start_age=age, race_start=False)[0] for p in plans]
-        i = int(np.argmin(times))
-        return times[i], sim.strategy_label(plans[i])
-
-    memo: dict[tuple[str, int], tuple[float, str]] = {}
-
-    def cached(first: str, age: int) -> tuple[float, str]:
-        if (first, age) not in memo:
-            memo[(first, age)] = best(first, age)
-        return memo[(first, age)]
-
-    rows = []
-    for _, car in snap.sort_values("RunningPosition").iterrows():
-        comp = car["Compound"]
-        if comp not in models:
+@st.cache_data(show_spinner=False, ttl=3600)
+def upcoming(n: int = 3) -> list[tuple[str, str, pd.Timestamp]]:
+    """The sessions on now (started in the last 2 h) and next: (event, session name, start UTC)."""
+    logging.getLogger("fastf1").setLevel(logging.ERROR)
+    now = pd.Timestamp.now(tz="UTC").tz_localize(None)
+    out = []
+    for year in (now.year, now.year + 1):
+        try:
+            sched = fastf1.get_event_schedule(year, include_testing=False)
+        except Exception:  # noqa: BLE001
             continue
-        age = int(car["TyreLife"]) if pd.notna(car["TyreLife"]) else 0
-        stay, stay_plan = cached(comp, age)
-        wet, wet_plan = cached(wet_tyre, 0)
-        slick_t, slick_plan = min(cached(c, 0) for c in config.DRY_COMPOUNDS)
-        options = {"Stay out": (stay, stay_plan),
-                   f"Pit for {wet_tyre.title()}s": (wet + pit_loss, wet_plan),
-                   "Pit for slicks": (slick_t + pit_loss, slick_plan)}
-        call = min(options, key=lambda k: options[k][0])
-        rows.append({"Pos": int(car["RunningPosition"]), "Driver": car["Driver"],
-                     "Tyre": f"{config.COMPOUND_SHORT.get(comp, '?')}{age}",
-                     **{k: options[k][0] - stay for k in options if k != "Stay out"},
-                     "Best call": call, "Then": options[call][1], "Gain (s)": stay - options[call][0]})
-    return pd.DataFrame(rows)
+        for _, e in sched.iterrows():
+            for i in range(1, 6):
+                when = pd.to_datetime(e.get(f"Session{i}DateUtc"), errors="coerce")
+                if pd.notna(when) and when > now - pd.Timedelta(hours=2):
+                    out.append((e["EventName"], e[f"Session{i}"], when.tz_localize("UTC")))
+        if len(out) >= n:
+            break
+    return sorted(out, key=lambda x: x[2])[:n]
 
 
 # ---------------------------------------------------------------------------
-# Battle map
+# Formatting
 # ---------------------------------------------------------------------------
-def build_battle_map(rejoin: pd.DataFrame, drivers: pd.DataFrame, pit_loss: float) -> go.Figure:
-    meta = drivers.set_index("Driver")
-    df = rejoin.copy()
-    df["Color"] = df["Driver"].map(meta["Color"]).fillna("#888888")
-    order = df.sort_values("Pos")["Driver"].tolist()
-    status_hex = df["status"].map(config.STATUS_COLORS)
+def _gap_text(gap: float, laps_down: int, leader: bool) -> str:
+    if leader:
+        return "Leader"
+    if laps_down:
+        return f"+{laps_down} L"
+    return f"+{gap:.3f}" if pd.notna(gap) else ""
 
+
+def _tyre_text(row) -> str:
+    comp = config.COMPOUND_SHORT.get(row["Compound"], "?")
+    age = "" if pd.isna(row["TyreLife"]) else f" {int(row['TyreLife'])}"
+    if row["FreshTyre"] is True and row["TyreLife"] == 0:
+        return f"{comp} new"
+    return f"{comp}{age}"
+
+
+def _status_text(row, part: int = 0) -> str:
+    if row["Retired"]:
+        return "OUT"
+    if row["Stopped"]:
+        return "STOPPED"
+    if row["KnockedOut"]:
+        return "Knocked out"
+    if row["InPit"]:
+        return "In pit"
+    if row["PitOut"]:
+        return "Pit exit"
+    return ""
+
+
+def _compound_style(comp: str) -> str:
+    bg = config.COMPOUND_COLORS.get(comp, config.COMPOUND_COLORS.get("UNKNOWN", "#888"))
+    fg = "#fff" if comp in ("SOFT", "WET") else "#111"
+    return f"background-color: {bg}; color: {fg}; font-weight: 600"
+
+
+def styled_tower(tower: pd.DataFrame, kind: str, part: int, entries: list[int]) -> tuple[pd.io.formats.style.Styler,
+                                                                                       dict]:
+    """The timing tower as a Styler: team colour strip, purple/green times, compound colours, knockout zone."""
+    t = tower.reset_index(drop=True)
+    out = pd.DataFrame({"Pos": t["Pos"].where(t["Pos"] < 99, None), " ": "", "Driver": t["Driver"]})
+    if kind == "race":
+        out["Gap"] = [_gap_text(g, d, p == 1) for g, d, p in zip(t["Gap"], t["LapsDown"], t["Pos"])]
+        out["Interval"] = [("" if p == 1 else f"+{d} L" if d else f"+{i:.3f}" if pd.notna(i) else "")
+                           for i, d, p in zip(t["Interval"], t["IntervalLaps"], t["Pos"])]
+        out["Last"] = t["Last"].map(live.fmt_laptime)
+        out["Best"] = t["Best"].map(live.fmt_laptime)
+    else:
+        best = t["SegBest"] if kind == "quali" else t["Best"]
+        fastest = best.min()
+        out["Best"] = best.map(live.fmt_laptime)
+        out["Gap"] = ["" if pd.isna(b) or b == fastest else f"+{b - fastest:.3f}" for b in best]
+        if kind == "quali":
+            out["To the cut"] = _cut_margins(t, best, part, entries)
+        out["Last"] = t["Last"].map(live.fmt_laptime)
+    for s in ("S1", "S2", "S3"):
+        out[s] = t[s].map(lambda v: f"{v:.3f}" if pd.notna(v) else "")
+    out["Tyre"] = [_tyre_text(r) for _, r in t.iterrows()]
+    out["Laps"] = t["Laps"]
+    if kind == "race":
+        out["Pits"] = t["Pits"]
+        out["Grid"] = [("" if g is None or pd.isna(g) or p == 99 else f"{int(g) - p:+d}" if int(g) != p else "=")
+                       for g, p in zip(t["Grid"], t["Pos"])]
+    out["Status"] = [_status_text(r, part) for _, r in t.iterrows()]
+
+    flags = {"Last": t["LastFlag"], "S1": t["S1Flag"], "S2": t["S2Flag"], "S3": t["S3Flag"]}
+    if kind == "race":
+        best_flag = pd.Series(["purple" if b == t["Best"].min() else "" for b in t["Best"]])
+        flags["Best"] = best_flag
+    knocked = pd.Series(False, index=t.index)
+    if kind == "quali" and part in (1, 2) and len(entries) > part:
+        knocked = t["Pos"] > entries[part]
+    knocked |= t["KnockedOut"]
+
+    def style(df: pd.DataFrame) -> pd.DataFrame:
+        css = pd.DataFrame("", index=df.index, columns=df.columns)
+        css[" "] = [f"background-color: {c}" for c in t["Color"]]
+        for col, fl in flags.items():
+            css[col] = [f"color: {PURPLE}; font-weight: 700" if f == "purple"
+                        else f"color: {GREEN}; font-weight: 600" if f == "green" else "" for f in fl]
+        css["Tyre"] = [_compound_style(c) for c in t["Compound"]]
+        css.loc[knocked, "Pos"] = "background-color: rgba(208,59,59,0.28)"
+        css.loc[knocked, "Driver"] = "color: rgba(128,128,128,0.9)"
+        css.loc[t["Retired"] | t["Stopped"], "Driver"] = "color: rgba(128,128,128,0.9); text-decoration: line-through"
+        return css
+
+    config_cols = {" ": st.column_config.TextColumn(" ", width=8),
+                   "Pos": st.column_config.NumberColumn("Pos", width=40),
+                   "Driver": st.column_config.TextColumn("Driver", width=60)}
+    return out.style.apply(style, axis=None), config_cols
+
+
+def _cut_margins(t: pd.DataFrame, best: pd.Series, part: int, entries: list[int]) -> list[str]:
+    """Qualifying: how far inside (−) or outside (+) the knockout line each car's best lap is. The line is
+    the time of the first car out (for those through) or the last car through (for those out)."""
+    if part not in (1, 2) or len(entries) <= part:
+        return [""] * len(t)
+    through = entries[part]
+    ranked = best.dropna().sort_values()
+    if len(ranked) <= through:
+        line_in = line_out = np.nan
+    else:
+        line_in, line_out = ranked.iloc[through], ranked.iloc[through - 1]
+    out = []
+    for i, b in best.items():
+        if pd.isna(b) or t.at[i, "KnockedOut"]:
+            out.append("")
+        elif t.at[i, "Pos"] <= through:
+            out.append("" if pd.isna(line_in) else f"safe by {line_in - b:.3f}")
+        else:
+            out.append("" if pd.isna(line_out) else f"needs {b - line_out:.3f}")
+    return out
+
+
+def stint_figure(stints: pd.DataFrame, order: list[str]) -> go.Figure:
+    """Tyres run so far: one row per car, a bar per set, coloured by compound."""
+    s = stints.copy()
+    s["First"] = s.groupby("Driver")["Laps"].cumsum() - s["Laps"]
     fig = go.Figure()
-    # 1) Pit window shadow — drawn first so it sits behind the car bars.
-    fig.add_trace(go.Bar(
-        y=df["Driver"], x=[pit_loss] * len(df), base=df["Gap"], orientation="h", width=0.8,
-        name="Pit window shadow", marker=dict(color=[_hex_to_rgba(c, 0.22) for c in status_hex],
-                                              line=dict(color=status_hex.tolist(), width=1.5)),
-        customdata=df[["Rejoin pos", "Cars in shadow", "Inside", "Rejoins behind", "Air ahead (s)"]].to_numpy(),
-        hovertemplate=("<b>%{y}</b> pits now → rejoins P%{customdata[0]}<br>"
-                       "Cars in shadow: %{customdata[1]} %{customdata[2]}<br>"
-                       "Behind %{customdata[3]} by %{customdata[4]:.1f} s<extra>pit window</extra>"),
-    ))
-    # 2) Car bars: gap to leader (team colour; teammates share a hue).
-    fig.add_trace(go.Bar(
-        y=df["Driver"], x=df["Gap"], orientation="h", width=0.32, name="Gap to leader",
-        marker=dict(color=df["Color"]), hovertemplate="<b>%{y}</b> +%{x:.1f} s<extra></extra>",
-    ))
-    # 3) Car head marker + label.
-    fig.add_trace(go.Scatter(
-        y=df["Driver"], x=df["Gap"], mode="markers", showlegend=False, hoverinfo="skip",
-        marker=dict(size=11, color=df["Color"], line=dict(width=2, color="white")),
-    ))
-    # 4) Status label at the end of each shadow (icon + words).
-    labels = [f"{STATUS[s][0]} {STATUS[s][1]}" + (f" ({n})" if n else "")
-              for s, n in zip(df["status"], df["Cars in shadow"])]
-    fig.add_trace(go.Scatter(
-        y=df["Driver"], x=df["Rejoin gap"], mode="text", text=labels, textposition="middle right",
-        textfont=dict(size=10), showlegend=False, hoverinfo="skip",
-    ))
-    x_max = float(df["Rejoin gap"].max()) + 14
-    fig.update_layout(
-        barmode="overlay", height=max(420, 30 * len(df) + 80), margin=dict(l=10, r=10, t=10, b=10),
-        yaxis=dict(categoryorder="array", categoryarray=order[::-1], title=None),
-        xaxis=dict(title="Gap to leader (s)", range=[-1, x_max], gridcolor="rgba(128,128,128,0.15)"),
-        legend=dict(orientation="h", y=1.03, x=0),
-    )
+    for comp in s["Compound"].unique():
+        c = s[s["Compound"] == comp]
+        fig.add_trace(go.Bar(
+            y=c["Driver"], x=c["Laps"], base=c["First"], orientation="h", name=comp.title(),
+            marker=dict(color=config.COMPOUND_COLORS.get(comp, config.COMPOUND_COLORS["UNKNOWN"]),
+                        line=dict(width=2, color="rgba(255,255,255,0.9)")),
+            text=[f"{config.COMPOUND_SHORT.get(comp, '?')}{'' if n else '*'}" for n in c["New"]],
+            textposition="inside", insidetextanchor="middle", textangle=0, textfont=dict(color="#111", size=10),
+            customdata=np.stack([c["Laps"], c["StartAge"], c["New"].map({True: "new", False: "used"})], axis=-1),
+            hovertemplate="%{y} · " + comp.title() + ": %{customdata[0]} laps (set %{customdata[2]}, "
+                          "%{customdata[1]} laps old at fitting)<extra></extra>",
+        ))
+    order = [d for d in order if d in set(s["Driver"])]
+    fig.update_layout(barmode="overlay", height=max(320, 24 * len(order) + 80), bargap=0.25,
+                      margin=dict(l=10, r=10, t=10, b=10),
+                      yaxis=dict(categoryorder="array", categoryarray=order[::-1], title=None),
+                      xaxis=dict(title="Laps", gridcolor="rgba(128,128,128,0.15)"),
+                      legend=dict(orientation="h", y=1.04, x=0, font=dict(size=11)))
     return fig
 
 
+def _clock(seconds: float | None) -> str:
+    if seconds is None:
+        return "—"
+    h, rem = divmod(int(seconds), 3600)
+    m, s = divmod(rem, 60)
+    return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
+
+
 # ---------------------------------------------------------------------------
-# Page
+# Sidebar
 # ---------------------------------------------------------------------------
 st.title("📡 Live Race Tracker")
-active = de.render_session_selector()
-if not active:
-    st.info("Pick a season, Grand Prix and session in the sidebar, then press **Load session**.")
-    st.stop()
-active = de.page_session(active, "race")
-info = de.load_active_session(active)
-if info is None:
-    st.stop()
-try:
-    timeline = de.get_race_timeline(*active)
-except Exception as exc:  # noqa: BLE001
-    st.error(f"Could not build the lap timeline: {exc}")
-    st.stop()
-
-base_loss, matched = config.get_pit_loss(info["location"], info["event_name"])
 with st.sidebar:
-    st.markdown("### 🛠️ Pit wall settings")
-    pit_loss = st.number_input("Green-flag pit loss (s)", 10.0, 40.0, float(base_loss), 0.5,
-                               help=f"Default from config.py ({matched or 'circuit not listed — default'}).")
-    fresh = st.selectbox("Undercut tyre for car behind", ["HARD", "MEDIUM", "SOFT", "INTERMEDIATE"])
-    respond = st.slider("Laps before car ahead can respond", 1, 3, 1)
-    st.divider()
-    auto = st.toggle("Auto-advance laps (replay)", value=False)
-    speed = st.select_slider("Seconds per lap", [1, 2, 3, 5, 8], value=2, disabled=not auto)
-    st.divider()
-    st.markdown("### 🌧️ Rain call")
-    rain_src = st.radio("Rain outlook", ["Open-Meteo forecast", "Set by hand"],
-                        help="Forecast: Open-Meteo's 15-minute forecast for the circuit at the selected "
-                             "lap (archived for a replay; it's a weather model, not radar, so it can miss "
-                             "a shower). By hand: what your own radar or weather service says.")
-    if rain_src == "Set by hand":
-        rain_in = st.number_input("Rain arrives in (laps)", 0, 80, 3, help="0 = it's raining now")
-        rain_for = st.number_input("Track wet for (laps, 0 = to the flag)", 0, 80, 10,
-                                   help="Until slicks are quicker again, drying time included.")
-        rain_int = st.radio("Intensity", list(config.RAIN_PROFILES), horizontal=True, key="live_rain_int")
+    st.markdown("### 📡 Feed")
+    source = st.radio("Source", ["Live", "Replay a finished session"], key="live_source",
+                      help="Live: F1's live timing, for the session on now. Replay: a finished session from "
+                           "F1's archive, on a clock you control (for trying the page between race weekends).")
+    delay = st.number_input("Delay to match the TV (s)", 0, 300, 0, 1, key="live_delay",
+                            help="The timing usually runs a few seconds to half a minute ahead of the "
+                                 "broadcast. Hold the board back by this much so it doesn't spoil what's "
+                                 "coming on screen.")
 
-st.markdown(f"{de.session_badge(active[2])} · {info['year']} {info['event_name']} — replaying lap by lap. "
-            "Models only use laps already completed.")
-lap_wx = de.get_lap_weather(*active)
-coords = wx.circuit_coords(info["location"], info["event_name"])
+active = None
+if source != "Live":
+    active = de.render_session_selector()
+    if not active:
+        st.info("Pick a season, Grand Prix and session in the sidebar, then press **Load session**.")
+        st.stop()
+    with st.spinner("Downloading the session's timing from F1's archive (first time only, about 30 s)…"):
+        try:
+            events = replay_events(*active)
+        except live.LiveUnavailable as exc:
+            st.error(f"No replay: {exc}")
+            st.stop()
+    start, end = live.session_start(events), live.session_end(events)
+    rid = f"{active}"
+    clock = st.session_state.get(REPLAY_KEY)
+    if not clock or clock.get("id") != rid:
+        clock = {"id": rid, "anchor_wall": time.time(), "anchor_t": start - 30, "speed": 1, "playing": True}
+        st.session_state[REPLAY_KEY] = clock
 
+    def replay_now() -> float:
+        c = st.session_state[REPLAY_KEY]
+        t = c["anchor_t"] + ((time.time() - c["anchor_wall"]) * c["speed"] if c["playing"] else 0.0)
+        return min(t, end + 120)
 
-def live_view() -> None:
-    """Everything that changes per lap. Re-runs on its own timer when auto-advancing."""
-    max_lap = int(timeline["LapNumber"].max())
-    key = "live_lap"
-    current = int(st.session_state.get(key, min(10, max_lap)))
-    if auto:
-        current = current + 1 if current < max_lap else max_lap
-    st.session_state[key] = max(1, min(current, max_lap))
-    lap = st.slider("Lap", 1, max_lap, key=key, disabled=auto)
+    def _reanchor(**changes) -> None:
+        c = st.session_state[REPLAY_KEY]
+        c["anchor_t"], c["anchor_wall"] = replay_now(), time.time()
+        c.update(changes)
 
-    snap = timeline[timeline["LapNumber"] == lap]
-    neutral = next((k for k, laps in info["neutralised"].items() if lap in laps), None)
-    eff_loss = pit_loss * (config.SC_PIT_LOSS_FACTOR if neutral in ("SC", "VSC") else 1.0)
-    rejoin = pit_rejoin_analysis(snap, eff_loss)
+    def _seek() -> None:
+        c = st.session_state[REPLAY_KEY]
+        c["anchor_t"], c["anchor_wall"] = start + 60 * st.session_state["live_seek"], time.time()
 
-    m = st.columns(4)
-    m[0].metric("Lap", f"{lap} / {max_lap}")
-    m[1].metric("Leader", snap.sort_values("RunningPosition")["Driver"].iloc[0])
-    m[2].metric("Track", {"SC": "Safety Car", "VSC": "Virtual SC", "RED": "Red flag"}.get(neutral, "Green flag"))
-    m[3].metric("Effective pit loss", f"{eff_loss:.1f} s",
-                delta=f"×{config.SC_PIT_LOSS_FACTOR} under {neutral}" if neutral in ("SC", "VSC") else None,
-                delta_color="off")
+    with st.sidebar:
+        st.markdown("### ⏯️ Replay")
+        c1, c2 = st.columns(2)
+        c1.button("Pause" if clock["playing"] else "Play", width="stretch",
+                  on_click=lambda: _reanchor(playing=not st.session_state[REPLAY_KEY]["playing"]))
+        c2.button("Restart", width="stretch", on_click=lambda: _reanchor() or
+                  st.session_state[REPLAY_KEY].update(anchor_t=start - 30, anchor_wall=time.time()))
+        st.select_slider("Speed", [1, 2, 5, 10, 30, 60], value=clock["speed"], key="live_speed",
+                         format_func=lambda v: f"{v}×",
+                         on_change=lambda: _reanchor(speed=st.session_state["live_speed"]))
+        st.slider("Jump to (minutes after the start)", 0, max(1, int((end - start) / 60) + 1),
+                  int(max(0, replay_now() - start) // 60), key="live_seek", on_change=_seek)
+        st.divider()
 
-    st.markdown("##### Battle map")
-    st.plotly_chart(build_battle_map(rejoin, info["drivers"], eff_loss),
-                    width="stretch", theme="streamlit")
-    st.caption(f"Shadow = where each car would rejoin after a {eff_loss:.1f} s stop.  "
-               "🔴 Traffic: rejoins within "
-               f"{config.CLEAN_AIR_THRESHOLD_S} s of another car · 🟠 Loses places but rejoins in clean air · "
-               "🟢 Free stop: nobody inside the shadow.")
-
-    left, right = st.columns(2)
-    with left:
-        st.markdown("##### Pit rejoin forecast")
-        show = rejoin.assign(Status=[f"{STATUS[s][0]} {STATUS[s][1]}" for s in rejoin["status"]])
-        st.dataframe(
-            show[["Pos", "Driver", "Tyre", "Gap", "Rejoin pos", "Cars in shadow", "Rejoins behind",
-                  "Air ahead (s)", "Status"]],
-            hide_index=True, width="stretch", height=420,
-            column_config={"Gap": st.column_config.NumberColumn("Gap (s)", format="%.1f"),
-                           "Air ahead (s)": st.column_config.NumberColumn(format="%.1f")},
-        )
-    with right:
-        st.markdown("##### Undercut threats")
-        deg, field = models_up_to_lap(*active, lap)
-        threats = an.undercut_threats(snap, deg, field, fresh, respond)
-        if threats.empty:
-            st.info("Not enough clean laps yet to model tyre degradation — check back in a few laps.")
-        else:
-            threats["Status"] = threats["Status"].map(
-                {"Vulnerable to Undercut": "⚠️ Vulnerable to Undercut", "Covered": "✅ Covered"})
-            st.dataframe(
-                threats, hide_index=True, width="stretch", height=420,
-                column_config={c: st.column_config.NumberColumn(format="%+.2f")
-                               for c in ["Gap A→B (s)", "B undercut gain (s)", "Margin (s)"]},
-            )
-            st.caption(f"B pits now onto fresh {fresh.title()}; A stays out {respond} lap(s). "
-                       "A is vulnerable when the gap is smaller than B's projected gain.")
-
-    weather_panel(lap, max_lap, snap, eff_loss)
+with st.sidebar:
+    st.markdown("### 🛠️ Pit wall")
+    fresh = st.selectbox("Undercut tyre for car behind", ["HARD", "MEDIUM", "SOFT", "INTERMEDIATE"],
+                         key="live_fresh")
+    respond = st.slider("Laps before car ahead can respond", 1, 3, 1, key="live_respond")
+    pit_override = st.number_input("Green-flag pit loss (s, 0 = circuit default)", 0.0, 40.0, 0.0, 0.5,
+                                   key="live_pit_loss")
 
 
-def weather_panel(lap: int, max_lap: int, snap: pd.DataFrame, eff_loss: float) -> None:
-    """Conditions at this lap, the rain outlook and the rain call for every car."""
-    st.markdown("##### Weather & rain call")
-    now = lap_wx[lap_wx["LapNumber"] == lap]
-    if not now.empty:
-        r = now.iloc[0]
-        w = st.columns(4)
-        w[0].metric("Track temp", f"{r['TrackTemp']:.1f} °C" if pd.notna(r["TrackTemp"]) else "—")
-        w[1].metric("Air temp", f"{r['AirTemp']:.1f} °C" if pd.notna(r["AirTemp"]) else "—")
-        w[2].metric("Humidity", f"{r['Humidity']:.0f}%" if pd.notna(r["Humidity"]) else "—")
-        w[3].metric("Track sensor", "Rain" if r["Rainfall"] else "Dry")
-
-    laps_left = max_lap - lap
-    if laps_left < 1:
-        st.info("Last lap: nothing left to call.")
-        return
-    weather, note, known = None, "", True
-    if rain_src == "Set by hand":
-        if rain_in <= laps_left:
-            start = max(1, int(rain_in))
-            dry = start + int(rain_for) if rain_for else None
-            weather = {"rain_lap": start, "dry_lap": dry if dry and dry <= laps_left else None,
-                       "intensity": rain_int}
+# ---------------------------------------------------------------------------
+# The board
+# ---------------------------------------------------------------------------
+def board_view() -> None:
+    if source == "Live":
+        feed = live_feed()
+        feed.ensure_running()
+        generation, evs = feed.view()
+        now, source_id = time.time(), "live"
     else:
-        at = now["UTC"].iloc[0] if not now.empty else pd.NaT
-        if coords is None or pd.isna(at):
-            known, note = False, "No forecast: circuit position or time of day unknown. Set the rain by hand."
-        else:
-            rain, err = cached_nowcast(*coords, at.floor("15min"))
-            if err:
-                known, note = False, f"Forecast unavailable ({err}). Set the rain by hand."
-            else:
-                led = timeline[(timeline["LapNumber"] <= lap) & (timeline["RunningPosition"] == 1)]
-                lap_s = float(led["LapTime"].tail(5).median()) if led["LapTime"].notna().any() else 95.0
-                raining = bool(now["Rainfall"].iloc[0])
-                weather = wx.nowcast_rain_laps(rain, at, lap_s, laps_left, raining_now=raining)
-                note = (f"Open-Meteo 15-minute forecast from {at:%H:%M} UTC, laps of {lap_s:.0f} s"
-                        + (", and the track sensor reports rain now" if raining else "")
-                        + f"; the track dries {config.TRACK_DRYING_LAPS} laps after the rain stops. "
-                        f"{wx.CREDIT}.")
-    if weather:
-        a = lap + weather["rain_lap"]
-        b = lap + weather["dry_lap"] if weather["dry_lap"] else None
-        st.markdown(f"**Outlook:** {weather['intensity'].lower()} from lap {a}"
-                    + (f" until lap {b - 1}." if b else " to the flag."))
-    elif known:
-        st.markdown("**Outlook:** dry for the rest of the race.")
-    if note:
-        st.caption(note)
+        feed, generation, evs = None, 0, events
+        now, source_id = replay_now(), rid
+    cutoff = now - delay
 
-    _, field = models_up_to_lap(*active, lap)
-    dry = {c: m for c, m in field.items() if c in config.DRY_COMPOUNDS}
-    if dry:
-        models = sim.build_compound_models({c: m["base_pace"] for c, m in dry.items()},
-                                           {c: m["deg_rate"] for c, m in dry.items()})
+    cur = st.session_state.get(CURSOR_KEY)
+    if cur is None or cur.source_id != source_id:
+        cur = live.BoardCursor(source_id)
+        st.session_state[CURSOR_KEY] = cur
+    board = cur.advance(evs, cutoff, generation)
+    info = board.session()
+
+    # --- connection / clock line
+    if feed is not None:
+        age = time.time() - feed.last_message if feed.last_message else None
+        state = {"connected": "🟢 connected", "connecting": "connecting…", "reconnecting": "🟠 reconnecting…",
+                 "stopped": "stopped", "idle": "starting…"}.get(feed.status, feed.status)
+        bits = [f"F1 live timing: {state}"]
+        if age is not None:
+            bits.append(f"last update {age:.0f} s ago")
+        if delay:
+            bits.append(f"board held back {delay} s")
+        if feed.error and feed.status != "connected":
+            bits.append(f"({feed.error})")
+        st.caption(" · ".join(bits))
     else:
-        models = sim.build_compound_models(float(snap["LapTime"].median()),
-                                           config.COMPOUND_PRESETS["MEDIUM"]["deg_rate"])
-    call = rain_call(snap, models, weather, laps_left, eff_loss)
-    if call.empty:
+        c = st.session_state[REPLAY_KEY]
+        st.caption(f"Replay from F1's archive · {pd.Timestamp(cutoff, unit='s', tz='UTC'):%H:%M:%S} UTC · "
+                   f"{_clock(max(0.0, cutoff - start))} after the start · "
+                   f"{c['speed']}× {'playing' if c['playing'] else 'paused'}")
+
+    if not info.get("key"):
+        st.info("Waiting for F1 live timing… The board fills in as soon as the feed sends the session.")
+        _next_sessions()
         return
-    call["Best call"] = ["✅ " + b if b == "Stay out" else "🔧 " + b for b in call["Best call"]]
-    st.dataframe(call, hide_index=True, width="stretch", height=min(420, 36 * len(call) + 40),
-                 column_config={**{c: st.column_config.NumberColumn(format="%+.1f")
-                                   for c in call.columns if c.startswith("Pit for")},
-                                "Gain (s)": st.column_config.NumberColumn(format="%.1f")})
-    st.caption(f"Seconds over the last {laps_left} laps against staying out (negative = quicker), "
-               f"with a {eff_loss:.1f} s stop. Every call then takes its best continuation (no more "
-               "stops, or one more onto a slick: **Then**, in laps from now), and the simulator still "
-               "reacts to rain by itself (wet tyres when it lasts long enough, slicks once it's dry). "
-               "Field-median tyre models up to this lap; wet-tyre pace offsets are config.py assumptions.")
-    if not lap_wx.empty:
-        with st.expander("Weather so far"):
-            st.plotly_chart(wx.build_weather_figure(lap_wx, upto_lap=lap, height=280),
-                            width="stretch", theme="streamlit")
+
+    kind = "race" if info["type"] == "Race" else "quali" if info["type"] == "Qualifying" else "practice"
+    part, entries = board.quali_part()
+    flag_code, flag_name = board.track_status()
+    status = info["status"]
+    seg = ("Q" if info["code"] == "Q" else "SQ") + str(part)
+    # Qualifying sends "Finished" at the end of each segment: only the last one ends the session.
+    between = kind == "quali" and status == "Finished" and 0 < part < 3
+    over = status in FINISHED and not between
+
+    head = f"{de.session_badge(info['code'])} · **{info['event']}** · {info['location']}"
+    if kind == "quali" and part:
+        head += f" · **{seg}**"
+    st.markdown(head)
+    colour, label = FLAG_BANNER.get(flag_code, ("gray", flag_name.upper() or "—"))
+    if between:
+        colour, label = "gray", f"END OF {seg}"
+    elif over:
+        colour, label = "gray", "CHEQUERED FLAG" if status in ("Finished", "Finalised") else "SESSION ENDED"
+    elif status in ("Inactive", ""):
+        colour, label = "gray", "NOT STARTED"
+    elif status == "Aborted":
+        colour, label = "red", "SESSION SUSPENDED"
+    st.markdown(f"### :{colour}-background[ {label} ]")
+
+    tower = board.tower()
+    w = board.weather()
+    m = st.columns(5)
+    lap, total = board.lap_count()
+    if kind == "race" and lap:
+        m[0].metric("Lap", f"{lap} / {total}" if total else f"{lap}")
+    else:
+        m[0].metric("Time left", _clock(board.remaining(cutoff)) if not over else "0:00")
+    leader = tower.iloc[0]["Driver"] if not tower.empty else "—"
+    m[1].metric("Leader" if kind == "race" else "Fastest", leader)
+    m[2].metric("Track temp", f"{w['TrackTemp']:.1f} °C" if pd.notna(w["TrackTemp"]) else "—")
+    m[3].metric("Air temp", f"{w['AirTemp']:.1f} °C" if pd.notna(w["AirTemp"]) else "—")
+    m[4].metric("Rain", "Yes" if w["Rainfall"] else "No")
+    if over:
+        st.caption("The session is over: this is the final timing (the official classification can still change "
+                   "with penalties).")
+        if feed is not None:
+            _next_sessions()
+
+    if tower.empty:
+        st.info("No timing yet.")
+        return
+
+    styler, cfg = styled_tower(tower, kind, part, entries)
+    st.dataframe(styler, hide_index=True, width="stretch", height=36 * len(tower) + 40, column_config=cfg)
+    legend = (f":violet[purple] = fastest overall, :green[green] = personal best. Tyre = compound and laps "
+              "on the set.")
+    if kind == "quali" and part in (1, 2) and len(entries) > part:
+        legend += (f" Shaded positions are in the drop zone: the top {entries[part]} go through. "
+                   "**To the cut**: how far inside the line a lap is, or how much a car needs to find.")
+    if kind == "race":
+        legend += " Grid = places gained (+) or lost (−) since the start."
+    st.caption(legend)
+
+    c1, c2 = st.columns([3, 2])
+    with c1:
+        _stints(board, tower)
+    with c2:
+        _race_control(board)
+    laps = board.lap_frame()
+    if kind == "race":
+        race_panels(board, tower, laps, info, flag_code)
+    elif kind == "practice":
+        practice_panels(laps)
 
 
-st.fragment(live_view, run_every=f"{speed}s" if auto else None)()
+def race_panels(board: live.Board, tower: pd.DataFrame, laps: pd.DataFrame, info: dict, flag_code: str) -> None:
+    running = tower[~tower["Retired"] & ~tower["Stopped"] & (tower["Pos"] < 99)].copy()
+    if running.empty:
+        return
+    # Lapped cars have no time gap: a lap down = the leader's recent lap time.
+    lead_lap = laps.loc[laps["Position"] == 1, "LapTime"].tail(5).median() if not laps.empty else np.nan
+    lead_lap = lead_lap if pd.notna(lead_lap) else 95.0
+    gap = running["Gap"].where(running["LapsDown"] == 0, running["LapsDown"] * lead_lap)
+    snap = pd.DataFrame({"Driver": running["Driver"], "RunningPosition": running["Pos"],
+                         "GapToLeader": gap.fillna(gap.max()), "Compound": running["Compound"],
+                         "TyreLife": running["TyreLife"].fillna(0)})
+    base_loss, matched = config.get_pit_loss(info["location"], info["event"])
+    pit_loss = pit_override or base_loss
+    neutral = flag_code in config.SC_STATUS_CODES + config.VSC_STATUS_CODES
+    eff_loss = pit_loss * (config.SC_PIT_LOSS_FACTOR if neutral else 1.0)
+    clean = live.clean_laps(laps)
+    deg = an.calculate_tyre_degradation(clean) if not clean.empty else {}
+    field = an.field_compound_model(deg) if deg else {}
+    rejoin = rt.pit_rejoin_analysis(snap, eff_loss)
+    drivers = board.drivers()
+    st.markdown("---")
+    st.caption(f"Pit loss {eff_loss:.1f} s" + (f" (×{config.SC_PIT_LOSS_FACTOR} under the "
+                                                 f"{'Safety Car' if flag_code == '4' else 'VSC'})" if neutral else "")
+               + f", {matched or 'circuit not in config.py: default'}. Tyre models from the "
+               f"{len(clean)} clean laps seen so far"
+               + (f" (from lap {int(laps['LapNumber'].min())}: the board joined mid-session)"
+                  if not laps.empty and laps["LapNumber"].min() > 3 else "") + ".")
+    rt.strategy_panels(snap, rejoin, drivers, eff_loss, deg, field, fresh, respond)
+
+
+def practice_panels(laps: pd.DataFrame) -> None:
+    st.markdown("##### Long runs so far")
+    runs, _ = pr.long_runs(laps) if not laps.empty else (pd.DataFrame(), None)
+    if runs.empty:
+        st.info(f"No long runs yet: a run is a stint of at least {config.PRACTICE_LONG_RUN_LAPS} laps "
+                "on one set once in/out laps and slow laps are left out.")
+        return
+    show = runs.rename(columns={"driver": "Driver", "compound": "Tyre", "first": "From lap", "last": "To lap",
+                                "laps": "Laps", "median": "Median lap", "deg": "Deg (s/lap)",
+                                "pace": "Pace (%)"}).drop(columns=["stint"])
+    show["Median lap"] = show["Median lap"].map(live.fmt_laptime)
+    st.dataframe(show.sort_values("Pace (%)"), hide_index=True, width="stretch",
+                 column_config={"Deg (s/lap)": st.column_config.NumberColumn(format="%+.3f"),
+                                "Pace (%)": st.column_config.NumberColumn(format="%+.2f")})
+    st.caption("Fuel corrected to the start of the run. Pace = against the field on the same tyres "
+               "(negative = quicker). Same definition as the Practice page.")
+
+
+def _stints(board: live.Board, tower: pd.DataFrame) -> None:
+    stints = board.stints()
+    if stints.empty:
+        return
+    st.markdown("##### Tyres")
+    st.plotly_chart(stint_figure(stints, tower["Driver"].tolist()), width="stretch", theme="streamlit")
+    st.caption("Each bar is a set of tyres in the order fitted, in laps. * = a used set.")
+
+
+def _race_control(board: live.Board) -> None:
+    st.markdown("##### Race control")
+    rc = board.race_control(14)
+    if rc.empty:
+        st.caption("No messages yet.")
+        return
+    tz = _local_tz()
+    rows = []
+    for _, r in rc.iterrows():
+        when = r["Utc"].tz_convert(tz).strftime("%H:%M:%S") if pd.notna(r["Utc"]) else ""
+        lap = f" · L{int(r['Lap'])}" if pd.notna(r["Lap"]) and r["Lap"] else ""
+        rows.append(f"`{when}{lap}` {r['Message']}")
+    st.markdown("  \n".join(rows))
+
+
+def _local_tz():
+    """The laptop's time zone (times are shown as the viewer's clock)."""
+    return datetime.now().astimezone().tzinfo
+
+
+def _next_sessions() -> None:
+    nxt = upcoming(3)
+    if nxt:
+        st.markdown("**On now and coming up** (your time):  \n" + "  \n".join(
+            f"{e} · {s} · {w.tz_convert(_local_tz()):%a %d %b %H:%M}" for e, s, w in nxt))
+
+
+st.fragment(board_view, run_every=f"{LIVE_REFRESH_S if source == 'Live' else REPLAY_REFRESH_S}s")()
