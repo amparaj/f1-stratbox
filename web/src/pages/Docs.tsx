@@ -208,6 +208,7 @@ function Architecture() {
         ] },
         { label: "Out", nodes: [
           { title: "Current Season", text: "standings, title odds, calendar", kind: "out" },
+          { title: "Current Round", text: "the weekend that's on: results as sessions finish, odds for the rest", kind: "out" },
           { title: "Race Results & Analysis", text: "result, charts, strategy, deg, forecast vs result", kind: "out" },
           { title: "Next Race Forecast", text: "odds per session, qualifying and tyre strategy", kind: "out" },
         ], note: <>↺ Every finished session is re-forecast from only the sessions before it, and shown against the result.</> },

@@ -53,6 +53,7 @@ function Overview() {
         ] },
         { label: "Pages", nodes: [
           { title: "Current Season", kind: "out" },
+          { title: "Current Round", kind: "out" },
           { title: "Race Results & Analysis", kind: "out" },
           { title: "Next Race Forecast", kind: "out" },
         ] },
