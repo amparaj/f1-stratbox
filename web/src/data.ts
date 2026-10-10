@@ -49,6 +49,16 @@ export function weekendAll(e: CalendarEvent): AnySession[] {
   return all.sort((a, b) => (sessionStart(e, a) ?? "").localeCompare(sessionStart(e, b) ?? ""));
 }
 
+/** The round whose weekend is on: from its first session's start until its Grand Prix is on the site (or two days after it). */
+export function currentRound(calendar: CalendarEvent[], now: number): CalendarEvent | undefined {
+  return calendar.find((e) => {
+    const starts = weekendAll(e).map((c) => sessionStart(e, c)).filter((t): t is string => !!t).map(Date.parse);
+    if (e.done_R || !starts.length) return false;
+    const end = (e.race_utc ? Date.parse(e.race_utc) : Math.max(...starts)) + 2 * 86_400_000;
+    return now >= Math.min(...starts) && now < end;
+  });
+}
+
 export interface CalendarEvent {
   round: number;
   event: string;

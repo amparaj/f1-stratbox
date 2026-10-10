@@ -9,55 +9,71 @@ import { liveSession, Radar, useNow } from "../components/Radar";
 import { FORM_CLIP, WhyOdds } from "../components/WhyOdds";
 import { Chart, Legend, Loading, Note, plotDefaults, Segmented, Table, Tiles } from "../components/ui";
 import {
-  forecastFile, isQuali, load, rows, SESSION_LABEL, sessionDone, sessionHash, sessionOdds, sessionStart, sessionWhy, weekendSessions,
-  type CalendarEvent, type Forecast, type ForecastDriver, type QualiForecastDriver, type QualiStrategy, type SessionCode,
+  forecastFile, isPractice, isQuali, load, rows, SESSION_LABEL, sessionDone, sessionHash, sessionOdds, sessionStart, sessionWhy, weekendAll,
+  weekendSessions, type AnySession, type CalendarEvent, type Forecast, type ForecastDriver, type QualiForecastDriver, type QualiStrategy, type SessionCode,
   type StrategyForecast, type StrategyPlan, type WeatherForecast, type WeatherHour,
 } from "../data";
 import { dec, delta, lapTime, pct, shortEvent, signed, when } from "../format";
-import { useData, useHash, useSite } from "../site";
+import { useCurrentRound, useData, useHash, useSite } from "../site";
+import { SessionView } from "./Races";
 
 // Fixed slots by rank in the forecast file, as the dashboard's strategy colours.
 const STRATEGY_COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#4a3aa7", "#e87ba4", "#008300"];
 
-export default function NextRace() {
+/** A round's forecasts. Next Race Forecast: the rounds after the weekend that's on. With `current` (Current Round, the
+ *  weekend that's on): every session of it, a finished one's result and analysis, the rest's forecasts. */
+export default function NextRace({ current }: { current?: CalendarEvent }) {
   const site = useSite();
   const hash = useHash();
-  const [, roundPart, codePart] = hash.split("/");
-  const upcoming = site.meta.calendar.filter((e) => !e.done_R && site.meta.forecasts.includes(e.round));
-  const asked = Number(roundPart);
-  // While a session is on, open on its round (an export during the weekend moves next_round on).
+  const parts = hash.split("/");
+  const onNow = useCurrentRound(site);
+  const upcoming = site.meta.calendar.filter((e) => !e.done_R && site.meta.forecasts.includes(e.round) && e.round !== onNow?.round);
+  const asked = Number(parts[1]);
+  const round = current?.round ?? (upcoming.some((e) => e.round === asked) ? asked
+    : upcoming.find((e) => e.round === site.meta.next_round)?.round ?? upcoming[0]?.round);
+  // #current/<code>, #next/<round>/<code>
+  const codePart = current ? parts[1] : parts[2];
   const now = useNow();
-  const live = upcoming.find((e) => liveSession(e, now));
-  const round = upcoming.some((e) => e.round === asked) ? asked : live?.round ?? site.meta.next_round ?? upcoming[0]?.round;
   const ev = round ? site.event.get(round) : undefined;
   const forecast = useData<Forecast>(round ? forecastFile(round) : null);
 
   if (!ev) return <p>The season is over: no races left to forecast. <a href="#season">The final standings</a></p>;
   if (forecast === undefined) return <Loading />;
-  if (forecast === null) return <p>No forecast for {ev.event} yet.</p>;
+  if (forecast === null && !current) return <p>No forecast for {ev.event} yet.</p>;
 
   const codes = weekendSessions(ev).filter((c) => sessionOdds(forecast, c, "pre"));
+  // Current Round switches between every session of the weekend, practice and finished ones too.
+  const choices: AnySession[] = current ? weekendAll(ev) : codes;
   // The session asked for, else the weekend's next one still to run.
-  const code: SessionCode = codes.find((c) => c === codePart) ?? codes.find((c) => !sessionDone(ev, c)) ?? "R";
+  const code: AnySession = choices.find((c) => c === codePart) ?? choices.find((c) => !sessionDone(ev, c)) ?? choices.at(-1) ?? "R";
   // ?radar in the address shows the radar outside a session (for checking the layout).
   const session = liveSession(ev, now) ?? (new URLSearchParams(window.location.search).has("radar") ? { code: "R" as const, start: now } : null);
-  const go = (r: number, c: SessionCode) => { window.location.hash = `next/${r}/${c}`; };
+  const go = (r: number, c: AnySession) => { window.location.hash = current ? `current/${c}` : `next/${r}/${c}`; };
   const fav = (c: SessionCode) => {
     const odds = sessionOdds(forecast, c);
     if (!odds) return null;
     const key = isQuali(c) ? "p_pole" : "p_win";
     return rows<Record<string, any>>(odds).sort((a, b) => b[key] - a[key])[0] as { driver: string; color: string; p_win?: number; p_pole?: number } | undefined;
   };
-  const ahead = forecast.rounds_ahead ?? 1;
+  // A finished session's tile shows who won it (or took pole), not who was favourite.
+  const result = (c: SessionCode) => ({
+    SQ: [ev.sprint_pole, ev.sprint_pole_color, "pole"], S: [ev.sprint_winner, ev.sprint_winner_color, "winner"],
+    Q: [ev.pole, ev.pole_color, "pole"], R: [ev.winner, ev.winner_color, "winner"],
+  } as const)[c];
+  const tileCodes = current ? weekendSessions(ev).filter((c) => codes.includes(c) || sessionDone(ev, c)) : codes;
+  const ahead = forecast?.rounds_ahead ?? 1;
+  const started = (c: AnySession) => { const t = sessionStart(ev, c); return !!t && Date.parse(t) <= now; };
 
   return (
     <>
+      {current && <p className="crumb">This weekend</p>}
       <h2>Round {ev.round}: {ev.event}</h2>
       <p className="lede">
-        <CircuitLink round={ev.round}>{ev.location}, {ev.country}</CircuitLink> · {weekendSessions(ev).map((c, i) => (
+        <CircuitLink round={ev.round}>{ev.location}, {ev.country}</CircuitLink> · {(current ? weekendAll(ev) : weekendSessions(ev)).map((c, i) => (
           <span key={c}>{i > 0 && " · "}{SESSION_LABEL[c].toLowerCase()} {when(sessionStart(ev, c))}</span>
         ))}.
         {ev.sprint_utc ? " A sprint weekend: Sprint Qualifying sets the Sprint grid, Qualifying the Grand Prix's." : ""}
+        {current && " Each session's result and analysis shows here once it's finished; the round moves to Race Results & Analysis once the Grand Prix is in."}
       </p>
       {session && ev.lat != null && ev.lon != null && (
         <section>
@@ -69,22 +85,22 @@ export default function NextRace() {
           <Radar lat={ev.lat} lon={ev.lon} place={ev.location} />
         </section>
       )}
-      <div className="toolbar">
-        {upcoming.length > 1 && (
+      {!current && upcoming.length > 1 && (
+        <div className="toolbar">
           <label>
             Round
             <select value={round} onChange={(e) => go(Number(e.target.value), "R")}>
               {upcoming.map((e) => <option key={e.round} value={e.round}>{e.round}. {shortEvent(e.event)}{e.round === site.meta.next_round ? " (next)" : ""}</option>)}
             </select>
           </label>
-        )}
-        {codes.length > 1 && (
-          <Segmented label="Session" value={code} onChange={(c) => go(ev.round, c)}
-                     options={codes.map((c) => ({ value: c, label: SESSION_LABEL[c] }))} />
-        )}
-      </div>
+        </div>
+      )}
 
-      <Tiles tiles={codes.map((c) => {
+      <Tiles tiles={tileCodes.map((c) => {
+        const [who, whoColor, what] = result(c);
+        if (sessionDone(ev, c) && who) {
+          return { label: `${SESSION_LABEL[c]} ${what}`, value: <DriverChip code={who} color={whoColor ?? undefined} />, note: "finished" };
+        }
         const f = fav(c);
         return {
           label: `${SESSION_LABEL[c]} favourite`,
@@ -93,9 +109,40 @@ export default function NextRace() {
         };
       })} />
 
-      {sessionDone(ev, code) && (
-        <Note>The {SESSION_LABEL[code].toLowerCase()} has finished: <a href={`#${sessionHash(ev.round, code)}`}>see the result and analysis</a>. Its forecast is below.</Note>
+      {choices.length > 1 && (
+        <div className="toolbar">
+          <Segmented label="Session" value={code} onChange={(c) => go(ev.round, c)}
+                     options={choices.map((c) => ({ value: c, label: isPractice(c) ? c : SESSION_LABEL[c] }))} />
+        </div>
       )}
+
+      {current && sessionDone(ev, code) ? <SessionView round={ev.round} code={code} />
+        : isPractice(code) ? (
+          <Note>
+            {SESSION_LABEL[code]} {started(code)
+              ? "is on or has just finished: its timesheet, one-lap and long-run pace show here once it's in, usually within minutes of the flag."
+              : `starts ${when(sessionStart(ev, code))}: its timesheet, one-lap and long-run pace show here once it's finished.`} Practice
+            has no odds of its own, but it moves the forecasts for the sessions after it.
+          </Note>
+        ) : !forecast ? <p>No forecast for {ev.event} yet.</p>
+        : <>
+          {current && started(code) && (
+            <Note>The {SESSION_LABEL[code].toLowerCase()} is on or has just finished: its result and analysis replace the forecast below once they're in.</Note>
+          )}
+          {!current && sessionDone(ev, code) && (
+            <Note>The {SESSION_LABEL[code].toLowerCase()} has finished: <a href={`#${sessionHash(ev.round, code)}`}>see the result and analysis</a>. Its forecast is below.</Note>
+          )}
+          <ForecastBody forecast={forecast} ev={ev} code={code as SessionCode} ahead={ahead} />
+        </>}
+      {!current && <SeasonAhead upcoming={upcoming} />}
+    </>
+  );
+}
+
+/** One session's forecast: the odds, qualifying or tyre strategy, weather, power units, upgrades and news. */
+function ForecastBody({ forecast, ev, code, ahead }: { forecast: Forecast; ev: CalendarEvent; code: SessionCode; ahead: number }) {
+  return (
+    <>
       {isQuali(code)
         ? <QualiOdds forecast={forecast} code={code as "Q" | "SQ"} ahead={ahead} />
         : <RaceOdds forecast={forecast} code={code as "R" | "S"} ahead={ahead} />}
@@ -109,7 +156,6 @@ export default function NextRace() {
       <NewsFeed round={ev.round} />
       {code === "S" && forecast.sprint_strategy?.weather && <Weather w={forecast.sprint_strategy.weather} start={ev.sprint_utc} minutes={32} />}
       {code === "S" && forecast.sprint_strategy && <Strategy s={forecast.sprint_strategy} />}
-      <SeasonAhead upcoming={upcoming} />
     </>
   );
 }

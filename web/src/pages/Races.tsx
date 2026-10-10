@@ -15,7 +15,7 @@ import {
   type QualiLap, type QualiRow, type Race, type ResultRow, type SectorRow, type SessionCode, type StintRow, type WeatherLap,
 } from "../data";
 import { dec, gap, lapTime, pct, shortEvent, signed, dayYear } from "../format";
-import { useData, useHash, useSite } from "../site";
+import { useCurrentRound, useData, useHash, useSite } from "../site";
 
 export default function Races() {
   const site = useSite();
@@ -27,6 +27,11 @@ export default function Races() {
   let code: AnySession = (["S", "Q", "SQ", "FP1", "FP2", "FP3"] as const).find((c) => c === codePart) ?? "R";
   // #races/16 before the Grand Prix is out: the weekend's latest finished session.
   if (ev && !codePart && !ev.done_R) code = weekendAll(ev).filter((c) => sessionDone(ev, c)).at(-1) ?? "R";
+  return <SessionView round={round} code={code} />;
+}
+
+/** One finished session's result and analysis (also on Current Round, for the weekend that's on). */
+export function SessionView({ round, code }: { round: number; code: AnySession }) {
   if (isPractice(code)) return <PracticeView round={round} code={code} />;
   return isQuali(code) ? <QualiView round={round} code={code as "Q" | "SQ"} /> : <RaceView round={round} code={code as "R" | "S"} />;
 }
@@ -37,13 +42,16 @@ const anyDone = (e: CalendarEvent) => weekendAll(e).some((c) => sessionDone(e, c
 
 function RaceList() {
   const site = useSite();
-  const done = site.meta.calendar.filter(anyDone).reverse();
+  // The weekend that's on is on Current Round until its Grand Prix is in.
+  const current = useCurrentRound(site);
+  const done = site.meta.calendar.filter((e) => anyDone(e) && e.round !== current?.round).reverse();
   const sprints = done.some((e) => e.sprint_utc);
   return (
     <>
       <h2>Race Results & Analysis</h2>
       <p className="lede">
-        Every finished round, latest first, with each of its sessions: practice, Qualifying and the Grand Prix,
+        Every finished round, latest first (the weekend that's on is on <a href="#current">Current Round</a> until
+        its Grand Prix is in), with each of its sessions: practice, Qualifying and the Grand Prix,
         and on a sprint weekend Sprint Qualifying and the Sprint too. A race has the result, the running order and
         gaps lap by lap, every driver's tyre strategy and degradation, tyre cliffs and Safety Cars; a
         qualifying session has Q1, Q2 and Q3, the cut-offs, sectors and ideal laps, and how much quicker the
@@ -101,14 +109,18 @@ function SourcesNote({ sources }: { sources?: Record<string, string> }) {
   );
 }
 
-/** Breadcrumb, the round's title with the session's badge, and a switch between its finished sessions. */
+/** Breadcrumb, the round's title with the session's badge, and a switch between its finished sessions.
+ *  On Current Round, which has its own title and switch, just the session's line. */
 function WeekendHeader({ round, code, ev, subtitle }: { round: number; code: AnySession; ev: CalendarEvent; subtitle: ReactNode }) {
   const site = useSite();
-  const rounds = site.meta.calendar.filter(anyDone).map((e) => e.round);
+  const current = useCurrentRound(site);
+  const embedded = useHash().split("/")[0] === "current";
+  const rounds = site.meta.calendar.filter((e) => anyDone(e) && e.round !== current?.round).map((e) => e.round);
   const i = rounds.indexOf(round);
   const prev = i > 0 ? rounds[i - 1] : null;
   const next = i >= 0 && i < rounds.length - 1 ? rounds[i + 1] : null;
   const done = weekendAll(ev).filter((c) => sessionDone(ev, c));
+  if (embedded) return <p className="lede"><SessionBadge code={code} /> {subtitle}</p>;
   return (
     <>
       <p className="crumb">

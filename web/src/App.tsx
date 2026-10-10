@@ -2,20 +2,22 @@ import { Component, useEffect, useRef, useState, type ReactNode } from "react";
 import { ProfileHost } from "./components/Profiles";
 import PageJump from "./components/PageJump";
 import { Loading, usePhone } from "./components/ui";
-import { SESSION_LABEL, sessionStart, weekendSessions } from "./data";
+import { SESSION_LABEL, sessionDone, sessionStart, weekendAll, weekendSessions } from "./data";
 import { dayYear, shortEvent, when } from "./format";
 import About from "./pages/About";
+import Current from "./pages/Current";
 import History from "./pages/History";
 import NextRace from "./pages/NextRace";
 import Races from "./pages/Races";
 import Season from "./pages/Season";
-import { SiteContext, useHash, useSiteData, type Site } from "./site";
+import { SiteContext, useCurrentRound, useHash, useSiteData, type Site } from "./site";
 
-// What the site is and how it works first (where the site opens), then the season, every race, the race
-// ahead, and every season before this one.
+// What the site is and how it works first (where the site opens), then the season, the weekend that's on, every
+// race, the race ahead, and every season before this one.
 const PAGES = [
   { id: "about", label: "About", short: "About", component: About },
   { id: "season", label: "Current Season", short: "Current Season", component: Season },
+  { id: "current", label: "Current Round", short: "Current Round", component: Current },
   { id: "races", label: "Race Results & Analysis", short: "Past Races", component: Races },
   { id: "next", label: "Next Race Forecast", short: "Next Race", component: NextRace },
   { id: "history", label: "History", short: "History", component: History },
@@ -28,6 +30,16 @@ export default function App() {
   // The page is the part of the hash before any "/": #races/16/S -> races.
   const page = PAGES.find((p) => p.id === hash.split("/")[0]) ?? HOME;
   const Page = page.component;
+
+  // The weekend that's on lives on Current Round: links to it on the other pages go there.
+  const current = useCurrentRound(site);
+  useEffect(() => {
+    const [p, r, asked] = hash.split("/");
+    if (!current || (p !== "races" && p !== "next") || Number(r) !== current.round) return;
+    // #races/16 alone is the weekend's latest finished session; #next/16 alone its next one (Current Round's default).
+    const c = asked ?? (p === "races" ? weekendAll(current).filter((x) => sessionDone(current, x)).at(-1) : undefined);
+    window.location.replace(`#current${c ? `/${c}` : ""}`);
+  }, [hash, current]);
 
   useEffect(() => {
     document.title = `${page.label} · F1 Stratbox`;
@@ -79,6 +91,7 @@ export default function App() {
             {PAGES.map((p) => (
               <a key={p.id} href={`#${p.id}`} className={p === page ? "on" : undefined}
                  aria-current={p === page ? "page" : undefined}>
+                {p.id === "current" && current && <span className="live-dot" aria-label="on now" />}
                 {phone ? p.short : p.label}
               </a>
             ))}

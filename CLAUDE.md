@@ -52,6 +52,7 @@ modules/teams.py           team badges (logo or colour + code) for dashboard tab
 modules/profiles.py        website driver/circuit pop-ups (profiles.json): line-up, season results, circuits, race analysis
 pages/6_Practice.py        FP1-3: timesheet, one-lap vs long-run pace map, long runs, the weekend combined
 scripts/export_site.py     runs site_export; scripts/needs_update.py: the Action's "anything new?"
+scripts/watch_sessions.py  the Action's race-weekend watch: waits for a session's flag, then exports
 scripts/calibrate_forecast.py  fits config's "Session forecasts" constants by replaying 2025-26
 scripts/calibrate_penalties.py fits config's "Power-unit penalties" constants on every round since 2022
 scripts/prefetch_practice.py   downloads a season's practice sessions through OpenF1 (archived like the rest)
@@ -259,7 +260,17 @@ and emoji). This is a Windows PowerShell 5.1 / Git Bash environment.
   flag. Nothing looks before start + 75 min (race) / 25 (sprint) / 55 (Q) / 40 (SQ). Before the flag, loading
   raises `data_engine.SessionRunningError` (`openf1.SessionRunning`): OpenF1 fetches race control
   first on race day and nothing else until the flag; the dashboard shows "hasn't finished yet".
-  Never go back to a fixed timer: 2026 R16 (KL) took 3 h 20 min. `needs_update.py` keeps a copy of
+  Never go back to a fixed timer: 2026 R16 (KL) took 3 h 20 min.
+  **Race-weekend watch:** GitHub drops most scheduled runs when busy (2026 Singapore Friday: asked every 10 min,
+  ran 04:53, 11:40, 17:33 UTC; FP1 went up 2 h late). So from 12 h before a round's first session until its race
+  could have finished, one `workflow_dispatch` run (`watch: true`) is always waiting (`scripts/watch_sessions.py`):
+  every 5 min it runs `needs_update.reasons` (sessions, stewards/PU documents, f1penalties, news, provisional results;
+  each source still behind its own limit) and exports as soon as something is new. The rest of the week the schedule
+  runs the same check hourly. A session surely over before the export that started the watch (`--since`) isn't a
+  reason there (a cancelled one would rebuild every 5 min). The `chain` job starts the
+  next (the workflow's own token may fire workflow_dispatch; 5.5 h a watch, jobs stop at 6). Any run restarts the
+  chain if none is going; not after a failed run (a broken export would loop). The `site` concurrency group is on
+  the `update` job so a waiting watch never blocks the schedule. `needs_update.py` keeps a copy of
   the constants and asks OpenF1 for the flag itself. A FastF1 session < `RECENT_DAYS` (4) old is
   loaded past FastF1's disk cache (it would pickle a partial or pre-penalty load for good), full
   tier only; `get_session_info` returns `provisional`, and the dashboard shows a banner with
@@ -461,7 +472,12 @@ and emoji). This is a Windows PowerShell 5.1 / Git Bash environment.
   found by a MutationObserver, so a new section needs no wiring: give it an `h3`. Jumps land under the pinned header
   (`--pinned`, set by App).
 - Site routes: `#races/16` Grand Prix (or the weekend's latest finished session before it),
-  `#races/16/S|Q|SQ`; `#next/17/<code>` a session's forecast. `web/src/data.ts` has the session
+  `#races/16/S|Q|SQ`; `#next/17/<code>` a session's forecast; `#current[/<code>]` the weekend that's on.
+- **Current Round** (`pages/Current.tsx` → `NextRace current=`): `data.currentRound` is the round from its first
+  session's start until `done_R` (or race + 2 days), by the browser's clock (`useCurrentRound`, every minute). It
+  shows every session of that weekend: a finished one is Races' `SessionView` (WeekendHeader cut to one line on
+  `#current`), the rest their forecasts. Race Results and Next Race leave that round out, and App redirects
+  `#races|next/<it>` there. Between weekends it points to the last round and the next. `web/src/data.ts` has the session
   helpers (`weekendSessions`, `sessionDone`, `sessionHash`, `sessionOdds`).
 - About has an Overview and a Technical Documentation (`web/src/pages/Docs.tsx`, `#about/docs[/section]`,
   KaTeX lazy-loaded). Its constants and formulas are copied from `config.py` and the modules: update
